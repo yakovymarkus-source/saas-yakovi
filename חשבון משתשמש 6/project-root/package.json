@@ -1,0 +1,21 @@
+{
+  "name": "business-dashboard-saas",
+  "private": true,
+  "version": "1.1.0",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "netlify dev",
+    "start": "netlify dev",
+    "serve": "npx http-server . -p 8888 -c-1",
+    "lint": "node --check app.js && find netlify/functions -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "test": "node --test tests/*.test.js",
+    "check": "npm run lint && npm test"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.8"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "netlify-cli": "^23.3.2"
+  }
+}

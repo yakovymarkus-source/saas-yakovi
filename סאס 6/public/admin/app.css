@@ -1,0 +1,111 @@
+/* ── Reset ───────────────────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',-apple-system,sans-serif;background:#f1f5f9;color:#1e293b;min-height:100vh}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer;border:none;background:none;font-family:inherit}
+
+/* ── Utilities ───────────────────────────────────────────────────────────── */
+.flex{display:flex}.flex-col{flex-direction:column}.gap-1{gap:.25rem}.gap-2{gap:.5rem}.gap-4{gap:1rem}
+.items-center{align-items:center}.justify-between{justify-content:space-between}.flex-1{flex:1}
+.w-full{width:100%}.text-sm{font-size:.875rem}.text-xs{font-size:.75rem}.font-semibold{font-weight:600}
+.text-center{text-align:center}.text-muted{color:#64748b}.mb-2{margin-bottom:.5rem}
+.mb-4{margin-bottom:1rem}.mt-2{margin-top:.5rem}.mt-4{margin-top:1rem}.p-4{padding:1rem}
+.truncate{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.hidden{display:none!important}
+
+/* ── Loading ──────────────────────────────────────────────────────────────── */
+.loading-screen{display:flex;align-items:center;justify-content:center;height:100vh}
+.spinner{width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:#6366f1;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+.app-shell{display:flex;min-height:100vh}
+.sidebar{width:220px;background:#0f172a;color:#e2e8f0;display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;z-index:10}
+.sidebar-brand{padding:1.25rem 1rem;font-size:1rem;font-weight:700;color:#fff;border-bottom:1px solid rgba(255,255,255,.08)}
+.sidebar-brand span{color:#818cf8}
+.sidebar-nav{flex:1;padding:.5rem}
+.nav-item{display:flex;align-items:center;gap:.625rem;padding:.6rem .875rem;border-radius:.5rem;font-size:.875rem;color:rgba(255,255,255,.6);cursor:pointer;transition:all .15s;margin-bottom:2px}
+.nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav-item.active{background:rgba(99,102,241,.3);color:#fff;font-weight:500}
+.nav-item .icon{font-size:1rem;width:1.125rem;text-align:center}
+.sidebar-footer{padding:1rem;border-top:1px solid rgba(255,255,255,.08);font-size:.8rem;color:rgba(255,255,255,.4)}
+.main{flex:1;margin-left:220px;padding:2rem;max-width:1400px}
+.page-header{margin-bottom:1.5rem}
+.page-title{font-size:1.375rem;font-weight:700;color:#0f172a}
+.page-subtitle{color:#64748b;margin-top:.2rem;font-size:.875rem}
+
+/* ── Cards ────────────────────────────────────────────────────────────────── */
+.card{background:#fff;border-radius:.75rem;padding:1.25rem;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.card-title{font-size:.9375rem;font-weight:600;margin-bottom:1rem;color:#1e293b}
+
+/* ── KPI Grid ─────────────────────────────────────────────────────────────── */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem}
+.kpi-card{background:#fff;border-radius:.75rem;padding:1.25rem;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.kpi-label{font-size:.75rem;color:#64748b;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.kpi-value{font-size:1.875rem;font-weight:700;color:#0f172a;margin-top:.2rem;line-height:1}
+.kpi-sub{font-size:.75rem;color:#94a3b8;margin-top:.25rem}
+.kpi-card.red .kpi-value{color:#dc2626}
+.kpi-card.green .kpi-value{color:#16a34a}
+
+/* ── Charts ───────────────────────────────────────────────────────────────── */
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem}
+.chart-wrap{background:#fff;border-radius:.75rem;padding:1.25rem;border:1px solid #e2e8f0}
+.chart-title{font-size:.875rem;font-weight:600;color:#374151;margin-bottom:.75rem}
+canvas{display:block}
+
+/* ── Tables ───────────────────────────────────────────────────────────────── */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.8125rem}
+thead th{text-align:left;padding:.625rem .75rem;font-size:.75rem;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.04em;border-bottom:1.5px solid #e2e8f0;white-space:nowrap}
+tbody tr{border-bottom:1px solid #f1f5f9;transition:background .1s;cursor:pointer}
+tbody tr:hover{background:#f8fafc}
+tbody td{padding:.625rem .75rem;color:#374151;vertical-align:middle}
+tbody tr:last-child{border-bottom:none}
+.clickable{cursor:pointer}
+
+/* ── Badges ───────────────────────────────────────────────────────────────── */
+.badge{display:inline-flex;align-items:center;padding:.2rem .55rem;border-radius:9999px;font-size:.7rem;font-weight:600;white-space:nowrap}
+.badge-green{background:#dcfce7;color:#15803d}.badge-yellow{background:#fef9c3;color:#a16207}
+.badge-red{background:#fee2e2;color:#b91c1c}.badge-blue{background:#dbeafe;color:#1d4ed8}
+.badge-gray{background:#f1f5f9;color:#475569}.badge-purple{background:#ede9fe;color:#6d28d9}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem 1rem;border-radius:.4rem;font-size:.8125rem;font-weight:500;transition:all .15s;cursor:pointer}
+.btn-primary{background:#6366f1;color:#fff}.btn-primary:hover{background:#4f46e5}
+.btn-secondary{background:#f1f5f9;color:#374151;border:1.5px solid #e2e8f0}.btn-secondary:hover{background:#e2e8f0}
+.btn-danger{background:#fee2e2;color:#b91c1c;border:1.5px solid #fca5a5}.btn-danger:hover{background:#fecaca}
+.btn-sm{padding:.3rem .7rem;font-size:.75rem}
+
+/* ── Alert Banner ─────────────────────────────────────────────────────────── */
+.alert{padding:.875rem 1rem;border-radius:.625rem;font-size:.875rem;margin-bottom:1rem;display:flex;align-items:center;gap:.75rem}
+.alert-red{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.alert-yellow{background:#fef9c3;color:#a16207;border:1px solid #fde68a}
+
+/* ── Filter bar ───────────────────────────────────────────────────────────── */
+.filter-bar{display:flex;gap:.75rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap}
+.filter-input{padding:.5rem .75rem;border:1.5px solid #d1d5db;border-radius:.4rem;font-size:.8125rem;outline:none;min-width:180px}
+.filter-input:focus{border-color:#6366f1}
+.filter-select{padding:.5rem .75rem;border:1.5px solid #d1d5db;border-radius:.4rem;font-size:.8125rem;outline:none;background:#fff}
+
+/* ── Pagination ───────────────────────────────────────────────────────────── */
+.pagination{display:flex;align-items:center;gap:.5rem;margin-top:1rem;font-size:.8125rem;color:#64748b}
+.page-btn{padding:.35rem .7rem;border-radius:.35rem;border:1px solid #e2e8f0;background:#fff;font-size:.8125rem;cursor:pointer}
+.page-btn:hover{background:#f1f5f9}
+.page-btn.active{background:#6366f1;color:#fff;border-color:#6366f1}
+.page-btn:disabled{opacity:.4;cursor:default}
+
+/* ── User detail ──────────────────────────────────────────────────────────── */
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.detail-row{display:flex;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid #f1f5f9;font-size:.875rem}
+.detail-label{color:#64748b;font-weight:500}
+.detail-value{color:#1e293b;font-weight:500;text-align:right}
+
+/* ── Health dot ───────────────────────────────────────────────────────────── */
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot-green{background:#22c55e}.dot-red{background:#ef4444}.dot-yellow{background:#f59e0b}.dot-gray{background:#94a3b8}
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+.toast-container{position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;display:flex;flex-direction:column;gap:.5rem}
+.toast{background:#1e293b;color:#fff;padding:.625rem 1rem;border-radius:.5rem;font-size:.8125rem;animation:fadeIn .2s ease;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.toast.success{background:#15803d}.toast.error{background:#b91c1c}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}

@@ -1,0 +1,13 @@
+{
+  "name": "stable-analysis-system",
+  "version": "1.0.0",
+  "description": "Production-hardened analysis and campaign service",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

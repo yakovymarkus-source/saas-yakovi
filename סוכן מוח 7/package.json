@@ -1,0 +1,26 @@
+{
+  "name": "campaign-brain-saas",
+  "version": "3.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres SUPABASE_URL=https://example.supabase.co SUPABASE_ANON_KEY=test-key SUPABASE_JWKS_TTL_SECONDS=300 tsx --test test/**/*.test.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jose": "^6.1.0",
+    "pg": "^8.14.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.13.11",
+    "@types/pg": "^8.15.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

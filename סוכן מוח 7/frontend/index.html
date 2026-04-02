@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Campaign Brain</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #0b1020; color: #f3f4f6; }
+    main { max-width: 1080px; margin: 0 auto; padding: 32px; }
+    textarea, input, select, button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid #334155; background: #111827; color: #f3f4f6; }
+    button { cursor: pointer; background: #2563eb; border: 0; }
+    pre { background: #020617; padding: 16px; border-radius: 8px; overflow: auto; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Campaign Brain SaaS</h1>
+    <div class="grid">
+      <section>
+        <h2>Register</h2>
+        <input id="register-email" placeholder="Email" />
+        <input id="register-password" type="password" placeholder="Password" />
+        <button onclick="registerUser()">Register</button>
+        <h2>Login</h2>
+        <input id="login-email" placeholder="Email" />
+        <input id="login-password" type="password" placeholder="Password" />
+        <button onclick="loginUser()">Login</button>
+        <h2>Analyze</h2>
+        <select id="source">
+          <option value="meta">Meta Ads</option>
+          <option value="googleAds">Google Ads</option>
+          <option value="ga4">GA4</option>
+        </select>
+        <input id="campaign-external-id" placeholder="External Campaign ID (optional)" />
+        <textarea id="campaign-payload" rows="18">{
+  "name": "Spring Funnel",
+  "objective": "lead_generation",
+  "currency": "USD",
+  "manualMetrics": {
+    "impressions": 10000,
+    "clicks": 120,
+    "spend": 300,
+    "landingPageViews": 95,
+    "sessions": 90,
+    "leads": 4,
+    "purchases": 1,
+    "revenue": 180,
+    "frequency": 2.4,
+    "bounceRate": 0.62
+  }
+}</textarea>
+        <button onclick="analyzeCampaign()">Run Analysis</button>
+      </section>
+      <section>
+        <h2>Output</h2>
+        <pre id="output">Ready.</pre>
+      </section>
+    </div>
+  </main>
+  <script>
+    let token = '';
+    const output = document.getElementById('output');
+    async function request(path, method, body) {
+      const response = await fetch(path, {
+        method,
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const data = await response.json();
+      output.textContent = JSON.stringify(data, null, 2);
+      if (!response.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+    async function registerUser() {
+      await request('/api/auth/register', 'POST', {
+        email: document.getElementById('register-email').value,
+        password: document.getElementById('register-password').value
+      });
+    }
+    async function loginUser() {
+      const data = await request('/api/auth/login', 'POST', {
+        email: document.getElementById('login-email').value,
+        password: document.getElementById('login-password').value
+      });
+      token = data.token;
+    }
+    async function analyzeCampaign() {
+      const payload = JSON.parse(document.getElementById('campaign-payload').value);
+      await request('/api/analysis/run', 'POST', {
+        source: document.getElementById('source').value,
+        externalCampaignId: document.getElementById('campaign-external-id').value || undefined,
+        campaign: payload
+      });
+    }
+  </script>
+</body>
+</html>

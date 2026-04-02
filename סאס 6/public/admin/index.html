@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin — CampaignAI</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/admin/app.css" />
+</head>
+<body>
+  <div id="app"><div class="loading-screen"><div class="spinner"></div></div></div>
+  <script>
+    window.__SUPABASE_URL__      = "%%SUPABASE_URL%%";
+    window.__SUPABASE_ANON_KEY__ = "%%SUPABASE_ANON_KEY%%";
+  </script>
+  <script src="/admin/app.js"></script>
+</body>
+</html>
