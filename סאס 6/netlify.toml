@@ -1,18 +1,15 @@
 [build]
-  command   = "node scripts/inject-env.js"
-  publish   = "public"
+  command = "node scripts/inject-env.js"
+  publish = "public"
 
 [build.environment]
   NODE_VERSION = "20"
 
-[functions]
-  directory = "netlify/functions"
-
 # ── Scheduled functions ────────────────────────────────────────────────────────
 [functions."trigger-pending-jobs"]
-  schedule = "*/5 * * * *"   # Every 5 minutes
+  schedule = "*/5 * * * *"
 
-# ── Raw body for Stripe webhook (signature verification) ──────────────────────
+# ── Raw body for Stripe webhook ───────────────────────────────────────────────
 [functions."billing-webhook"]
   included_files = []
 
@@ -32,19 +29,19 @@
   to     = "/index.html"
   status = 200
 
+# ── Security headers ───────────────────────────────────────────────────────────
 [[headers]]
   for = "/admin/*"
   [headers.values]
     Cache-Control = "no-store"
 
-# ── Security headers ───────────────────────────────────────────────────────────
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Frame-Options        = "DENY"
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy        = "strict-origin-when-cross-origin"
-    Permissions-Policy     = "camera=(), microphone=(), geolocation=()"
+    X-Frame-Options         = "DENY"
+    X-Content-Type-Options  = "nosniff"
+    Referrer-Policy         = "strict-origin-when-cross-origin"
+    Permissions-Policy      = "camera=(), microphone=(), geolocation=()"
     Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://js.stripe.com https://cdn.jsdelivr.net; connect-src 'self' https://*.supabase.co https://api.stripe.com https://graph.facebook.com https://analyticsdata.googleapis.com https://googleads.googleapis.com; frame-src https://js.stripe.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:;"
 
 [[headers]]
