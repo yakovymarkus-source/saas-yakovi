@@ -1,22 +1,18 @@
 [build]
   command   = "node scripts/inject-env.js"
   publish   = "public"
-  functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "20"
 
-[dev]
-  command   = "echo 'Dev server'"
-  port      = 8888
+[functions]
+  directory = "netlify/functions"
 
 # ── Scheduled functions ────────────────────────────────────────────────────────
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"   # Every 5 minutes
 
 # ── Raw body for Stripe webhook (signature verification) ──────────────────────
-# Netlify Functions v1 always delivers event.body as a raw string — no special
-# config needed. The function handles base64-encoded bodies via event.isBase64Encoded.
 [functions."billing-webhook"]
   included_files = []
 
