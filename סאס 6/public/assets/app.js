@@ -808,20 +808,12 @@ function resolveInitialPage() {
 async function boot() {
   const initialPage = resolveInitialPage();
 
-  let rendered = false;
-
-  const timeout = setTimeout(() => {
-    if (!rendered) {
-      rendered = true;
-      renderAuth();
-    }
-  }, 3000);
+  // Wake up Supabase before anything else (free tier sleeps)
+  await fetch(window.__SUPABASE_URL__ + '/rest/v1/', {
+    headers: { 'apikey': window.__SUPABASE_ANON_KEY__ }
+  }).catch(() => {});
 
   sb.auth.onAuthStateChange(async (event, session) => {
-    clearTimeout(timeout);
-    if (rendered && !session) return;
-    rendered = true;
-
     if (!session) { renderAuth(); return; }
     state.user = session.user;
     try {
@@ -844,6 +836,14 @@ async function boot() {
       render();
     }
   });
+
+  // Fallback: if Supabase takes too long, show auth screen after 8s
+  setTimeout(() => {
+    if (document.querySelector('.loading-screen') &&
+        document.querySelector('.loading-screen').style.display !== 'none') {
+      renderAuth();
+    }
+  }, 8000);
 
   keepAlive();
 }
