@@ -808,9 +808,20 @@ function resolveInitialPage() {
 async function boot() {
   const initialPage = resolveInitialPage();
 
-  // onAuthStateChange fires INITIAL_SESSION immediately — no manual getSession() needed.
-  // Calling getSession() alongside onAuthStateChange causes lock contention on the auth token.
+  let rendered = false;
+
+  const timeout = setTimeout(() => {
+    if (!rendered) {
+      rendered = true;
+      renderAuth();
+    }
+  }, 3000);
+
   sb.auth.onAuthStateChange(async (event, session) => {
+    clearTimeout(timeout);
+    if (rendered && !session) return;
+    rendered = true;
+
     if (!session) { renderAuth(); return; }
     state.user = session.user;
     try {
@@ -823,18 +834,17 @@ async function boot() {
       const { data: camps } = await sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id);
       state.campaigns = camps || [];
     } catch (e) {
-      console.error('boot error', e);
-      state.profile       = {};
-      state.subscription  = { plan: 'free' };
-      state.campaigns     = [];
+      state.profile      = {};
+      state.subscription = { plan: 'free' };
+      state.campaigns    = [];
     } finally {
-      // Navigate to the page implied by URL params (billing success, oauth callback, etc.)
       if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
         state.currentPage = initialPage;
       }
       render();
     }
   });
+
   keepAlive();
 }
 
