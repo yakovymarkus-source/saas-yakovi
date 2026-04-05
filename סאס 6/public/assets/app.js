@@ -787,7 +787,12 @@ async function render() {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 function keepAlive() {
   setInterval(() => {
-    sb.from('profiles').select('id').limit(1).then(() => {});
+    fetch(window.__SUPABASE_URL__ + '/rest/v1/profiles?select=id&limit=1', {
+      headers: {
+        'apikey': window.__SUPABASE_ANON_KEY__,
+        'Authorization': 'Bearer ' + window.__SUPABASE_ANON_KEY__
+      }
+    }).catch(() => {});
   }, 4 * 60 * 1000);
 }
 
