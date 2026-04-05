@@ -797,10 +797,8 @@ function resolveInitialPage() {
 async function boot() {
   const initialPage = resolveInitialPage();
 
-  // Check session first — prevents race with onAuthStateChange
-  const { data: { session: initialSession } } = await sb.auth.getSession();
-  if (!initialSession) { renderAuth(); }
-
+  // onAuthStateChange fires INITIAL_SESSION immediately — no manual getSession() needed.
+  // Calling getSession() alongside onAuthStateChange causes lock contention on the auth token.
   sb.auth.onAuthStateChange(async (event, session) => {
     if (!session) { renderAuth(); return; }
     state.user = session.user;
