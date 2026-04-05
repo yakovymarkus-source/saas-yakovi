@@ -41,8 +41,7 @@ function navigate(page, params = {}) {
 
 // ── API helper ────────────────────────────────────────────────────────────────
 async function api(method, path, body) {
-  const { data: { session } } = await sb.auth.getSession();
-  const token = session?.access_token || '';
+  const token = state.accessToken || '';
   const res = await fetch(`${CONFIG.apiBase}/${path}`, {
     method,
     headers: {
@@ -815,7 +814,8 @@ async function boot() {
 
   sb.auth.onAuthStateChange(async (event, session) => {
     if (!session) { renderAuth(); return; }
-    state.user = session.user;
+    state.user        = session.user;
+    state.accessToken = session.access_token;
     try {
       const [profile, sub] = await Promise.all([
         sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(r => r.data),
