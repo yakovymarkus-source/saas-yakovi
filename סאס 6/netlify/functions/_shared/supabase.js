@@ -1,40 +1,45 @@
+const { createClient } = require('@supabase/supabase-js');
+const { requireEnv } = require('./env');
 const { AppError } = require('./errors');
 
-function getClientFromGlobal() {
-  return global.__TEST_SUPABASE_CLIENT__ || null;
-}
+let _adminClient = null;
 
 function getAdminClient() {
-  const client = getClientFromGlobal();
-  if (!client) {
-    throw new AppError({
-      code: 'SUPABASE_NOT_CONFIGURED',
-      userMessage: 'שירות הנתונים לא מוגדר',
-      devMessage: 'Supabase client not configured',
-      status: 500,
+  // In tests, allow injection via global
+  if (global.__TEST_SUPABASE_CLIENT__) return global.__TEST_SUPABASE_CLIENT__;
+
+  if (!_adminClient) {
+    const url = requireEnv('SUPABASE_URL');
+    const key = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+    _adminClient = createClient(url, key, {
+      auth: { autoRefreshToken: false, persistSession: false },
     });
   }
-  return client;
+  return _adminClient;
 }
 
 async function getUserFromToken(token) {
-  const client = getClientFromGlobal();
-  if (client?.auth?.getUserFromToken) return client.auth.getUserFromToken(token);
-  throw new AppError({ code: 'UNAUTHORIZED', userMessage: 'לא מורשה', devMessage: 'Token validation is unavailable', status: 401 });
+  const client = getAdminClient();
+  const { data: { user }, error } = await client.auth.getUser(token);
+  if (error || !user) {
+    throw new AppError({
+      code: 'UNAUTHORIZED',
+      userMessage: 'לא מורשה',
+      devMessage: error?.message || 'Invalid or expired token',
+      status: 401,
+    });
+  }
+  return user;
 }
 
 async function writeRequestLog(payload) {
-  const client = getClientFromGlobal();
-  if (client?.writeRequestLog) return client.writeRequestLog(payload);
-  if (client?.from) {
-    const query = client.from('request_logs');
-    if (query?.insert) {
-      const result = await query.insert(payload);
-      if (result?.error) throw result.error;
-      return result.data || null;
-    }
+  try {
+    const client = getAdminClient();
+    const { error } = await client.from('request_logs').insert(payload);
+    if (error) throw error;
+  } catch (_) {
+    // Non-critical — never block the response
   }
-  return null;
 }
 
 module.exports = { getAdminClient, getUserFromToken, writeRequestLog };
