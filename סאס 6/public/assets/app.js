@@ -797,6 +797,10 @@ function resolveInitialPage() {
 async function boot() {
   const initialPage = resolveInitialPage();
 
+  // Check session first — prevents race with onAuthStateChange
+  const { data: { session: initialSession } } = await sb.auth.getSession();
+  if (!initialSession) { renderAuth(); }
+
   sb.auth.onAuthStateChange(async (event, session) => {
     if (!session) { renderAuth(); return; }
     state.user = session.user;
@@ -816,10 +820,6 @@ async function boot() {
     }
     render();
   });
-
-  // Also trigger immediately
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) renderAuth();
 }
 
 window.navigate              = navigate;
