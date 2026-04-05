@@ -811,12 +811,18 @@ async function boot() {
       state.subscription = sub    || { plan: 'free' };
       const { data: camps } = await sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id);
       state.campaigns = camps || [];
-    } catch {}
-    // Navigate to the page implied by URL params (billing success, oauth callback, etc.)
-    if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
-      state.currentPage = initialPage;
+    } catch (e) {
+      console.error('boot error', e);
+      state.profile       = {};
+      state.subscription  = { plan: 'free' };
+      state.campaigns     = [];
+    } finally {
+      // Navigate to the page implied by URL params (billing success, oauth callback, etc.)
+      if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
+        state.currentPage = initialPage;
+      }
+      render();
     }
-    render();
   });
 }
 
