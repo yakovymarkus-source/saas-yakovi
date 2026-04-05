@@ -785,6 +785,12 @@ async function render() {
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
+function keepAlive() {
+  setInterval(() => {
+    sb.from('profiles').select('id').limit(1).then(() => {});
+  }, 4 * 60 * 1000);
+}
+
 function resolveInitialPage() {
   const params = new URLSearchParams(window.location.search);
   // After Stripe checkout redirect
@@ -824,6 +830,7 @@ async function boot() {
       render();
     }
   });
+  keepAlive();
 }
 
 window.navigate              = navigate;
