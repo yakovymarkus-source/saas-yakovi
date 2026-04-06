@@ -49,7 +49,7 @@ exports.handler = async (event) => {
     // Fetch subscriptions + campaign counts + last active — all in parallel
     const [subsRes, campsRes, lastActiveRes] = await Promise.all([
       sb.from('subscriptions')
-        .select('user_id, plan, status, current_period_end')
+        .select('user_id, plan, status, payment_status, current_period_end')
         .in('user_id', userIds),
 
       sb.from('campaigns')
@@ -70,8 +70,9 @@ exports.handler = async (event) => {
       email:           p.email,
       name:            p.name,
       isAdmin:         p.is_admin,
-      plan:            subMap[p.id]?.plan   || 'free',
-      status:          subMap[p.id]?.status || 'active',
+      plan:            subMap[p.id]?.plan           || 'free',
+      status:          subMap[p.id]?.status         || 'active',
+      paymentStatus:   subMap[p.id]?.payment_status || 'none',
       currentPeriodEnd:subMap[p.id]?.current_period_end || null,
       campaignCount:   campCount[p.id]      || 0,
       lastActiveAt:    lastActive[p.id]     || null,

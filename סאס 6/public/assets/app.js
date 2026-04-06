@@ -36,7 +36,19 @@ const routes = {
   integrations: renderIntegrations,
   billing:      renderBilling,
   settings:     renderSettings,
+  admin:        renderAdmin,
 };
+
+// ── Plan definitions (mirrors billing.js PLANS) ───────────────────────────────
+const PLAN_LIMITS = {
+  free:       { assetsLimit: 5,   campaignLimit: 0,        label: 'חינמי' },
+  early_bird: { assetsLimit: 50,  campaignLimit: 1,        label: 'Early Bird' },
+  starter:    { assetsLimit: 30,  campaignLimit: 3,        label: 'Starter' },
+  pro:        { assetsLimit: 500, campaignLimit: 20,       label: 'Pro' },
+  agency:     { assetsLimit: null, campaignLimit: null,    label: 'Agency' },
+};
+function getPlanLimits(plan) { return PLAN_LIMITS[plan] || PLAN_LIMITS.free; }
+function getPlanLabel(plan)  { return PLAN_LIMITS[plan]?.label || plan.toUpperCase(); }
 
 function navigate(page, params = {}) {
   state.currentPage = page;
@@ -155,6 +167,7 @@ function renderShell(content) {
     { id: 'integrations', icon: '🔌', label: 'אינטגרציות' },
     { id: 'billing',      icon: '💳', label: 'חיוב' },
     { id: 'settings',     icon: '⚙️', label: 'הגדרות' },
+    ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול' }] : []),
   ];
   const initials = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
   document.getElementById('app').innerHTML = `
@@ -244,17 +257,38 @@ async function renderDashboard() {
     } catch {}
   }
 
-  const plan      = state.subscription?.plan || 'free';
-  const planBadge = { free: 'badge-gray', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
+  const plan          = state.subscription?.plan          || 'free';
+  const paymentStatus = state.subscription?.payment_status || 'none';
+  const planBadge = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
   const connectedCount = state.integrations.filter(i => i.connection_status !== 'revoked').length;
+  const limits     = getPlanLimits(plan);
+  const assetsUsed = analysis.length;                       // last 5 results as proxy
+  const assetsMax  = limits.assetsLimit || 5;
+  const assetsPct  = Math.min(100, Math.round((assetsUsed / assetsMax) * 100));
+  const isFree     = plan === 'free' && paymentStatus !== 'pending';
 
   renderShell(`
+    ${isFree ? `
+    <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;padding:0.875rem 1.25rem;border-radius:0.75rem;margin-bottom:1.25rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem">
+        <span style="font-size:0.9rem">🎁 הטבת השקה: מסלול Early Bird ב-₪10 בלבד לכל החיים!</span>
+        <button class="btn btn-sm" style="background:white;color:#4f46e5;font-weight:700;white-space:nowrap"
+          onclick="navigate('billing')">שדרגו עכשיו →</button>
+      </div>
+      <div style="margin-top:0.5rem;font-size:0.78rem;opacity:0.85">
+        כבר שילמתם?
+        <button onclick="claimPayment()" style="background:none;border:none;color:white;text-decoration:underline;cursor:pointer;font-size:0.78rem;padding:0">
+          לחצו כאן להפעלת החשבון
+        </button>
+      </div>
+    </div>` : ''}
+
     <div class="page-header flex items-center justify-between">
       <div>
         <h1 class="page-title">שלום, ${state.profile?.name || 'משתמש'}! 👋</h1>
         <p class="page-subtitle">הנה סקירת הביצועים שלך</p>
       </div>
-      <span class="badge ${planBadge[plan] || 'badge-gray'}">${plan.toUpperCase()}</span>
+      <span class="badge ${planBadge[plan] || 'badge-gray'}">${getPlanLabel(plan)}</span>
     </div>
 
     ${!state.profile?.onboarding_completed ? renderOnboarding() : ''}
@@ -264,9 +298,12 @@ async function renderDashboard() {
         <div class="stat-label">קמפיינים פעילים</div>
         <div class="stat-value">${state.campaigns.length}</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">ניתוחים השבוע</div>
-        <div class="stat-value">${analysis.length}</div>
+      <div class="stat-card" style="cursor:default">
+        <div class="stat-label">נכסים שיווקיים (30 יום)</div>
+        <div class="stat-value" style="font-size:1.25rem">${assetsUsed} / ${assetsMax === Infinity ? '∞' : assetsMax}</div>
+        <div style="background:#e2e8f0;border-radius:9999px;height:6px;margin-top:0.5rem;overflow:hidden">
+          <div style="background:${assetsPct >= 90 ? '#ef4444' : '#6366f1'};width:${assetsPct}%;height:100%;border-radius:9999px;transition:width 0.4s"></div>
+        </div>
       </div>
       <div class="stat-card">
         <div class="stat-label">ציון ממוצע</div>
@@ -308,9 +345,10 @@ async function renderDashboard() {
     </div>` : `
     <div class="card text-center" style="padding:3rem">
       <div style="font-size:3rem;margin-bottom:1rem">🚀</div>
-      <h3 class="font-semibold mb-2">אין עדיין ניתוחים</h3>
-      <p class="text-muted mb-4">חבר את חשבונות הפרסום שלך וצור קמפיין ראשון</p>
-      <button class="btn btn-primary" style="width:auto;padding:0.625rem 1.5rem" onclick="navigate('integrations')">חבר אינטגרציות</button>
+      <h3 class="font-semibold mb-2">מוכנים להשיק קמפיין מנצח?</h3>
+      <p class="text-muted mb-1">בנו אסטרטגיה, מסרים, תסריטים ולוגיקת דף נחיתה</p>
+      <p class="text-muted mb-4" style="font-size:0.8125rem">חברו את חשבונות הפרסום שלכם להתחלה</p>
+      <button class="btn btn-primary" style="width:auto;padding:0.75rem 2rem;font-size:1rem" onclick="navigate('campaigns')">הפעל קמפיין אסטרטגי</button>
     </div>`}
   `);
 
@@ -795,66 +833,215 @@ async function disconnectIntegration(provider) {
 
 // ── Billing ───────────────────────────────────────────────────────────────────
 async function renderBilling() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('success'))  toast('המנוי הופעל בהצלחה! 🎉', 'success');
-  if (params.get('canceled')) toast('החיוב בוטל', 'info');
   window.history.replaceState({}, '', window.location.pathname);
 
-  const plans = [
-    { id: 'starter', name: 'Starter', price: '29', priceVar: '__STRIPE_PRICE_STARTER__',
-      features: ['3 קמפיינים', '30 ניתוחים ביום', 'GA4 + Meta + Google Ads', 'תמיכה באימייל'] },
-    { id: 'pro', name: 'Pro', price: '79', priceVar: '__STRIPE_PRICE_PRO__', popular: true,
-      features: ['15 קמפיינים', '200 ניתוחים ביום', 'כל האינטגרציות', 'תמיכה עדיפות', 'ייצוא נתונים'] },
-    { id: 'agency', name: 'Agency', price: '199', priceVar: '__STRIPE_PRICE_AGENCY__',
-      features: ['קמפיינים ללא הגבלה', 'ניתוחים ללא הגבלה', 'ניהול צוות', 'API גישה', 'SLA 99.9%'] },
-  ];
+  const plan          = state.subscription?.plan          || 'free';
+  const paymentStatus = state.subscription?.payment_status || 'none';
+  const isPending     = paymentStatus === 'pending';
+  const isEarlyBird   = plan === 'early_bird' && !isPending;
+  const isPro         = (plan === 'pro' || plan === 'agency') && !isPending;
 
-  const currentPlan = state.subscription?.plan || 'free';
   renderShell(`
     <div class="page-header">
       <h1 class="page-title">תוכניות וחיוב</h1>
-      <p class="page-subtitle">תוכנית נוכחית: <strong>${currentPlan.toUpperCase()}</strong></p>
+      <p class="page-subtitle">
+        תוכנית נוכחית: <strong>${getPlanLabel(plan)}</strong>
+        ${isPending ? '<span class="badge badge-gray" style="margin-right:0.5rem">ממתין לאישור</span>' : ''}
+      </p>
     </div>
-    ${currentPlan !== 'free' ? `
-    <div class="card mb-4 flex items-center justify-between">
-      <div>
-        <div class="font-semibold">ניהול המנוי שלך</div>
-        <div class="text-sm text-muted">עדכון כרטיס אשראי, ביטול מנוי, היסטוריית חשבוניות</div>
-      </div>
-      <button class="btn btn-secondary" onclick="openBillingPortal()">פורטל חיוב ↗</button>
+
+    ${isPending ? `
+    <div class="card mb-4" style="border:2px solid #f59e0b;background:#fffbeb">
+      <div style="font-weight:700;color:#92400e;margin-bottom:0.5rem">⏳ התשלום בבדיקה</div>
+      <p class="text-sm" style="color:#78350f;margin:0">הבקשה שלך התקבלה! החשבון יופעל תוך דקות לאחר אישור התשלום.</p>
     </div>` : ''}
-    <div class="plan-grid">
-      ${plans.map(p => `
-        <div class="plan-card ${p.popular ? 'popular' : ''}">
-          ${p.popular ? '<div class="plan-popular-badge">פופולרי</div>' : ''}
-          <div class="plan-name">${p.name}</div>
-          <div class="plan-price">$${p.price}<span>/חודש</span></div>
-          <ul class="plan-features">${p.features.map(f => `<li>${f}</li>`).join('')}</ul>
-          ${currentPlan === p.id
-            ? `<button class="btn btn-secondary w-full" disabled>התוכנית הנוכחית</button>`
-            : `<button class="btn btn-primary w-full" onclick="startCheckout('${p.priceVar}')">בחר ${p.name}</button>`}
-        </div>`).join('')}
+
+    ${/* Founders upgrade — ONLY for early_bird users — NOT on public pricing */ isEarlyBird ? `
+    <div class="card mb-4" style="border:2px solid #6366f1;background:#eef2ff">
+      <div class="flex items-center justify-between gap-3" style="flex-wrap:wrap">
+        <div>
+          <div class="font-semibold" style="color:#4338ca;font-size:1rem">🎁 הטבת מייסדים בלעדית</div>
+          <div class="text-sm text-muted mt-1">שדרגו ל-Pro ב-<strong>₪99 בלבד לכל החיים!</strong></div>
+          <div class="text-xs text-muted">מחיר סופי (עוסק פטור)</div>
+        </div>
+        <a href="https://pay.grow.link/f752f70d2d88201a126de25aedbd498e-MzI1Njk5OA"
+           target="_blank" rel="noopener"
+           class="btn btn-primary" style="white-space:nowrap"
+           onclick="window._pendingPlan='pro'">
+          שדרגו עכשיו ₪99 →
+        </a>
+      </div>
+    </div>` : ''}
+
+    <div class="plan-grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))">
+
+      <!-- Free -->
+      <div class="plan-card${plan === 'free' && !isPending ? ' current' : ''}">
+        <div class="plan-name">חינמי</div>
+        <div class="plan-price">₪0<span> לתמיד</span></div>
+        <div class="text-xs text-muted mb-3">מחיר סופי (עוסק פטור)</div>
+        <ul class="plan-features">
+          <li>5 נכסים שיווקיים</li>
+          <li>0 קמפיינים פעילים</li>
+          <li>ניתוח בסיסי</li>
+        </ul>
+        <button class="btn btn-secondary w-full" disabled>${plan === 'free' && !isPending ? 'התוכנית הנוכחית' : 'מסלול בסיס'}</button>
+      </div>
+
+      <!-- Early Bird -->
+      <div class="plan-card popular${isEarlyBird ? ' current' : ''}">
+        <div class="plan-popular-badge">🔥 Early Bird</div>
+        <div class="plan-name">Early Bird</div>
+        <div class="plan-price">₪10<span> לכל החיים</span></div>
+        <div class="text-xs text-muted mb-3">מחיר סופי (עוסק פטור)</div>
+        <ul class="plan-features">
+          <li>50 נכסים שיווקיים</li>
+          <li>1 קמפיין פעיל</li>
+          <li>כל הכלים השיווקיים</li>
+          <li>עדכונים לצמיתות</li>
+        </ul>
+        ${isEarlyBird
+          ? `<button class="btn btn-secondary w-full" disabled>התוכנית הנוכחית</button>`
+          : `<a href="https://pay.grow.link/5970efd2adef5019d8f9e925211e1c48-MzI1Njk5Ng"
+               target="_blank" rel="noopener"
+               class="btn btn-primary w-full"
+               onclick="window._pendingPlan='early_bird'">
+               שלם ₪10 →
+             </a>`}
+      </div>
+
+      <!-- Pro -->
+      <div class="plan-card${isPro ? ' current' : ''}">
+        <div class="plan-name">Pro</div>
+        <div class="plan-price">₪249<span>/חודש</span></div>
+        <div class="text-xs text-muted mb-3">מחיר סופי (עוסק פטור)</div>
+        <ul class="plan-features">
+          <li>500 נכסים שיווקיים</li>
+          <li>20 קמפיינים פעילים</li>
+          <li>כל האינטגרציות</li>
+          <li>תמיכה עדיפות</li>
+        </ul>
+        ${isPro
+          ? `<button class="btn btn-secondary w-full" disabled>התוכנית הנוכחית</button>`
+          : `<a href="https://pay.grow.link/2297dbe8bb307b597007097ab69ac491-MzI1Njk5Nw"
+               target="_blank" rel="noopener"
+               class="btn btn-primary w-full"
+               onclick="window._pendingPlan='pro'">
+               שלם ₪249 →
+             </a>`}
+      </div>
+
     </div>
+
+    ${!isPending && !isPro && !isEarlyBird ? `
+    <div class="card mt-4" style="border:1px solid #c7d2fe;background:#f5f3ff">
+      <div style="font-weight:600;margin-bottom:0.5rem">✅ כבר שילמתם?</div>
+      <p class="text-sm text-muted mb-3">לאחר ביצוע התשלום בקישור למעלה, לחצו כאן כדי שנפעיל את החשבון.</p>
+      <button class="btn btn-primary" id="confirm-payment-btn" onclick="confirmPayment()">
+        שילמתי, הפעילו לי את החשבון
+      </button>
+    </div>` : ''}
+    ${isEarlyBird ? `
+    <div class="card mt-4" style="border:1px solid #c7d2fe;background:#f5f3ff">
+      <div style="font-weight:600;margin-bottom:0.5rem">✅ שילמתם על ה-Pro?</div>
+      <p class="text-sm text-muted mb-3">לאחר ביצוע התשלום, לחצו כאן לאישור.</p>
+      <button class="btn btn-primary" id="confirm-payment-btn" onclick="confirmPayment()">
+        שילמתי, הפעילו לי את החשבון
+      </button>
+    </div>` : ''}
   `);
 }
 
-async function startCheckout(priceVar) {
-  const priceId = window[priceVar] || '';
-  if (!priceId) { toast('הגדרת המחיר חסרה', 'error'); return; }
+// Track which plan the user is paying for (set by onclick on payment link)
+window._pendingPlan = 'early_bird';
+
+async function confirmPayment() {
+  const btn = document.getElementById('confirm-payment-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'שולח...'; }
   try {
-    const { url } = await api('POST', 'billing-checkout', { priceId });
-    window.location.href = url;
+    const plan = window._pendingPlan || 'early_bird';
+    await api('POST', 'payment-pending', { plan });
+    if (state.subscription) {
+      state.subscription.payment_status = 'pending';
+    } else {
+      state.subscription = { plan, payment_status: 'pending' };
+    }
+    toast('הבקשה התקבלה! החשבון יופעל תוך דקות לאחר אישור התשלום.', 'success');
+    setTimeout(() => navigate('billing'), 500);
   } catch (err) {
-    toast(err.message || 'שגיאה בהתחלת תשלום', 'error');
+    toast(err.message || 'שגיאה — נסו שנית', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'שילמתי, הפעילו לי את החשבון'; }
   }
 }
 
-async function openBillingPortal() {
+// ── Payment claim — safety-net for users who closed the browser ──────────────
+function claimPayment() {
+  // Show modal overlay with plan selector + verifying UX
+  const overlay = document.createElement('div');
+  overlay.id = 'claim-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem';
+  overlay.innerHTML = `
+    <div style="background:white;border-radius:1rem;padding:2rem;max-width:420px;width:100%;text-align:center;direction:rtl">
+      <div style="font-size:2rem;margin-bottom:0.75rem">💳</div>
+      <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:0.5rem">הפעלת חשבון לאחר תשלום</h3>
+      <p style="font-size:0.875rem;color:#64748b;margin-bottom:1.25rem">בחרו את המסלול ששילמתם עליו:</p>
+      <div style="display:flex;flex-direction:column;gap:0.625rem;margin-bottom:1.25rem">
+        <label style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border:2px solid #e2e8f0;border-radius:0.625rem;cursor:pointer">
+          <input type="radio" name="claim-plan" value="early_bird" checked style="accent-color:#6366f1"/>
+          <span><strong>Early Bird — ₪10</strong><br><small style="color:#64748b">50 נכסים שיווקיים, קמפיין אחד</small></span>
+        </label>
+        <label style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border:2px solid #e2e8f0;border-radius:0.625rem;cursor:pointer">
+          <input type="radio" name="claim-plan" value="pro" style="accent-color:#6366f1"/>
+          <span><strong>Pro — ₪249/חודש</strong><br><small style="color:#64748b">500 נכסים שיווקיים, 20 קמפיינים</small></span>
+        </label>
+      </div>
+      <button id="claim-submit-btn" onclick="submitClaim()" class="btn btn-primary w-full" style="margin-bottom:0.75rem">
+        אמתו ואפשרו את החשבון שלי
+      </button>
+      <button onclick="document.getElementById('claim-overlay').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:0.875rem">
+        ביטול
+      </button>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+}
+
+async function submitClaim() {
+  const btn  = document.getElementById('claim-submit-btn');
+  const plan = document.querySelector('input[name="claim-plan"]:checked')?.value || 'early_bird';
+  const overlay = document.getElementById('claim-overlay');
+
+  // Switch to "verifying..." state
+  if (btn) { btn.disabled = true; }
+  const inner = overlay?.querySelector('div');
+  if (inner) inner.innerHTML = `
+    <div style="font-size:2.5rem;margin-bottom:1rem">🔍</div>
+    <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:0.5rem">אנחנו מאמתים את התשלום שלך...</h3>
+    <p style="font-size:0.85rem;color:#64748b">זה עשוי לקחת רגע. אנא המתינו.</p>
+    <div style="margin-top:1rem"><div class="spinner" style="margin:auto"></div></div>`;
+
   try {
-    const { url } = await api('POST', 'billing-portal', {});
-    window.location.href = url;
+    await api('POST', 'payment-pending', { plan });
+    if (state.subscription) {
+      state.subscription.payment_status = 'pending';
+    } else {
+      state.subscription = { plan, payment_status: 'pending', status: 'active' };
+    }
+    if (inner) inner.innerHTML = `
+      <div style="font-size:2.5rem;margin-bottom:1rem">✅</div>
+      <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:0.5rem">הבקשה התקבלה!</h3>
+      <p style="font-size:0.875rem;color:#64748b">החשבון יופעל תוך דקות לאחר אישור התשלום.<br>תקבלו אימייל אישור.</p>
+      <button onclick="document.getElementById('claim-overlay').remove();navigate('billing')" class="btn btn-primary" style="margin-top:1.25rem">
+        הבנתי
+      </button>`;
   } catch (err) {
-    toast(err.message || 'שגיאה בפתיחת פורטל', 'error');
+    if (inner) inner.innerHTML = `
+      <div style="font-size:2.5rem;margin-bottom:1rem">⚠️</div>
+      <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:0.5rem">שגיאה</h3>
+      <p style="font-size:0.875rem;color:#64748b">${err.message || 'נסו שנית'}</p>
+      <button onclick="document.getElementById('claim-overlay').remove()" class="btn btn-secondary" style="margin-top:1.25rem">
+        סגור
+      </button>`;
   }
 }
 
@@ -935,6 +1122,138 @@ async function deleteAccount() {
   }
 }
 
+// ── Admin Dashboard ───────────────────────────────────────────────────────────
+async function renderAdmin() {
+  if (!state.profile?.is_admin) { navigate('dashboard'); return; }
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  let overview = null, usersData = null, pendingData = null;
+  try {
+    [overview, usersData, pendingData] = await Promise.all([
+      api('GET', 'admin-overview'),
+      api('GET', 'admin-users?limit=20&page=1'),
+      api('GET', 'admin-users?limit=50&page=1').then(d =>
+        ({ users: (d.users || []).filter(u => u.paymentStatus === 'pending') })
+      ).catch(() => ({ users: [] })),
+    ]);
+  } catch (err) {
+    renderShell(`<div class="page-header"><h1 class="page-title">שגיאה</h1><p class="text-muted">${err.message}</p></div>`);
+    return;
+  }
+
+  const fmt      = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
+  const pct      = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
+  const curr     = n => n == null ? '—' : '₪' + (n / 100).toFixed(0);
+  const pBadge   = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
+  const pending  = pendingData?.users || [];
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">🛡️ לוח ניהול</h1>
+        <p class="page-subtitle">סטטיסטיקות מערכת וניהול משתמשים</p>
+      </div>
+    </div>
+
+    ${pending.length > 0 ? `
+    <div class="analysis-card mb-4" style="border:2px solid #f59e0b;background:#fffbeb">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold" style="color:#92400e">⏳ תשלומים ממתינים לאישור (${pending.length})</h3>
+      </div>
+      ${pending.map(u => `
+        <div class="flex items-center justify-between gap-2 py-2" style="border-bottom:1px solid #fde68a">
+          <div>
+            <div class="font-semibold text-sm">${u.email}</div>
+            <div class="text-xs text-muted">תוכנית מבוקשת: ${getPlanLabel(u.plan)}</div>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">
+            הפעל חשבון
+          </button>
+        </div>`).join('')}
+    </div>` : ''}
+
+    <div class="stats-grid" style="margin-bottom:1.5rem">
+      <div class="stat-card">
+        <div class="stat-label">MRR</div>
+        <div class="stat-value">${curr(overview?.mrr)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">סה"כ משתמשים</div>
+        <div class="stat-value">${fmt(overview?.totalUsers)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">הרשמות 24ש'</div>
+        <div class="stat-value">${fmt(overview?.newSignups24h)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Churn</div>
+        <div class="stat-value">${pct(overview?.churnRate)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">המרה לתשלום</div>
+        <div class="stat-value">${pct(overview?.conversionRate)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">תשלומים כושלים 24ש'</div>
+        <div class="stat-value" style="${(overview?.failedPayments24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.failedPayments24h)}</div>
+      </div>
+    </div>
+
+    <div class="analysis-card" style="margin-bottom:1.5rem">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold">בריאות מערכת</h3>
+      </div>
+      <div style="display:flex;gap:2rem;flex-wrap:wrap">
+        <div><span class="text-muted text-sm">עבודות ממתינות</span><br><strong>${fmt(overview?.systemHealth?.pendingJobs)}</strong></div>
+        <div><span class="text-muted text-sm">עבודות פועלות</span><br><strong>${fmt(overview?.systemHealth?.runningJobs)}</strong></div>
+        <div><span class="text-muted text-sm">עבודות נכשלות 24ש'</span><br><strong style="${(overview?.systemHealth?.failedJobs24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.systemHealth?.failedJobs24h)}</strong></div>
+      </div>
+    </div>
+
+    <div class="analysis-card">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold">משתמשים אחרונים</h3>
+        <span class="text-muted text-sm">סה"כ ${fmt(usersData?.total)}</span>
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+          <thead>
+            <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
+              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">אימייל</th>
+              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">שם</th>
+              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">תוכנית</th>
+              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">קמפיינים</th>
+              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">הצטרף</th>
+              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">פעולה</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(usersData?.users || []).map(u => `
+              <tr style="border-bottom:1px solid #f1f5f9${u.paymentStatus === 'pending' ? ';background:#fffbeb' : ''}">
+                <td style="padding:0.5rem 0.75rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.65rem">admin</span>' : ''}${u.paymentStatus === 'pending' ? ' <span class="badge badge-gray" style="font-size:0.65rem">pending</span>' : ''}</td>
+                <td style="padding:0.5rem 0.75rem">${u.name || '—'}</td>
+                <td style="padding:0.5rem 0.75rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
+                <td style="padding:0.5rem 0.75rem">${u.campaignCount}</td>
+                <td style="padding:0.5rem 0.75rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
+                <td style="padding:0.5rem 0.75rem">${u.paymentStatus === 'pending' ? `<button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>` : ''}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`);
+}
+
+async function activateUserPayment(userId, plan) {
+  if (!confirm(`להפעיל תוכנית ${getPlanLabel(plan)} עבור משתמש זה?`)) return;
+  try {
+    await api('POST', 'activate-payment', { userId, plan });
+    toast('החשבון הופעל ואימייל נשלח למשתמש!', 'success');
+    renderAdmin();
+  } catch (err) {
+    toast(err.message || 'שגיאה בהפעלה', 'error');
+  }
+}
+
 // ── Main render ───────────────────────────────────────────────────────────────
 async function render() {
   const fn = routes[state.currentPage] || renderDashboard;
@@ -976,7 +1295,7 @@ async function boot() {
     try {
       const [profile, sub] = await Promise.all([
         sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(r => r.data),
-        sb.from('subscriptions').select('*').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
+        sb.from('subscriptions').select('plan,status,payment_status').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
       ]);
       state.profile      = profile || {};
       state.subscription = sub    || { plan: 'free' };
@@ -992,6 +1311,7 @@ async function boot() {
         state.currentPage = initialPage;
       }
       render();
+      initCampaignerChat();   // mount chat widget once user is authenticated
     }
   });
 
@@ -1000,6 +1320,275 @@ async function boot() {
   }, 8000);
 
   keepAlive();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  CAMPAIGNER AI — Chat Widget
+//  Floats bottom-left. Feeds live stats from get-ads-data cache to the
+//  decision engine and returns specific, data-driven Hebrew responses.
+// ══════════════════════════════════════════════════════════════════════════════
+
+const chatState = {
+  open:     false,
+  loading:  false,
+  history:  [],          // [{role:'user'|'assistant', content:string}]
+  quickActions: [
+    'בנה לי תסריט למודעת פייסבוק/אינסטגרם',
+    'בצע חקר שוק וניתוח מתחרים',
+    'תכנן מבנה לדף נחיתה ממיר',
+    'נתח ביצועי קמפיינים קיימים',
+  ],
+};
+
+// ── Markdown-lite renderer ────────────────────────────────────────────────────
+function renderMarkdown(text) {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+}
+
+// ── Build / inject widget DOM ─────────────────────────────────────────────────
+function initCampaignerChat() {
+  if (document.getElementById('chat-trigger')) return; // already mounted
+
+  // Floating trigger button
+  const trigger = document.createElement('button');
+  trigger.id = 'chat-trigger';
+  trigger.setAttribute('aria-label', 'פתח Campaigner AI');
+  trigger.innerHTML = '<span>🧠</span><span class="chat-badge" id="chat-badge"></span>';
+  trigger.onclick = toggleChat;
+  document.body.appendChild(trigger);
+
+  // Chat panel
+  const panel = document.createElement('div');
+  panel.id = 'chat-panel';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-label', 'Campaigner AI');
+  panel.innerHTML = `
+    <div class="chat-header">
+      <div class="chat-avatar">🧠</div>
+      <div class="chat-header-info">
+        <div class="chat-header-name">Campaigner AI</div>
+        <div class="chat-header-sub">מנתח נתוני פרסום בזמן אמת</div>
+      </div>
+      <div class="chat-status-dot" title="מחובר"></div>
+      <div class="chat-header-actions">
+        <button class="chat-header-btn" onclick="clearChatHistory()" title="נקה שיחה">🗑</button>
+        <button class="chat-header-btn" onclick="toggleChat()" title="סגור">✕</button>
+      </div>
+    </div>
+    <div class="chat-messages" id="chat-messages">
+      <div class="chat-welcome">
+        <div class="chat-welcome-icon">🧠</div>
+        <h3>Campaigner AI</h3>
+        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות קמפיינים מנצחים מאפס: מחקר שוק ומתחרים, כתיבת תסריטים למודעות פייסבוק ואינסטגרם, תכנון דפי נחיתה ויצירת קריאייטיב שמוכר. במה נתחיל היום?</p>
+      </div>
+    </div>
+    <div class="chat-quick-actions" id="chat-quick-actions"></div>
+    <div class="chat-input-bar">
+      <textarea
+        class="chat-input"
+        id="chat-input"
+        placeholder="שאל על ביצועים, תקציב, CTR..."
+        rows="1"
+        maxlength="2000"
+      ></textarea>
+      <button class="chat-send-btn" id="chat-send-btn" onclick="submitChatMessage()" title="שלח">➤</button>
+    </div>`;
+  document.body.appendChild(panel);
+
+  // Auto-resize textarea
+  const textarea = document.getElementById('chat-input');
+  textarea.addEventListener('input', () => {
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
+  });
+  textarea.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitChatMessage(); }
+  });
+
+  renderQuickActions(chatState.quickActions);
+}
+
+// ── Toggle open/close ─────────────────────────────────────────────────────────
+function toggleChat() {
+  chatState.open = !chatState.open;
+  const panel   = document.getElementById('chat-panel');
+  const trigger = document.getElementById('chat-trigger');
+  const badge   = document.getElementById('chat-badge');
+  if (panel) panel.classList.toggle('open', chatState.open);
+  if (trigger) trigger.innerHTML = chatState.open
+    ? '<span style="font-size:1.1rem">✕</span>'
+    : '<span>🧠</span><span class="chat-badge" id="chat-badge"></span>';
+  if (chatState.open) {
+    scrollChatToBottom();
+    document.getElementById('chat-input')?.focus();
+  }
+}
+
+// ── Render quick action chips ─────────────────────────────────────────────────
+function renderQuickActions(actions) {
+  const container = document.getElementById('chat-quick-actions');
+  if (!container) return;
+  container.innerHTML = (actions || []).map(a =>
+    `<button class="chat-quick-btn" onclick="handleQuickAction(this)">${a}</button>`
+  ).join('');
+}
+
+function handleQuickAction(btn) {
+  const text = btn.textContent;
+  const input = document.getElementById('chat-input');
+  if (input) { input.value = text; input.style.height = 'auto'; }
+  submitChatMessage();
+}
+
+// ── Append message bubble ─────────────────────────────────────────────────────
+function appendChatBubble(role, content, animate = false) {
+  const msgs = document.getElementById('chat-messages');
+  if (!msgs) return;
+
+  const initials = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
+  const icon = role === 'user' ? initials : '🧠';
+
+  const wrapper = document.createElement('div');
+  wrapper.className = `chat-msg ${role}`;
+  wrapper.innerHTML = `
+    <div class="chat-msg-icon">${icon}</div>
+    <div class="chat-msg-bubble" id="bubble-${Date.now()}"></div>`;
+  msgs.appendChild(wrapper);
+
+  const bubble = wrapper.querySelector('.chat-msg-bubble');
+  if (animate && role === 'assistant') {
+    typewriterEffect(bubble, content);
+  } else {
+    bubble.innerHTML = renderMarkdown(content);
+  }
+  scrollChatToBottom();
+  return bubble;
+}
+
+// ── Typewriter (simulated streaming) ─────────────────────────────────────────
+function typewriterEffect(el, text) {
+  const words  = text.split(' ');
+  let current  = '';
+  let idx      = 0;
+
+  function tick() {
+    if (idx >= words.length) { el.innerHTML = renderMarkdown(text); return; }
+    current += (idx > 0 ? ' ' : '') + words[idx++];
+    el.innerHTML = renderMarkdown(current) + '<span style="opacity:.4">▋</span>';
+    scrollChatToBottom();
+    setTimeout(tick, 18 + Math.random() * 22);
+  }
+  tick();
+}
+
+// ── Typing indicator ──────────────────────────────────────────────────────────
+function showTypingIndicator() {
+  const msgs = document.getElementById('chat-messages');
+  if (!msgs) return;
+  const el = document.createElement('div');
+  el.className = 'chat-typing';
+  el.id = 'chat-typing';
+  el.innerHTML = `
+    <div class="chat-typing-icon">🧠</div>
+    <div class="chat-typing-bubble">
+      <span style="font-size:0.75rem;color:#6366f1">הסוכן מנתח את הנתונים...</span>
+      <div class="chat-typing-dots"><span></span><span></span><span></span></div>
+    </div>`;
+  msgs.appendChild(el);
+  scrollChatToBottom();
+}
+function hideTypingIndicator() {
+  document.getElementById('chat-typing')?.remove();
+}
+
+// ── Scroll helper ─────────────────────────────────────────────────────────────
+function scrollChatToBottom() {
+  const msgs = document.getElementById('chat-messages');
+  if (msgs) requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
+}
+
+// ── Submit message ────────────────────────────────────────────────────────────
+async function submitChatMessage() {
+  const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send-btn');
+  const message = input?.value.trim();
+  if (!message || chatState.loading) return;
+
+  // Clear input
+  input.value = '';
+  input.style.height = 'auto';
+
+  // Add user bubble
+  appendChatBubble('user', message);
+  chatState.history.push({ role: 'user', content: message });
+
+  // Disable input while loading
+  chatState.loading = true;
+  if (sendBtn) sendBtn.disabled = true;
+  showTypingIndicator();
+
+  // Hide quick actions while processing
+  const qa = document.getElementById('chat-quick-actions');
+  if (qa) qa.style.display = 'none';
+
+  try {
+    const result = await api('POST', 'campaigner-chat', {
+      message,
+      history: chatState.history.slice(-6), // send last 3 exchanges for context
+    });
+
+    hideTypingIndicator();
+
+    const reply = result.reply || 'לא הצלחתי לקבל תשובה. נסה שוב.';
+    appendChatBubble('assistant', reply, true /* animate */);
+    chatState.history.push({ role: 'assistant', content: reply });
+
+    // Update quick actions from response
+    if (result.quickActions?.length) {
+      chatState.quickActions = result.quickActions;
+    }
+
+  } catch (err) {
+    hideTypingIndicator();
+    const errMsg = err.message?.includes('NOT_CONNECTED')
+      ? 'חבר קודם אינטגרציה כדי שאוכל לנתח את הנתונים שלך.'
+      : `שגיאה: ${err.message || 'נסה שוב'}`;
+    appendChatBubble('assistant', errMsg, true);
+    chatState.history.push({ role: 'assistant', content: errMsg });
+  } finally {
+    chatState.loading = false;
+    if (sendBtn) sendBtn.disabled = false;
+    if (input)   input.focus();
+    // Restore quick actions
+    if (qa) qa.style.display = '';
+    renderQuickActions(chatState.quickActions);
+    scrollChatToBottom();
+  }
+}
+
+// ── Clear chat history ────────────────────────────────────────────────────────
+function clearChatHistory() {
+  chatState.history = [];
+  const msgs = document.getElementById('chat-messages');
+  if (msgs) {
+    msgs.innerHTML = `
+      <div class="chat-welcome">
+        <div class="chat-welcome-icon">🧠</div>
+        <h3>Campaigner AI</h3>
+        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות קמפיינים מנצחים מאפס: מחקר שוק ומתחרים, כתיבת תסריטים למודעות פייסבוק ואינסטגרם, תכנון דפי נחיתה ויצירת קריאייטיב שמוכר. במה נתחיל היום?</p>
+      </div>`;
+  }
+  chatState.quickActions = [
+    'בנה לי תסריט למודעת פייסבוק/אינסטגרם',
+    'בצע חקר שוק וניתוח מתחרים',
+    'תכנן מבנה לדף נחיתה ממיר',
+    'נתח ביצועי קמפיינים קיימים',
+  ];
+  renderQuickActions(chatState.quickActions);
 }
 
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
@@ -1011,11 +1600,17 @@ window.runAnalysis           = runAnalysis;
 window.showCampaignDetail    = showCampaignDetail;
 window.connectIntegration    = connectIntegration;
 window.disconnectIntegration = disconnectIntegration;
-window.startCheckout         = startCheckout;
-window.openBillingPortal     = openBillingPortal;
+window.confirmPayment        = confirmPayment;
+window.claimPayment          = claimPayment;
+window.submitClaim           = submitClaim;
+window.activateUserPayment   = activateUserPayment;
 window.saveProfile           = saveProfile;
 window.exportData            = exportData;
 window.deleteAccount         = deleteAccount;
 window.refreshLiveStats      = refreshLiveStats;
+window.toggleChat            = toggleChat;
+window.submitChatMessage     = submitChatMessage;
+window.clearChatHistory      = clearChatHistory;
+window.handleQuickAction     = handleQuickAction;
 
 boot();

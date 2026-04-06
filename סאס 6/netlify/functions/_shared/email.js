@@ -107,6 +107,46 @@ async function sendSyncCompleted({ to, name, campaignId, analysisId, verdict }) 
   });
 }
 
+async function sendActivationEmail({ to, name, planLabel }) {
+  return sendEmail({
+    to,
+    subject: '✅ החשבון שלך הופעל — ברוכים הבאים!',
+    html: `
+      <div dir="rtl" style="font-family:sans-serif;max-width:520px;margin:auto">
+        <h1 style="color:#4f46e5">🎉 החשבון הופעל בהצלחה!</h1>
+        <p>שלום ${name || ''},</p>
+        <p>אישרנו את התשלום שלך ותוכנית <strong>${planLabel || 'Early Bird'}</strong> פעילה עכשיו.</p>
+        <p><strong>המחיר שתפסתם נשמר לכם לתמיד!</strong></p>
+        <p style="margin-top:1.5rem">
+          <a href="${process.env.APP_URL || ''}"
+             style="background:#4f46e5;color:white;padding:0.75rem 1.5rem;border-radius:0.5rem;text-decoration:none;font-weight:bold">
+            היכנסו לדאשבורד והשיקו קמפיין אסטרטגי ראשון →
+          </a>
+        </p>
+        <hr style="margin:2rem 0;border:none;border-top:1px solid #e2e8f0"/>
+        <small style="color:#64748b">CampaignAI — השותף האסטרטגי שלך לצמיחה</small>
+      </div>
+    `,
+  });
+}
+
+async function sendAdminPaymentAlert({ adminEmail, userEmail, userName, plan }) {
+  return sendEmail({
+    to: adminEmail,
+    subject: `💳 תשלום ממתין לאישור — ${userEmail}`,
+    html: `
+      <div dir="rtl" style="font-family:sans-serif">
+        <h2>תשלום חדש ממתין לאישור</h2>
+        <p><strong>משתמש:</strong> ${userName || userEmail}</p>
+        <p><strong>אימייל:</strong> ${userEmail}</p>
+        <p><strong>תוכנית:</strong> ${plan}</p>
+        <p><strong>פעולה נדרשת:</strong> היכנסו ללוח הניהול ואשרו את התשלום.</p>
+        <p><a href="${process.env.APP_URL || ''}">פתח לוח ניהול</a></p>
+      </div>
+    `,
+  });
+}
+
 module.exports = {
   sendEmail,
   sendWelcome,
@@ -114,4 +154,6 @@ module.exports = {
   sendTrialEndingWarning,
   sendAccountDeletedConfirmation,
   sendSyncCompleted,
+  sendActivationEmail,
+  sendAdminPaymentAlert,
 };

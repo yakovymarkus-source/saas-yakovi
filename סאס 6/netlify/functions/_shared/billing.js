@@ -10,10 +10,11 @@ const { getAdminClient } = require('./supabase');
 
 // ─── Plan definitions ─────────────────────────────────────────────────────────
 const PLANS = {
-  free:    { campaignLimit: 1,        analysisPerDay: 5,   label: 'חינמי' },
-  starter: { campaignLimit: 3,        analysisPerDay: 30,  label: 'Starter' },
-  pro:     { campaignLimit: 15,       analysisPerDay: 200, label: 'Pro' },
-  agency:  { campaignLimit: Infinity, analysisPerDay: Infinity, label: 'Agency' },
+  free:       { campaignLimit: 0,        assetsLimit: 5,   analysisPerDay: 5,            label: 'חינמי' },
+  early_bird: { campaignLimit: 1,        assetsLimit: 50,  analysisPerDay: 50,           label: 'Early Bird' },
+  starter:    { campaignLimit: 3,        assetsLimit: 30,  analysisPerDay: 30,           label: 'Starter' },
+  pro:        { campaignLimit: 20,       assetsLimit: 500, analysisPerDay: 200,          label: 'Pro' },
+  agency:     { campaignLimit: Infinity, assetsLimit: Infinity, analysisPerDay: Infinity, label: 'Agency' },
 };
 
 // ─── Stripe helpers ───────────────────────────────────────────────────────────
@@ -37,7 +38,10 @@ async function getSubscription(userId) {
 
 async function getPlan(userId) {
   const sub = await getSubscription(userId);
-  if (!sub || sub.status !== 'active' && sub.status !== 'trialing') return 'free';
+  if (!sub) return 'free';
+  // payment_status='pending' means payment received but not yet verified — keep as free
+  if (sub.payment_status === 'pending') return 'free';
+  if (sub.status !== 'active' && sub.status !== 'trialing') return 'free';
   return sub.plan || 'free';
 }
 

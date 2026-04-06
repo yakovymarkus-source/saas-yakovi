@@ -104,3 +104,81 @@ drop trigger if exists trg_sync_connection_status on public.user_integrations;
 create trigger trg_sync_connection_status
   before insert or update on public.user_integrations
   for each row execute procedure public.sync_connection_status();
+
+-- ── 6. Admin bootstrap: auto-assign admin role to owner email ─────────────────
+-- Grant admin to the owner account (run once, idempotent)
+update public.profiles
+  set is_admin = true
+  where email = 'yakovymarkus@gmail.com';
+
+-- Trigger: any future signup with this email also gets admin immediately
+create or replace function public.auto_assign_admin()
+returns trigger
+language plpgsql
+security definer
+as $$
+begin
+  if new.email = 'yakovymarkus@gmail.com' then
+    new.is_admin := true;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_auto_assign_admin on public.profiles;
+create trigger trg_auto_assign_admin
+  before insert or update of email on public.profiles
+  for each row execute procedure public.auto_assign_admin();
+
+-- ── 7. Manual payment verification flow ──────────────────────────────────────
+-- payment_status tracks manual GrowLink verification separate from Stripe status
+ALTER TABLE public.subscriptions
+  ADD COLUMN IF NOT EXISTS payment_status text DEFAULT 'none'
+    CHECK (payment_status IN ('none','pending','verified'));
+
+-- Function for payment-pending function to call (service role)
+CREATE OR REPLACE FUNCTION public.set_payment_pending(
+  p_user_id uuid,
+  p_plan     text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO public.subscriptions (user_id, plan, status, payment_status)
+  VALUES (p_user_id, p_plan, 'active', 'pending')
+  ON CONFLICT (user_id)
+  DO UPDATE SET
+    plan           = p_plan,
+    payment_status = 'pending',
+    updated_at     = now();
+END;
+$$;
+
+-- Function for admin activation
+CREATE OR REPLACE FUNCTION public.activate_payment(
+  p_user_id uuid,
+  p_plan     text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  INSERT INTO public.subscriptions (user_id, plan, status, payment_status)
+  VALUES (p_user_id, p_plan, 'active', 'verified')
+  ON CONFLICT (user_id)
+  DO UPDATE SET
+    plan           = p_plan,
+    status         = 'active',
+    payment_status = 'verified',
+    updated_at     = now();
+END;
+$$;
+
+-- Unique constraint on user_id (subscriptions should be 1-per-user)
+ALTER TABLE public.subscriptions
+  DROP CONSTRAINT IF EXISTS subscriptions_user_id_unique;
+ALTER TABLE public.subscriptions
+  ADD CONSTRAINT subscriptions_user_id_unique UNIQUE (user_id);
