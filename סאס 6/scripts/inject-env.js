@@ -16,6 +16,7 @@ const VARS = {
   SUPABASE_ANON_KEY:     process.env.SUPABASE_ANON_KEY     || '',
   GOOGLE_OAUTH_CLIENT_ID:process.env.GOOGLE_OAUTH_CLIENT_ID|| '',
   META_APP_ID:           process.env.META_APP_ID           || '',
+  META_PIXEL_ID:         process.env.META_PIXEL_ID         || '',
   STRIPE_PRICE_STARTER:  process.env.STRIPE_PRICE_STARTER  || '',
   STRIPE_PRICE_PRO:      process.env.STRIPE_PRICE_PRO      || '',
   STRIPE_PRICE_AGENCY:   process.env.STRIPE_PRICE_AGENCY   || '',

@@ -1,11 +1,12 @@
 /* ════════════════════════════════════════════════════════════════
    CampaignAI — Single-Page Application
-   Uses Supabase Auth + custom Netlify Functions API
+   Multi-tenant: every user's data is isolated via their own OAuth tokens.
+   API calls go through Netlify Functions (never direct from .env keys).
    ════════════════════════════════════════════════════════════════ */
 
-// ── Config (injected at build or stored in meta tags) ────────────────────────
+// ── Config ────────────────────────────────────────────────────────────────────
 const CONFIG = {
-  supabaseUrl: window.__SUPABASE_URL__ || '',  // set via Netlify env injection
+  supabaseUrl: window.__SUPABASE_URL__      || '',
   supabaseKey: window.__SUPABASE_ANON_KEY__ || '',
   apiBase:     '/.netlify/functions',
 };
@@ -16,12 +17,16 @@ const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let state = {
-  user:         null,
-  profile:      null,
-  subscription: null,
-  campaigns:    [],
-  currentPage:  'dashboard',
+  user:              null,
+  profile:           null,
+  subscription:      null,
+  campaigns:         [],
+  integrations:      [],    // [{provider, connection_status, last_sync_at, account_name}]
+  liveStats:         {},    // { google_ads: {metrics,fetchedAt}, ga4: {...}, meta: {...} }
+  liveStatsLoading:  false,
+  currentPage:       'dashboard',
   currentCampaignId: null,
+  accessToken:       null,
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -40,6 +45,9 @@ function navigate(page, params = {}) {
 }
 
 // ── API helper ────────────────────────────────────────────────────────────────
+// All requests carry the user's Supabase JWT.
+// Netlify Functions validate this token and look up the user's own OAuth credentials.
+// No .env API keys are ever exposed to or used by the frontend.
 async function api(method, path, body) {
   const token = state.accessToken || '';
   const res = await fetch(`${CONFIG.apiBase}/${path}`, {
@@ -48,7 +56,7 @@ async function api(method, path, body) {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    ...(body ? { body: JSON.stringify(body) } : {}),
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
@@ -122,7 +130,6 @@ function renderAuth() {
     const errEl = document.getElementById('auth-error');
     btn.disabled = true; btn.textContent = 'טוען...';
     errEl.style.display = 'none';
-
     try {
       if (mode === 'signup') {
         const { error } = await sb.auth.signUp({ email, password: pass, options: { data: { name } } });
@@ -140,7 +147,7 @@ function renderAuth() {
   });
 }
 
-// ── Shell (sidebar + main) ────────────────────────────────────────────────────
+// ── Shell ─────────────────────────────────────────────────────────────────────
 function renderShell(content) {
   const navItems = [
     { id: 'dashboard',    icon: '📊', label: 'דשבורד' },
@@ -150,7 +157,6 @@ function renderShell(content) {
     { id: 'settings',     icon: '⚙️', label: 'הגדרות' },
   ];
   const initials = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
-
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
@@ -174,7 +180,6 @@ function renderShell(content) {
       </aside>
       <main class="main-content" id="page-content">${content}</main>
     </div>`;
-
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
     el.addEventListener('click', () => navigate(el.dataset.page));
   });
@@ -182,8 +187,40 @@ function renderShell(content) {
 
 async function handleLogout() {
   await sb.auth.signOut();
-  state = { user: null, profile: null, subscription: null, campaigns: [], currentPage: 'dashboard', currentCampaignId: null };
+  state = { user: null, profile: null, subscription: null, campaigns: [], integrations: [], liveStats: {}, liveStatsLoading: false, currentPage: 'dashboard', currentCampaignId: null, accessToken: null };
   renderAuth();
+}
+
+// ── Live stats loader ─────────────────────────────────────────────────────────
+/**
+ * Fetch live metrics for each connected provider via /get-ads-data.
+ * This calls through the Netlify Function using the user's JWT.
+ * The function decrypts the user's own OAuth tokens server-side —
+ * no API keys are ever in the frontend or .env.
+ */
+async function loadLiveStats(forceRefresh = false) {
+  const connectedProviders = (state.integrations || [])
+    .filter(i => i.connection_status === 'active')
+    .map(i => i.provider);
+
+  if (!connectedProviders.length) return;
+
+  state.liveStatsLoading = true;
+  const results = {};
+
+  await Promise.allSettled(
+    connectedProviders.map(async (provider) => {
+      try {
+        const data = await api('POST', 'get-ads-data', { provider, forceRefresh });
+        results[provider] = data;
+      } catch (err) {
+        results[provider] = { error: err.message };
+      }
+    })
+  );
+
+  state.liveStats        = results;
+  state.liveStatsLoading = false;
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -191,17 +228,25 @@ async function renderDashboard() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
   let analysis = [];
   try {
-    const { data: { session } } = await sb.auth.getSession();
-    if (session) {
-      // Load recent analysis results
-      const { data } = await sb.from('analysis_results').select('*').eq('user_id', state.user.id)
-        .order('created_at', { ascending: false }).limit(5);
-      analysis = data || [];
-    }
+    const { data } = await sb.from('analysis_results')
+      .select('*')
+      .eq('user_id', state.user.id)
+      .order('created_at', { ascending: false })
+      .limit(5);
+    analysis = data || [];
   } catch {}
 
-  const plan   = state.subscription?.plan || 'free';
+  // Load integrations list if not already loaded
+  if (!state.integrations.length) {
+    try {
+      const res = await api('GET', 'integration-connect');
+      state.integrations = Array.isArray(res) ? res : [];
+    } catch {}
+  }
+
+  const plan      = state.subscription?.plan || 'free';
   const planBadge = { free: 'badge-gray', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
+  const connectedCount = state.integrations.filter(i => i.connection_status !== 'revoked').length;
 
   renderShell(`
     <div class="page-header flex items-center justify-between">
@@ -212,7 +257,7 @@ async function renderDashboard() {
       <span class="badge ${planBadge[plan] || 'badge-gray'}">${plan.toUpperCase()}</span>
     </div>
 
-    ${!state.profile?.onboardingCompleted ? renderOnboarding() : ''}
+    ${!state.profile?.onboarding_completed ? renderOnboarding() : ''}
 
     <div class="stats-grid">
       <div class="stat-card">
@@ -225,9 +270,22 @@ async function renderDashboard() {
       </div>
       <div class="stat-card">
         <div class="stat-label">ציון ממוצע</div>
-        <div class="stat-value">${analysis.length ? Math.round(analysis.reduce((s,a) => s + (a.scores?.overall || 0), 0) / analysis.length) : '—'}</div>
+        <div class="stat-value">${analysis.length ? Math.round(analysis.reduce((s, a) => s + (a.scores?.overall || 0), 0) / analysis.length) : '—'}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">אינטגרציות פעילות</div>
+        <div class="stat-value">${connectedCount}</div>
       </div>
     </div>
+
+    ${connectedCount > 0 ? `
+    <div class="card mb-4">
+      <div class="card-title flex items-center justify-between">
+        <span>📡 נתונים חיים</span>
+        <button class="btn btn-sm btn-secondary" onclick="refreshLiveStats()" id="refresh-stats-btn">רענן</button>
+      </div>
+      <div id="live-stats-container">${renderLiveStatsContent()}</div>
+    </div>` : ''}
 
     ${analysis.length > 0 ? `
     <div class="card">
@@ -255,13 +313,90 @@ async function renderDashboard() {
       <button class="btn btn-primary" style="width:auto;padding:0.625rem 1.5rem" onclick="navigate('integrations')">חבר אינטגרציות</button>
     </div>`}
   `);
+
+  // Fetch live stats in background after render
+  if (connectedCount > 0 && !state.liveStatsLoading) {
+    loadLiveStats().then(() => {
+      const container = document.getElementById('live-stats-container');
+      if (container) container.innerHTML = renderLiveStatsContent();
+    });
+  }
+}
+
+function renderLiveStatsContent() {
+  const providers = {
+    google_ads: { label: 'Google Ads', icon: '🟢' },
+    ga4:        { label: 'GA4',        icon: '📈' },
+    meta:       { label: 'Meta Ads',   icon: '🔵' },
+  };
+
+  if (state.liveStatsLoading) {
+    return '<div class="text-muted text-sm" style="padding:1rem">טוען נתונים חיים...</div>';
+  }
+
+  const connected = (state.integrations || []).filter(i => i.connection_status !== 'revoked');
+  if (!connected.length) {
+    return '<div class="text-muted text-sm" style="padding:1rem">אין אינטגרציות פעילות</div>';
+  }
+
+  return `<div class="stats-grid" style="margin-top:0.5rem">
+    ${connected.map(integ => {
+      const p    = providers[integ.provider] || { label: integ.provider, icon: '🔗' };
+      const data = state.liveStats[integ.provider];
+      if (!data) {
+        return `
+          <div class="stat-card" style="min-width:0">
+            <div class="stat-label">${p.icon} ${p.label}</div>
+            <div class="text-muted text-xs">לא נטען</div>
+          </div>`;
+      }
+      if (data.error) {
+        return `
+          <div class="stat-card" style="min-width:0">
+            <div class="stat-label">${p.icon} ${p.label}</div>
+            <div class="text-xs" style="color:#ef4444">${data.error}</div>
+          </div>`;
+      }
+
+      const metrics = Array.isArray(data.metrics) ? data.metrics : [];
+      const totalClicks  = metrics.reduce((s, r) => s + (r.clicks       || 0), 0);
+      const totalImpress = metrics.reduce((s, r) => s + (r.impressions   || 0), 0);
+      const totalSpend   = metrics.reduce((s, r) => s + (r.spend || r.costMicros / 1e6 || 0), 0);
+      const totalConv    = metrics.reduce((s, r) => s + (r.conversions   || 0), 0);
+
+      return `
+        <div class="stat-card" style="min-width:0">
+          <div class="stat-label">${p.icon} ${p.label}</div>
+          <div style="font-size:0.8rem;margin-top:0.5rem">
+            <div class="flex justify-between"><span class="text-muted">קליקים</span><strong>${totalClicks.toLocaleString()}</strong></div>
+            <div class="flex justify-between"><span class="text-muted">חשיפות</span><strong>${totalImpress.toLocaleString()}</strong></div>
+            ${totalSpend > 0 ? `<div class="flex justify-between"><span class="text-muted">הוצאה</span><strong>$${totalSpend.toFixed(0)}</strong></div>` : ''}
+            ${totalConv > 0  ? `<div class="flex justify-between"><span class="text-muted">המרות</span><strong>${totalConv.toLocaleString()}</strong></div>` : ''}
+          </div>
+          <div class="text-xs text-muted" style="margin-top:0.5rem">
+            ${data.cached ? '📦 מהמטמון' : '🔄 עכשיו'}
+            ${data.fetchedAt ? ' · ' + new Date(data.fetchedAt).toLocaleTimeString('he-IL') : ''}
+          </div>
+        </div>`;
+    }).join('')}
+  </div>`;
+}
+
+async function refreshLiveStats() {
+  const btn = document.getElementById('refresh-stats-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'מרענן...'; }
+  const container = document.getElementById('live-stats-container');
+  if (container) container.innerHTML = '<div class="text-muted text-sm" style="padding:1rem">טוען נתונים חיים...</div>';
+  await loadLiveStats(true);
+  if (container) container.innerHTML = renderLiveStatsContent();
+  if (btn) { btn.disabled = false; btn.textContent = 'רענן'; }
 }
 
 function renderOnboarding() {
   const steps = [
-    { id: 'connect_integration', label: 'חבר אינטגרציה', desc: 'חבר Google Ads, Meta, או GA4', icon: '🔌' },
-    { id: 'create_campaign',     label: 'צור קמפיין',    desc: 'הוסף קמפיין לניתוח',           icon: '📢' },
-    { id: 'run_first_analysis',  label: 'הרץ ניתוח',     desc: 'קבל תובנות והמלצות',           icon: '🧠' },
+    { label: 'חבר אינטגרציה', desc: 'חבר Google Ads, Meta, או GA4', icon: '🔌' },
+    { label: 'צור קמפיין',    desc: 'הוסף קמפיין לניתוח',           icon: '📢' },
+    { label: 'הרץ ניתוח',     desc: 'קבל תובנות והמלצות',           icon: '🧠' },
   ];
   return `
     <div class="card mb-4">
@@ -358,8 +493,7 @@ async function runAnalysis(campaignId) {
   try {
     toast('מריץ ניתוח...', 'info');
     const job = await api('POST', 'enqueue-sync-job', { campaignId });
-    toast('המשימה נקלטה, מעבד...', 'success');
-    // Poll for result
+    toast('המשימה נקלטה — מושך נתונים חיים ומנתח...', 'success');
     pollJobStatus(job.jobId, campaignId);
   } catch (err) {
     toast(err.message || 'שגיאה בהרצת ניתוח', 'error');
@@ -391,31 +525,14 @@ async function pollJobStatus(jobId, campaignId) {
 async function showCampaignDetail(campaignId) {
   state.currentCampaignId = campaignId;
   const campaign = state.campaigns.find(c => c.id === campaignId) || { id: campaignId, name: campaignId };
-
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
-  let analyses = [];
-  let recommendations = [];
-  let latestVerdict = null;
-
+  let analyses = [], recommendations = [], latestVerdict = null;
   try {
     const [analysisRes, recoRes, decisionRes] = await Promise.all([
-      sb.from('analysis_results')
-        .select('*')
-        .eq('user_id', state.user.id)
-        .eq('campaign_id', campaignId)
-        .order('created_at', { ascending: false })
-        .limit(5),
-      sb.from('recommendations')
-        .select('*')
-        .eq('campaign_id', campaignId)
-        .order('priority_score', { ascending: false })
-        .limit(10),
-      sb.from('decision_history')
-        .select('verdict, reason, confidence, timestamp')
-        .eq('campaign_id', campaignId)
-        .order('timestamp', { ascending: false })
-        .limit(1),
+      sb.from('analysis_results').select('*').eq('user_id', state.user.id).eq('campaign_id', campaignId).order('created_at', { ascending: false }).limit(5),
+      sb.from('recommendations').select('*').eq('campaign_id', campaignId).order('priority_score', { ascending: false }).limit(10),
+      sb.from('decision_history').select('verdict, reason, confidence, timestamp').eq('campaign_id', campaignId).order('timestamp', { ascending: false }).limit(1),
     ]);
     analyses        = analysisRes.data  || [];
     recommendations = recoRes.data      || [];
@@ -423,22 +540,16 @@ async function showCampaignDetail(campaignId) {
   } catch {}
 
   const latest = analyses[0];
-
   const verdictLabel = {
-    healthy:           { text: 'בריא',          cls: 'badge-green'  },
-    needs_work:        { text: 'דורש שיפור',    cls: 'badge-yellow' },
-    critical:          { text: 'קריטי',         cls: 'badge-red'    },
-    paused:            { text: 'מושהה',          cls: 'badge-gray'   },
+    healthy:           { text: 'בריא',         cls: 'badge-green'  },
+    needs_work:        { text: 'דורש שיפור',   cls: 'badge-yellow' },
+    critical:          { text: 'קריטי',        cls: 'badge-red'    },
+    paused:            { text: 'מושהה',         cls: 'badge-gray'   },
+    'no-traffic':      { text: 'אין תנועה',    cls: 'badge-yellow' },
     insufficient_data: { text: 'נתונים חסרים', cls: 'badge-blue'   },
   };
-
-  const scoreLabels = {
-    traffic: 'תנועה', ctr: 'CTR', conversion: 'המרה', roas: 'ROAS', coverage: 'כיסוי',
-  };
-
-  const vl = latestVerdict
-    ? (verdictLabel[latestVerdict.verdict] || { text: latestVerdict.verdict, cls: 'badge-gray' })
-    : null;
+  const scoreLabels = { traffic: 'תנועה', ctr: 'CTR', conversion: 'המרה', roas: 'ROAS', coverage: 'כיסוי' };
+  const vl = latestVerdict ? (verdictLabel[latestVerdict.verdict] || { text: latestVerdict.verdict, cls: 'badge-gray' }) : null;
 
   const scoresHtml = latest?.scores ? `
     <div class="stats-grid" style="margin-bottom:1rem">
@@ -447,11 +558,8 @@ async function showCampaignDetail(campaignId) {
       ).join('')}
     </div>` : '';
 
-  const urgencyLabel = { 100: 'דחוף מאוד', 85: 'דחוף', 70: 'גבוה', 65: 'בינוני', 30: 'נמוך' };
   function urgencyText(u) {
-    const levels = [100, 85, 70, 65, 30];
-    const match = levels.find(l => u >= l);
-    return urgencyLabel[match] || 'נמוך';
+    if (u >= 90) return 'קריטי'; if (u >= 75) return 'דחוף'; if (u >= 60) return 'גבוה'; if (u >= 40) return 'בינוני'; return 'נמוך';
   }
 
   const recoHtml = recommendations.length ? `
@@ -459,8 +567,8 @@ async function showCampaignDetail(campaignId) {
       <div class="card-title">המלצות לפעולה</div>
       <div class="reco-list">
         ${recommendations.map(r => `
-          <div class="reco-item" style="border-right:3px solid ${r.urgency >= 85 ? '#ef4444' : r.urgency >= 65 ? '#f59e0b' : '#6366f1'};padding-right:0.75rem;margin-bottom:1rem">
-            <div class="reco-issue" style="font-weight:600;margin-bottom:0.25rem">${r.issue}</div>
+          <div style="border-right:3px solid ${r.urgency >= 85 ? '#ef4444' : r.urgency >= 65 ? '#f59e0b' : '#6366f1'};padding-right:0.75rem;margin-bottom:1rem">
+            <div style="font-weight:600;margin-bottom:0.25rem">${r.issue}</div>
             <div class="text-sm text-muted" style="margin-bottom:0.25rem">${r.root_cause}</div>
             <div class="text-sm" style="margin-bottom:0.25rem"><strong>פעולה:</strong> ${r.action}</div>
             <div class="text-sm" style="margin-bottom:0.25rem"><strong>תוצאה צפויה:</strong> ${r.expected_impact}</div>
@@ -469,6 +577,20 @@ async function showCampaignDetail(campaignId) {
               <span class="badge badge-gray" style="font-size:0.7rem">מאמץ: ${r.effort <= 25 ? 'נמוך' : r.effort <= 50 ? 'בינוני' : 'גבוה'}</span>
             </div>
           </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  // Raw metrics from latest analysis
+  const metricsHtml = latest?.metrics && Object.keys(latest.metrics).length ? `
+    <div class="card mt-4">
+      <div class="card-title">מדדים גולמיים</div>
+      <div class="stats-grid" style="margin-top:0.5rem">
+        ${latest.metrics.impressions !== undefined ? `<div class="stat-card"><div class="stat-label">חשיפות</div><div class="stat-value" style="font-size:1rem">${Number(latest.metrics.impressions).toLocaleString()}</div></div>` : ''}
+        ${latest.metrics.clicks !== undefined      ? `<div class="stat-card"><div class="stat-label">קליקים</div><div class="stat-value" style="font-size:1rem">${Number(latest.metrics.clicks).toLocaleString()}</div></div>` : ''}
+        ${latest.metrics.spend > 0                ? `<div class="stat-card"><div class="stat-label">הוצאה</div><div class="stat-value" style="font-size:1rem">$${Number(latest.metrics.spend).toFixed(0)}</div></div>` : ''}
+        ${latest.metrics.conversions > 0          ? `<div class="stat-card"><div class="stat-label">המרות</div><div class="stat-value" style="font-size:1rem">${Number(latest.metrics.conversions).toLocaleString()}</div></div>` : ''}
+        ${latest.metrics.roas > 0                 ? `<div class="stat-card"><div class="stat-label">ROAS</div><div class="stat-value" style="font-size:1rem">${Number(latest.metrics.roas).toFixed(2)}x</div></div>` : ''}
+        ${latest.metrics.ctr > 0                  ? `<div class="stat-card"><div class="stat-label">CTR</div><div class="stat-value" style="font-size:1rem">${(Number(latest.metrics.ctr) * 100).toFixed(2)}%</div></div>` : ''}
       </div>
     </div>` : '';
 
@@ -508,9 +630,11 @@ async function showCampaignDetail(campaignId) {
           ${renderScoreBadge(latest.scores?.overall || 0)}
           ${vl ? `<div class="mt-2"><span class="badge ${vl.cls}">${vl.text}</span></div>` : ''}
           ${latestVerdict?.reason ? `<div class="text-sm text-muted mt-2">${latestVerdict.reason}</div>` : ''}
+          <div class="text-xs text-muted mt-2">ביטחון: ${latest.confidence || 0}%</div>
         </div>
       </div>
       ${scoresHtml}
+      ${metricsHtml}
       ${recoHtml}
     </div>` : `
     <div class="card text-center" style="padding:3rem">
@@ -537,51 +661,87 @@ async function showCampaignDetail(campaignId) {
 }
 
 // ── Integrations ──────────────────────────────────────────────────────────────
+/**
+ * This page manages the per-user OAuth connections.
+ * Clicking "חבר" triggers a full server-side OAuth flow:
+ *   1. Frontend calls /oauth-nonce (creates a CSRF token tied to this user)
+ *   2. Frontend redirects to Google/Meta consent screen with state={userId, provider, nonce}
+ *   3. Provider redirects to /.netlify/functions/oauth-callback-{provider}
+ *   4. The callback exchanges the authorization code for tokens SERVER-SIDE
+ *   5. Tokens are AES-256-GCM encrypted and stored in user_integrations (Supabase)
+ *   6. The user is redirected back to /integrations?connected=<provider>
+ *
+ * The authorization code and refresh/access tokens NEVER touch the frontend.
+ */
 async function renderIntegrations() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
-  let connected = [];
+
   try {
     const res = await api('GET', 'integration-connect');
-    connected = Array.isArray(res) ? res.map(i => i.provider) : [];
+    state.integrations = Array.isArray(res) ? res : [];
   } catch {}
 
-  // Handle OAuth success/error from URL params
+  // Handle OAuth redirect result
   const params = new URLSearchParams(window.location.search);
-  if (params.get('connected')) toast(`${params.get('connected')} חובר בהצלחה!`, 'success');
+  if (params.get('connected')) toast(`${params.get('connected')} חובר בהצלחה! 🎉`, 'success');
   if (params.get('error'))     toast(`שגיאה: ${params.get('error')}`, 'error');
   window.history.replaceState({}, '', window.location.pathname);
 
-  const integrations = [
-    { provider: 'google_ads', name: 'Google Ads', icon: '🟢', desc: 'ניתוח קמפיינים בגוגל' },
-    { provider: 'meta',       name: 'Meta Ads',   icon: '🔵', desc: 'פייסבוק ואינסטגרם' },
-    { provider: 'ga4',        name: 'Google Analytics 4', icon: '📈', desc: 'ניתוח תנועת אתר' },
+  const integrationDefs = [
+    { provider: 'google_ads', name: 'Google Ads',          icon: '🟢', desc: 'ניתוח קמפיינים בגוגל' },
+    { provider: 'meta',       name: 'Meta Ads',            icon: '🔵', desc: 'פייסבוק ואינסטגרם' },
+    { provider: 'ga4',        name: 'Google Analytics 4',  icon: '📈', desc: 'ניתוח תנועת אתר' },
   ];
+
+  const connectedMap = new Map(state.integrations.map(i => [i.provider, i]));
+
+  const statusBadge = (integ) => {
+    if (!integ) return '';
+    if (integ.connection_status === 'error')   return '<span class="badge badge-red" style="font-size:0.7rem">שגיאה</span>';
+    if (integ.connection_status === 'expired') return '<span class="badge badge-yellow" style="font-size:0.7rem">פג תוקף</span>';
+    return '<span class="badge badge-green" style="font-size:0.7rem">✓ פעיל</span>';
+  };
 
   renderShell(`
     <div class="page-header">
       <h1 class="page-title">אינטגרציות</h1>
-      <p class="page-subtitle">חבר את חשבונות הפרסום שלך</p>
+      <p class="page-subtitle">חבר את חשבונות הפרסום שלך — כל חשבון שמור מוצפן בנפרד לכל משתמש</p>
     </div>
     <div class="integration-grid">
-      ${integrations.map(int => {
-        const isConn = connected.includes(int.provider);
+      ${integrationDefs.map(def => {
+        const integ  = connectedMap.get(def.provider);
+        const isConn = !!integ;
         return `
           <div class="integration-card ${isConn ? 'connected' : ''}">
             <div class="integration-header">
-              <div class="integration-icon">${int.icon}</div>
+              <div class="integration-icon">${def.icon}</div>
               <div>
-                <div class="integration-name">${int.name}</div>
-                <div class="integration-desc">${int.desc}</div>
+                <div class="integration-name">${def.name}</div>
+                <div class="integration-desc">${def.desc}</div>
               </div>
             </div>
-            ${isConn
-              ? `<div class="flex items-center justify-between">
-                  <span class="badge badge-green">✓ מחובר</span>
-                  <button class="btn btn-sm btn-danger" onclick="disconnectIntegration('${int.provider}')">נתק</button>
-                </div>`
-              : `<button class="btn btn-primary" onclick="connectIntegration('${int.provider}')">חבר</button>`}
+            ${isConn ? `
+              <div class="flex items-center justify-between mb-2">
+                ${statusBadge(integ)}
+                <button class="btn btn-sm btn-danger" onclick="disconnectIntegration('${def.provider}')">נתק</button>
+              </div>
+              ${integ.account_name ? `<div class="text-xs text-muted">חשבון: ${integ.account_name}</div>` : ''}
+              ${integ.last_sync_at ? `<div class="text-xs text-muted">סנכרון: ${new Date(integ.last_sync_at).toLocaleString('he-IL')}</div>` : ''}
+              ${integ.last_error   ? `<div class="text-xs" style="color:#ef4444;margin-top:0.25rem">שגיאה: ${integ.last_error}</div>` : ''}
+              ${(integ.connection_status === 'error' || integ.connection_status === 'expired')
+                ? `<button class="btn btn-sm btn-primary mt-2" onclick="connectIntegration('${def.provider}')">חבר מחדש</button>` : ''}
+            ` : `<button class="btn btn-primary" onclick="connectIntegration('${def.provider}')">חבר</button>`}
           </div>`;
       }).join('')}
+    </div>
+
+    <div class="card mt-6" style="background:#f8fafc;border:1px solid #e2e8f0">
+      <div class="card-title" style="font-size:0.875rem">🔐 אבטחת הנתונים שלך</div>
+      <p class="text-sm text-muted">
+        כל token מאוחסן מוצפן עם AES-256-GCM ייחודי לחשבונך.
+        הטוקנים לעולם לא נחשפים לדפדפן — קריאות ה-API מתבצעות מהשרת בלבד.
+        הפרדת הנתונים בין משתמשים מובטחת ע"י Row Level Security ב-Supabase.
+      </p>
     </div>
   `);
 }
@@ -589,7 +749,7 @@ async function renderIntegrations() {
 async function connectIntegration(provider) {
   const { data: { session } } = await sb.auth.getSession();
   const userId = session?.user?.id;
-  if (!userId) return;
+  if (!userId) { toast('עליך להיות מחובר', 'error'); return; }
 
   let nonce;
   try {
@@ -601,7 +761,8 @@ async function connectIntegration(provider) {
   }
 
   const appUrl  = window.location.origin;
-  const state64 = btoa(JSON.stringify({ userId, provider, nonce })).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+  const state64 = btoa(JSON.stringify({ userId, provider, nonce }))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 
   if (provider === 'google_ads' || provider === 'ga4') {
     const clientId    = window.__GOOGLE_CLIENT_ID__ || '';
@@ -609,21 +770,22 @@ async function connectIntegration(provider) {
       ? 'https://www.googleapis.com/auth/analytics.readonly'
       : 'https://www.googleapis.com/auth/adwords';
     const redirectUri = `${appUrl}/.netlify/functions/oauth-callback-google`;
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${state64}&access_type=offline&prompt=consent`;
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${state64}&access_type=offline&prompt=consent`;
     window.location.href = url;
   } else if (provider === 'meta') {
     const appId       = window.__META_APP_ID__ || '';
     const redirectUri = `${appUrl}/.netlify/functions/oauth-callback-meta`;
     const scope       = 'ads_read,ads_management,read_insights';
-    const url = `https://www.facebook.com/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&state=${state64}`;
+    const url = `https://www.facebook.com/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&state=${state64}`;
     window.location.href = url;
   }
 }
 
 async function disconnectIntegration(provider) {
-  if (!confirm(`נתק ${provider}?`)) return;
+  if (!confirm(`נתק ${provider}? תצטרך להתחבר מחדש כדי להמשיך.`)) return;
   try {
     await api('DELETE', 'integration-connect', { provider });
+    state.integrations = state.integrations.filter(i => i.provider !== provider);
     toast('האינטגרציה נותקה', 'success');
     navigate('integrations');
   } catch (err) {
@@ -634,7 +796,7 @@ async function disconnectIntegration(provider) {
 // ── Billing ───────────────────────────────────────────────────────────────────
 async function renderBilling() {
   const params = new URLSearchParams(window.location.search);
-  if (params.get('success')) toast('המנוי הופעל בהצלחה! 🎉', 'success');
+  if (params.get('success'))  toast('המנוי הופעל בהצלחה! 🎉', 'success');
   if (params.get('canceled')) toast('החיוב בוטל', 'info');
   window.history.replaceState({}, '', window.location.pathname);
 
@@ -648,7 +810,6 @@ async function renderBilling() {
   ];
 
   const currentPlan = state.subscription?.plan || 'free';
-
   renderShell(`
     <div class="page-header">
       <h1 class="page-title">תוכניות וחיוב</h1>
@@ -668,9 +829,7 @@ async function renderBilling() {
           ${p.popular ? '<div class="plan-popular-badge">פופולרי</div>' : ''}
           <div class="plan-name">${p.name}</div>
           <div class="plan-price">$${p.price}<span>/חודש</span></div>
-          <ul class="plan-features">
-            ${p.features.map(f => `<li>${f}</li>`).join('')}
-          </ul>
+          <ul class="plan-features">${p.features.map(f => `<li>${f}</li>`).join('')}</ul>
           ${currentPlan === p.id
             ? `<button class="btn btn-secondary w-full" disabled>התוכנית הנוכחית</button>`
             : `<button class="btn btn-primary w-full" onclick="startCheckout('${p.priceVar}')">בחר ${p.name}</button>`}
@@ -720,13 +879,12 @@ async function renderSettings() {
           <button type="submit" class="btn btn-primary" style="width:auto">שמור שינויים</button>
         </form>
       </div>
-
       <div class="card">
         <div class="card-title">פרטיות ונתונים (GDPR)</div>
         <p class="text-sm text-muted mb-4">הורד עותק של כל הנתונים שלנו עליך.</p>
         <div class="flex gap-2">
           <button class="btn btn-secondary" onclick="exportData()">📥 ייצוא נתונים</button>
-          <button class="btn btn-danger" onclick="deleteAccount()">🗑 מחיקת חשבון</button>
+          <button class="btn btn-danger"    onclick="deleteAccount()">🗑 מחיקת חשבון</button>
         </div>
       </div>
     </div>
@@ -770,7 +928,7 @@ async function deleteAccount() {
     await api('POST', 'account-delete', { confirmation: 'DELETE' });
     toast('החשבון נמחק.', 'info');
     await sb.auth.signOut();
-    state = { user: null, profile: null, subscription: null, campaigns: [], currentPage: 'dashboard', currentCampaignId: null };
+    state = { user: null, profile: null, subscription: null, campaigns: [], integrations: [], liveStats: {}, liveStatsLoading: false, currentPage: 'dashboard', currentCampaignId: null, accessToken: null };
     renderAuth();
   } catch (err) {
     toast(err.message || 'שגיאה', 'error');
@@ -788,8 +946,8 @@ function keepAlive() {
   setInterval(() => {
     fetch(window.__SUPABASE_URL__ + '/rest/v1/profiles?select=id&limit=1', {
       headers: {
-        'apikey': window.__SUPABASE_ANON_KEY__,
-        'Authorization': 'Bearer ' + window.__SUPABASE_ANON_KEY__
+        'apikey':        window.__SUPABASE_ANON_KEY__,
+        'Authorization': 'Bearer ' + window.__SUPABASE_ANON_KEY__,
       }
     }).catch(() => {});
   }, 4 * 60 * 1000);
@@ -797,25 +955,24 @@ function keepAlive() {
 
 function resolveInitialPage() {
   const params = new URLSearchParams(window.location.search);
-  // After Stripe checkout redirect
   if (params.has('success') || params.has('canceled') || params.has('session_id')) return 'billing';
-  // After OAuth redirect
-  if (params.has('connected') || (params.has('error') && window.location.pathname.includes('integrations'))) return 'integrations';
+  if (params.has('connected') || (params.has('error') && window.location.search)) return 'integrations';
   return 'dashboard';
 }
 
 async function boot() {
   const initialPage = resolveInitialPage();
 
-  // Wake up Supabase before anything else (free tier sleeps)
   await fetch(window.__SUPABASE_URL__ + '/rest/v1/', {
     headers: { 'apikey': window.__SUPABASE_ANON_KEY__ }
   }).catch(() => {});
 
   sb.auth.onAuthStateChange(async (event, session) => {
     if (!session) { renderAuth(); return; }
+
     state.user        = session.user;
     state.accessToken = session.access_token;
+
     try {
       const [profile, sub] = await Promise.all([
         sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(r => r.data),
@@ -823,9 +980,10 @@ async function boot() {
       ]);
       state.profile      = profile || {};
       state.subscription = sub    || { plan: 'free' };
+
       const { data: camps } = await sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id);
       state.campaigns = camps || [];
-    } catch (e) {
+    } catch {
       state.profile      = {};
       state.subscription = { plan: 'free' };
       state.campaigns    = [];
@@ -837,17 +995,14 @@ async function boot() {
     }
   });
 
-  // Fallback: if Supabase takes too long, show auth screen after 8s
   setTimeout(() => {
-    if (document.querySelector('.loading-screen') &&
-        document.querySelector('.loading-screen').style.display !== 'none') {
-      renderAuth();
-    }
+    if (document.querySelector('.loading-screen')) renderAuth();
   }, 8000);
 
   keepAlive();
 }
 
+// ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
 window.showAddCampaignModal  = showAddCampaignModal;
@@ -861,5 +1016,6 @@ window.openBillingPortal     = openBillingPortal;
 window.saveProfile           = saveProfile;
 window.exportData            = exportData;
 window.deleteAccount         = deleteAccount;
+window.refreshLiveStats      = refreshLiveStats;
 
 boot();
