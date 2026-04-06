@@ -8,8 +8,46 @@
 
 'use strict';
 
+const { dictionary }      = require('./dictionary');
+const { buildExplanation } = require('./explanationEngine');
+
 // ── Config (from engineConfig.ts) ─────────────────────────────────────────────
 const ENGINE_VERSION = '3.1.0';
+
+// ── Signal code → dictionary key mapping ─────────────────────────────────────
+const SIGNAL_DICT_MAP = {
+  creative_ctr_critical:  'low_ctr',
+  creative_ctr_low:       'low_ctr',
+  audience_fatigue:       'audience_mismatch',
+  landing_page_dropoff:   'landing_page_issue',
+  healthy_campaign:        null,
+  // budget_efficiency resolved dynamically from evidence below
+};
+
+function getDictKey(code, signal) {
+  if (code in SIGNAL_DICT_MAP) return SIGNAL_DICT_MAP[code];
+  if (code === 'budget_efficiency') {
+    const ev = (signal.evidence || []).join(' ');
+    return /ROAS/.test(ev) ? 'low_roas' : 'high_cpa';
+  }
+  return null;
+}
+
+/** Attach simple_label / simple_summary / first_action / learn_more from dictionary */
+function enrichSignal(signal) {
+  const dictKey = getDictKey(signal.code, signal);
+  if (!dictKey) return signal;
+  const entry = dictionary[dictKey];
+  if (!entry) return signal;
+  return {
+    ...signal,
+    dict_key:       dictKey,
+    simple_label:   entry.simple_label,
+    simple_summary: entry.simple_summary,
+    first_action:   entry.first_action,
+    learn_more:     entry.learn_more,
+  };
+}
 
 const engineConfig = {
   thresholds: {
@@ -169,12 +207,24 @@ function buildActions(signals) {
     const priority = base.impact * engineConfig.actionPriority.impactWeight
       + (10 - base.effort) * engineConfig.actionPriority.effortWeight
       + base.urgency       * engineConfig.actionPriority.urgencyWeight;
-    return { code: `${item.code}_action_${i + 1}`, ...base, priorityScore: Number(priority.toFixed(2)) };
+    // Carry dictionary enrichment from the signal into the action card
+    const dictFields = item.simple_label ? {
+      simple_label:   item.simple_label,
+      simple_summary: item.simple_summary,
+      first_action:   item.first_action,
+      learn_more:     item.learn_more,
+    } : {};
+    return {
+      code: `${item.code}_action_${i + 1}`,
+      ...base,
+      ...dictFields,
+      priorityScore: Number(priority.toFixed(2)),
+    };
   }).sort((a, b) => b.priorityScore - a.priorityScore);
 }
 
 function runDecisionEngine(metrics, computed) {
-  const issues    = detectSignals(metrics, computed);
+  const issues    = detectSignals(metrics, computed).map(enrichSignal);
   const top       = issues[0];
   const confidence = Number(Math.min(1, issues.reduce((s, i) => s + i.confidence, 0) / issues.length).toFixed(2));
   return {

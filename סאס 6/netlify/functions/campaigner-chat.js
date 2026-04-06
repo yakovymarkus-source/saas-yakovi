@@ -26,6 +26,7 @@ const { requireAuth }                           = require('./_shared/auth');
 const { AppError }                              = require('./_shared/errors');
 const { parseJsonBody }                         = require('./_shared/request');
 const { analyze }                               = require('./_shared/decision-engine');
+const { dictionary }                            = require('./_shared/dictionary');
 
 // ── Intent detection ──────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
@@ -107,6 +108,26 @@ function formatNum(n) { return Number(n || 0).toLocaleString('he-IL', { maximumF
 function fmtUSD(n)    { return `$${Number(n || 0).toFixed(2)}`; }
 function fmtPct(n)    { return `${(Number(n || 0) * 100).toFixed(2)}%`; }
 
+// ── Dictionary helpers ────────────────────────────────────────────────────────
+function dictLabel(key)   { return dictionary[key]?.simple_label            || key; }
+function dictSummary(key) { return dictionary[key]?.simple_summary          || ''; }
+function dictAction(key)  { return dictionary[key]?.first_action            || ''; }
+function dictDef(key)     { return dictionary[key]?.learn_more?.definition  || ''; }
+
+/** Format an enriched engine issue in plain Hebrew — no English jargon */
+function formatIssueBlock(issue) {
+  const label   = issue.simple_label   || dictLabel(issue.dict_key)   || issue.reason;
+  const summary = issue.simple_summary || dictSummary(issue.dict_key) || '';
+  const action  = issue.first_action   || dictAction(issue.dict_key)  || '';
+  const term    = issue.learn_more?.term;
+  const def     = issue.learn_more?.definition || (issue.dict_key ? dictDef(issue.dict_key) : '');
+  let block = `**${label}**\n`;
+  if (summary) block += `  _${summary}_\n`;
+  if (action)  block += `  ⚡ **פעולה ראשונה:** ${action}\n`;
+  if (term && def) block += `  📖 **${term}:** ${def}`;
+  return block;
+}
+
 // ── Response generators ─────────────────────────────────��─────────────────────
 
 function generateOverviewResponse(context) {
@@ -154,13 +175,16 @@ function generateOverviewResponse(context) {
   reply += sections.join('\n\n') + '\n\n';
 
   if (engineResult) {
-    const top = engineResult.issues[0];
+    const top    = engineResult.issues[0];
     const action = engineResult.prioritizedActions[0];
     const confidence = Math.round(engineResult.confidence * 100);
-    reply += `🔍 **ניתוח האלגוריתם (ביטחון ${confidence}%):**\n`;
-    reply += `  האות החזק ביותר: **${top.reason}**\n`;
-    if (top.evidence?.length) reply += `  עדות: ${top.evidence.join(' | ')}\n`;
-    reply += `\n⚡ **הפעולה הדחופה ביותר:**\n  ${action.title}\n  _${action.why}_\n  תוצאה צפויה: ${action.expectedImpact}`;
+    reply += `🔍 **הממצא המרכזי (ביטחון ${confidence}%):**\n`;
+    reply += formatIssueBlock(top) + '\n';
+    if (action.simple_label && action.simple_label !== action.title) {
+      reply += `\n✅ **תוצאה צפויה:** ${action.expectedImpact}`;
+    } else {
+      reply += `\n⚡ **הצעד הבא:** ${action.first_action || action.title}\n  ✅ ${action.expectedImpact}`;
+    }
   } else if (recentAnalysis) {
     const score = recentAnalysis.scores?.overall || 0;
     reply += `📊 **ניתוח אחרון:** ציון ${score}/100 | ביטחון ${recentAnalysis.confidence}%`;
@@ -321,7 +345,12 @@ function generateROASResponse(context) {
   const globalRoas = totalSpend > 0 ? totalRevenue / totalSpend : null;
   const verdict = globalRoas === null ? 'לא ניתן לחשב' : globalRoas >= 3 ? '🟢 מצוין!' : globalRoas >= 1.5 ? '🟡 סביר, יש מקום לשיפור' : '🔴 מתחת לסף הרווחיות';
 
-  const reply = `📊 **ניתוח ROAS:**\n\n${sections.join('\n')}\n\n**ROAS כולל: ${globalRoas ? globalRoas.toFixed(2) + 'x' : 'N/A'} — ${verdict}**\n\nהסף המינימלי לרווחיות הוא 1.5x. ROAS > 3x מצדיק סקייל.`;
+  const dictROAS = dictionary['low_roas'];
+  const roasExplain = (globalRoas !== null && globalRoas < 1.5 && dictROAS)
+    ? `\n\n💡 **${dictROAS.simple_label}**\n_${dictROAS.simple_summary}_\n\n⚡ **פעולה ראשונה:** ${dictROAS.first_action}\n📖 **ROAS:** ${dictROAS.learn_more.definition}`
+    : `\n\n📖 **ROAS:** ${dictROAS?.learn_more?.definition || 'כמה הכנסה נכנסה על כל שקל שהושקע בפרסום.'}`;
+
+  const reply = `📊 **ניתוח תשואת פרסום (ROAS):**\n\n${sections.join('\n')}\n\n**ROAS כולל: ${globalRoas ? globalRoas.toFixed(2) + 'x' : 'N/A'} — ${verdict}**${roasExplain}`;
   return { reply, quickActions: ['הצע הזזת תקציב', 'נתח את הקמפיינים שלי', 'נתח ביצועים כלליים'] };
 }
 
@@ -340,7 +369,13 @@ function generateCTRResponse(context) {
     sections.push(`  **${providerLabel(integ.provider)}:** CTR ${fmtPct(ctr)} ${grade}`);
   }
 
-  const reply = `📊 **ניתוח CTR:**\n\n${sections.join('\n')}\n\n📌 **ספים:**\n  • > 3% — מצוין\n  • 1.2–3% — בינוני (שפר קריאייטיב)\n  • < 0.8% — קריטי (החלף קריאייטיב מיד)\n\nCTR נמוך = המסר לא מדויק לקהל או שהקריאייטיב שחוק.`;
+  // Dictionary-driven explanation for low CTR
+  const dictCTR = dictionary['low_ctr'];
+  const ctrExplain = dictCTR
+    ? `\n\n💡 **${dictCTR.simple_label}**\n_${dictCTR.simple_summary}_\n\n⚡ **פעולה ראשונה:** ${dictCTR.first_action}\n📖 **CTR:** ${dictCTR.learn_more.definition}`
+    : '';
+
+  const reply = `📊 **ניתוח קליקים (CTR):**\n\n${sections.join('\n')}${ctrExplain}`;
   return { reply, quickActions: ['הצע הזזת תקציב', 'נתח הביצועים הכלליים', 'מה הפעולה הדחופה?'] };
 }
 
@@ -380,12 +415,17 @@ function generateRecsResponse(context) {
 
   let reply = `🎯 **המלצות מותאמות אישית (ביטחון ${confidence}%):**\n\n`;
   actions.forEach((a, i) => {
-    reply += `${i + 1}. **${a.title}**\n`;
-    reply += `   📌 _${a.why}_\n`;
-    reply += `   ✅ תוצאה צפויה: ${a.expectedImpact}\n`;
-    reply += `   📊 ציון עדיפות: ${a.priorityScore}/10\n\n`;
+    // Use simple_label from dictionary if available, else fall back to action title
+    const displayTitle = a.simple_label || a.title;
+    reply += `${i + 1}. **${displayTitle}**\n`;
+    if (a.simple_summary) reply += `   _${a.simple_summary}_\n`;
+    const firstAction = a.first_action || a.why;
+    reply += `   ⚡ ${firstAction}\n`;
+    reply += `   ✅ ${a.expectedImpact}\n\n`;
   });
-  reply += `🔍 **האות הדומיננטי:** ${result.issues[0].reason}`;
+  // Primary issue in plain language
+  const top = result.issues[0];
+  reply += `🔍 **הממצא הדומיננטי:**\n${formatIssueBlock(top)}`;
 
   return { reply, quickActions: ['נתח ביצועים כלליים', 'הצע הזזת תקציב', 'בדוק CTR'] };
 }
