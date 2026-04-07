@@ -95,6 +95,41 @@ function toast(msg, type = 'info') {
 function renderAuth() {
   document.getElementById('app').innerHTML = `
     <div class="auth-container">
+      <div class="auth-promo-panel">
+        <div class="auth-promo-logo">🧠 CampaignAI</div>
+        <h2 class="auth-promo-headline">הכלי שהפרסומאי הישראלי חיכה לו</h2>
+        <p class="auth-promo-sub">ניתוח מודעות בזמן אמת, המלצות AI בעברית, ובניית נכסים שיווקיים מנצחים — הכל במקום אחד.</p>
+        <div class="auth-promo-features">
+          <div class="auth-promo-feature">
+            <div class="auth-promo-feature-icon">📝</div>
+            <div class="auth-promo-feature-text">
+              <strong>תסריטי מודעות</strong>
+              <span>כתיבה אוטומטית לפייסבוק, אינסטגרם ויוטיוב</span>
+            </div>
+          </div>
+          <div class="auth-promo-feature">
+            <div class="auth-promo-feature-icon">📊</div>
+            <div class="auth-promo-feature-text">
+              <strong>ניתוח ביצועים חכם</strong>
+              <span>זיהוי בעיות CTR, ROAS, CPA בזמן אמת</span>
+            </div>
+          </div>
+          <div class="auth-promo-feature">
+            <div class="auth-promo-feature-icon">🎯</div>
+            <div class="auth-promo-feature-text">
+              <strong>אסטרטגיית פנל שלמה</strong>
+              <span>מחקר שוק, מתחרים וסגמנטציה</span>
+            </div>
+          </div>
+          <div class="auth-promo-feature">
+            <div class="auth-promo-feature-icon">🚀</div>
+            <div class="auth-promo-feature-text">
+              <strong>Early Bird ₪10 לחודש</strong>
+              <span>הטבת השקה מוגבלת לנרשמים הראשונים</span>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="auth-card">
         <div class="auth-logo">
           <h1>🧠 CampaignAI</h1>
@@ -121,6 +156,7 @@ function renderAuth() {
           <button type="submit" class="btn btn-primary mt-4" id="auth-submit">כניסה</button>
         </form>
       </div>
+    </div>
     </div>`;
 
   let mode = 'login';
@@ -163,31 +199,35 @@ function renderAuth() {
 function renderShell(content) {
   const navItems = [
     { id: 'dashboard',    icon: '📊', label: 'דשבורד' },
-    { id: 'campaigns',    icon: '📢', label: 'קמפיינים' },
+    { id: 'campaigns',    icon: '🎯', label: 'נכסים שיווקיים' },
     { id: 'integrations', icon: '🔌', label: 'אינטגרציות' },
     { id: 'billing',      icon: '💳', label: 'חיוב' },
     { id: 'settings',     icon: '⚙️', label: 'הגדרות' },
     ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול' }] : []),
   ];
-  const initials = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
+  const initials  = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
+  const sidebarPlan = state.subscription?.plan || 'free';
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="sidebar-logo">Campaign<span>AI</span></div>
+        <div class="sidebar-logo">
+          <div class="sidebar-logo-badge">🧠</div>
+          Campaign<span>AI</span>
+        </div>
         <nav class="sidebar-nav">
           ${navItems.map(n => `
             <div class="nav-item ${state.currentPage === n.id ? 'active' : ''}" data-page="${n.id}">
-              <span class="nav-icon">${n.icon}</span> ${n.label}
+              <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
             </div>`).join('')}
         </nav>
         <div class="sidebar-footer">
           <div class="flex items-center gap-2">
             <div class="user-avatar">${initials}</div>
-            <div style="flex:1;overflow:hidden">
-              <div class="text-sm font-semibold" style="color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${state.profile?.name || 'משתמש'}</div>
-              <div class="text-xs text-muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${state.user?.email || ''}</div>
+            <div style="flex:1;overflow:hidden;min-width:0">
+              <div class="text-sm font-semibold truncate" style="color:white">${state.profile?.name || 'משתמש'}</div>
+              <div class="plan-pill">${getPlanLabel(sidebarPlan)}</div>
             </div>
-            <button onclick="handleLogout()" class="btn btn-sm btn-secondary" style="font-size:0.75rem">יציאה</button>
+            <button onclick="handleLogout()" class="btn btn-sm btn-secondary" style="font-size:0.75rem;flex-shrink:0">יציאה</button>
           </div>
         </div>
       </aside>
@@ -236,6 +276,23 @@ async function loadLiveStats(forceRefresh = false) {
   state.liveStatsLoading = false;
 }
 
+// ── Donut SVG helper (real data, no fakes) ────────────────────────────────────
+function renderDonutSVG(used, max) {
+  if (!max || max === Infinity) return '';
+  const pct    = Math.min(100, Math.round((used / max) * 100));
+  const r      = 26;
+  const circ   = +(2 * Math.PI * r).toFixed(1);
+  const fill   = +(circ * pct / 100).toFixed(1);
+  const color  = pct >= 90 ? '#ef4444' : pct >= 70 ? '#f59e0b' : '#6366f1';
+  return `<svg width="68" height="68" viewBox="0 0 68 68" style="flex-shrink:0">
+    <circle cx="34" cy="34" r="${r}" fill="none" stroke="#e2e8f0" stroke-width="7"/>
+    <circle cx="34" cy="34" r="${r}" fill="none" stroke="${color}" stroke-width="7"
+      stroke-dasharray="${circ}" stroke-dashoffset="${+(circ - fill).toFixed(1)}"
+      stroke-linecap="round" transform="rotate(-90 34 34)"/>
+    <text x="34" y="38" text-anchor="middle" font-size="12" font-weight="800" fill="#1e293b">${pct}%</text>
+  </svg>`;
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 async function renderDashboard() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
@@ -269,17 +326,15 @@ async function renderDashboard() {
 
   renderShell(`
     ${isFree ? `
-    <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;padding:0.875rem 1.25rem;border-radius:0.75rem;margin-bottom:1.25rem">
-      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem">
-        <span style="font-size:0.9rem">🎁 הטבת השקה: מסלול Early Bird ב-₪10 בלבד לכל החיים!</span>
-        <button class="btn btn-sm" style="background:white;color:#4f46e5;font-weight:700;white-space:nowrap"
+    <div class="promo-banner">
+      <div class="promo-banner-main">
+        <span style="font-size:0.9rem;font-weight:600">🎁 הטבת השקה: מסלול Early Bird ב-₪10 בלבד לכל החיים!</span>
+        <button class="btn btn-sm" style="background:white;color:#4f46e5;font-weight:700"
           onclick="navigate('billing')">שדרגו עכשיו →</button>
       </div>
-      <div style="margin-top:0.5rem;font-size:0.78rem;opacity:0.85">
+      <div class="promo-banner-sub">
         כבר שילמתם?
-        <button onclick="claimPayment()" style="background:none;border:none;color:white;text-decoration:underline;cursor:pointer;font-size:0.78rem;padding:0">
-          לחצו כאן להפעלת החשבון
-        </button>
+        <button onclick="claimPayment()" class="promo-claim-link">לחצו כאן להפעלת החשבון</button>
       </div>
     </div>` : ''}
 
@@ -295,14 +350,20 @@ async function renderDashboard() {
 
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">קמפיינים פעילים</div>
+        <div class="stat-label">נכסים פעילים</div>
         <div class="stat-value">${state.campaigns.length}</div>
       </div>
       <div class="stat-card" style="cursor:default">
         <div class="stat-label">נכסים שיווקיים (30 יום)</div>
-        <div class="stat-value" style="font-size:1.25rem">${assetsUsed} / ${assetsMax === Infinity ? '∞' : assetsMax}</div>
-        <div style="background:#e2e8f0;border-radius:9999px;height:6px;margin-top:0.5rem;overflow:hidden">
-          <div style="background:${assetsPct >= 90 ? '#ef4444' : '#6366f1'};width:${assetsPct}%;height:100%;border-radius:9999px;transition:width 0.4s"></div>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.5rem">
+          ${renderDonutSVG(assetsUsed, assetsMax)}
+          <div>
+            <div class="stat-value" style="font-size:1.25rem">${assetsUsed}${assetsMax !== Infinity ? ' / ' + assetsMax : ''}</div>
+            <div class="text-xs text-muted" style="margin-top:0.1rem">ב-30 יום האחרונים</div>
+            ${assetsMax !== Infinity ? `<div class="usage-bar-track" style="width:72px;margin-top:0.35rem">
+              <div class="usage-bar-fill ${assetsPct >= 90 ? 'danger' : assetsPct >= 70 ? 'warning' : 'normal'}" style="width:${assetsPct}%"></div>
+            </div>` : ''}
+          </div>
         </div>
       </div>
       <div class="stat-card">
@@ -343,12 +404,35 @@ async function renderDashboard() {
         }).join('')}
       </div>
     </div>` : `
-    <div class="card text-center" style="padding:3rem">
-      <div style="font-size:3rem;margin-bottom:1rem">🚀</div>
-      <h3 class="font-semibold mb-2">מוכנים להשיק קמפיין מנצח?</h3>
-      <p class="text-muted mb-1">בנו אסטרטגיה, מסרים, תסריטים ולוגיקת דף נחיתה</p>
-      <p class="text-muted mb-4" style="font-size:0.8125rem">חברו את חשבונות הפרסום שלכם להתחלה</p>
-      <button class="btn btn-primary" style="width:auto;padding:0.75rem 2rem;font-size:1rem" onclick="navigate('campaigns')">הפעל קמפיין אסטרטגי</button>
+    <div class="card">
+      <div class="empty-state">
+        <div class="empty-state-icon">🚀</div>
+        <h3 class="empty-state-title">מוכנים להשיק נכס שיווקי מנצח?</h3>
+        <p class="empty-state-desc">בנו אסטרטגיה, מסרים, תסריטים ולוגיקת דף נחיתה<br>חברו את חשבונות הפרסום שלכם להתחלה</p>
+        <button class="btn btn-gradient" style="width:auto;padding:0.75rem 2.25rem;font-size:1rem" onclick="navigate('campaigns')">צרו נכס שיווקי ראשון →</button>
+      </div>
+      <div class="features-grid" style="margin-top:0.5rem">
+        <div class="feature-item">
+          <div class="feature-icon">📝</div>
+          <div class="feature-name">תסריטי מודעות</div>
+          <div class="feature-desc">כתיבה אוטומטית לפייסבוק, אינסטגרם ויוטיוב</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">🎯</div>
+          <div class="feature-name">דפי נחיתה</div>
+          <div class="feature-desc">אסטרטגיית above-the-fold ומיפוי המרה</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">🔍</div>
+          <div class="feature-name">חקר שוק</div>
+          <div class="feature-desc">ניתוח מתחרים וזיהוי הזדמנויות</div>
+        </div>
+        <div class="feature-item">
+          <div class="feature-icon">📊</div>
+          <div class="feature-name">ניתוח ביצועים</div>
+          <div class="feature-desc">CTR, ROAS, CPA — בעברית ובזמן אמת</div>
+        </div>
+      </div>
     </div>`}
   `);
 
@@ -468,10 +552,10 @@ async function renderCampaigns() {
   renderShell(`
     <div class="page-header flex items-center justify-between">
       <div>
-        <h1 class="page-title">קמפיינים</h1>
-        <p class="page-subtitle">נהל ונתח את הקמפיינים שלך</p>
+        <h1 class="page-title">נכסים שיווקיים</h1>
+        <p class="page-subtitle">נהל ונתח את הנכסים השיווקיים שלך</p>
       </div>
-      <button class="btn btn-primary" style="width:auto" onclick="showAddCampaignModal()">+ קמפיין חדש</button>
+      <button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ נכס חדש</button>
     </div>
     <div class="campaign-list">
       ${state.campaigns.length > 0 ? state.campaigns.map(c => `
@@ -484,9 +568,13 @@ async function renderCampaigns() {
             <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();runAnalysis('${c.id}')">הרץ ניתוח</button>
           </div>
         </div>`).join('') : `
-        <div class="card text-center" style="padding:3rem">
-          <div style="font-size:2.5rem;margin-bottom:1rem">📢</div>
-          <p class="text-muted">עדיין אין קמפיינים. הוסף אחד כדי להתחיל.</p>
+        <div class="card">
+          <div class="empty-state">
+            <div class="empty-state-icon">🎯</div>
+            <h3 class="empty-state-title">עדיין אין נכסים שיווקיים</h3>
+            <p class="empty-state-desc">לחצו על "+ נכס חדש" כדי ליצור תסריט מודעה, דף נחיתה, אסטרטגיית פנל ועוד</p>
+            <button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ צור נכס ראשון</button>
+          </div>
         </div>`}
     </div>
   `);
@@ -497,10 +585,10 @@ function showAddCampaignModal() {
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal-box">
-      <h2 class="modal-title">קמפיין חדש</h2>
+      <h2 class="modal-title">נכס שיווקי חדש</h2>
       <div class="form-group">
-        <label class="form-label">שם הקמפיין</label>
-        <input class="form-input" id="new-campaign-name" placeholder="למשל: Black Friday 2025" />
+        <label class="form-label">שם הנכס</label>
+        <input class="form-input" id="new-campaign-name" placeholder="למשל: קמפיין Black Friday 2025" />
       </div>
       <div class="flex gap-2 mt-4">
         <button class="btn btn-primary" onclick="addCampaign()">שמור</button>
@@ -635,7 +723,7 @@ async function showCampaignDetail(campaignId) {
   renderShell(`
     <div class="page-header flex items-center justify-between">
       <div>
-        <button class="btn btn-sm btn-secondary mb-2" onclick="navigate('campaigns')">← חזור לקמפיינים</button>
+        <button class="btn btn-sm btn-secondary mb-2" onclick="navigate('campaigns')">← חזור לנכסים</button>
         <h1 class="page-title">${campaign.name}</h1>
         <p class="page-subtitle">ID: ${campaignId}</p>
       </div>
@@ -1222,7 +1310,7 @@ async function renderAdmin() {
               <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">אימייל</th>
               <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">שם</th>
               <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">תוכנית</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">קמפיינים</th>
+              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">נכסים</th>
               <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">הצטרף</th>
               <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">פעולה</th>
             </tr>
@@ -1383,7 +1471,11 @@ function initCampaignerChat() {
       <div class="chat-welcome">
         <div class="chat-welcome-icon">🧠</div>
         <h3>Campaigner AI</h3>
-        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות קמפיינים מנצחים מאפס: מחקר שוק ומתחרים, כתיבת תסריטים למודעות פייסבוק ואינסטגרם, תכנון דפי נחיתה ויצירת קריאייטיב שמוכר. במה נתחיל היום?</p>
+        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות נכסים שיווקיים מנצחים מאפס: מחקר שוק, תסריטי מודעות, תכנון דפי נחיתה וניתוח ביצועי קמפיינים. במה נתחיל היום?</p>
+        <div class="chat-knowledge-badge">
+          <span class="chat-knowledge-dot"></span>
+          מנוע ידע שיווקי פעיל
+        </div>
       </div>
     </div>
     <div class="chat-quick-actions" id="chat-quick-actions"></div>
@@ -1579,7 +1671,11 @@ function clearChatHistory() {
       <div class="chat-welcome">
         <div class="chat-welcome-icon">🧠</div>
         <h3>Campaigner AI</h3>
-        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות קמפיינים מנצחים מאפס: מחקר שוק ומתחרים, כתיבת תסריטים למודעות פייסבוק ואינסטגרם, תכנון דפי נחיתה ויצירת קריאייטיב שמוכר. במה נתחיל היום?</p>
+        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות נכסים שיווקיים מנצחים מאפס: מחקר שוק, תסריטי מודעות, תכנון דפי נחיתה וניתוח ביצועי קמפיינים. במה נתחיל היום?</p>
+        <div class="chat-knowledge-badge">
+          <span class="chat-knowledge-dot"></span>
+          מנוע ידע שיווקי פעיל
+        </div>
       </div>`;
   }
   chatState.quickActions = [

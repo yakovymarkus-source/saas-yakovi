@@ -294,12 +294,28 @@
 
 .chat-welcome {
   text-align: center;
-  padding: 1rem 0.5rem;
+  padding: 1rem 0.5rem 0.75rem;
   color: #64748b;
 }
 .chat-welcome-icon { font-size: 2rem; margin-bottom: 0.5rem; }
 .chat-welcome h3   { font-size: 0.9375rem; font-weight: 700; color: #1e293b; margin-bottom: 0.25rem; }
-.chat-welcome p    { font-size: 0.8125rem; line-height: 1.5; }
+.chat-welcome p    { font-size: 0.8125rem; line-height: 1.55; }
+
+/* Knowledge layer badge — signals the dictionary/intelligence layer is active */
+.chat-knowledge-badge {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  background: #eef2ff; color: #4f46e5; border: 1px solid #c7d2fe;
+  border-radius: 9999px; padding: 0.2rem 0.625rem;
+  font-size: 0.7rem; font-weight: 600; margin-top: 0.625rem;
+  cursor: default;
+}
+.chat-knowledge-dot {
+  width: 6px; height: 6px; border-radius: 50%; background: #4ade80;
+  animation: kDot 2s ease-in-out infinite;
+}
+@keyframes kDot {
+  0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
+}
 
 @media (max-width: 768px) {
   #chat-panel    { left: 0.75rem; right: 0.75rem; bottom: 5rem; width: auto; max-height: 70vh; }
