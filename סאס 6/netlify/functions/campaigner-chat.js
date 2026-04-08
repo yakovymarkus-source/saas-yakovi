@@ -35,6 +35,7 @@ const { loadBusinessProfile, scoreCompletion, formatProfileSummary, buildNextPro
 const { computeUnitEconomics, computeFunnelEconomics, cplStatusLabel, roasLabel } = require('./_shared/revenue-calculator');
 const { loadRunningTests, buildNextTestSuggestion, formatTestCard } = require('./_shared/ab-test-tracker');
 const { generateAdCopy, formatCopyCard } = require('./_shared/ad-copy-generator');
+const { extractProfileAnswer } = require('./_shared/profile-intake-extractor');
 
 // ── Intent detection ──────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
@@ -125,6 +126,7 @@ async function buildContext(userId) {
     strategyMemory:  strategyMemory || null,  // Phase 4F
     businessProfile: businessProfile || null, // Phase 4G
     runningTests:    runningTests    || [],   // Phase 4G
+    userId,                                  // Phase 4H: needed for intake extraction saves
   };
 }
 
@@ -608,23 +610,44 @@ function generateTrendsResponse(context) {
 // ── Phase 4G: Business Profile response ───────────────────────────────────────
 
 function generateBusinessProfileResponse(context) {
-  const { businessProfile, profileName, adaptive } = context;
+  const { businessProfile, profileName, message, userId } = context;
   const { pct, missingRequired, missingEnrichment } = scoreCompletion(businessProfile);
 
-  // No profile at all
-  if (!businessProfile) {
+  // ── Try to extract an answer from the current message ─────────────────────
+  // If the user just answered a profile question, save it and acknowledge.
+  let extractedConfirmation = null;
+  const extracted = message ? extractProfileAnswer(message, missingRequired, missingEnrichment) : null;
+  if (extracted) {
+    // Async save — fire-and-forget so response returns without waiting
+    upsertBusinessProfile(userId, { [extracted.field]: extracted.value }).catch(() => {});
+    extractedConfirmation = extracted.confirmationText;
+
+    // Optimistically apply to the local profile copy so the response reflects the update
+    const optimisticProfile = { ...(businessProfile || {}), [extracted.field]: extracted.value };
+    const updated = scoreCompletion(optimisticProfile);
+    Object.assign(context, { businessProfile: optimisticProfile });
+    missingRequired.length  = 0;
+    missingEnrichment.length = 0;
+    missingRequired.push(...updated.missingRequired);
+    missingEnrichment.push(...updated.missingEnrichment);
+  }
+
+  // ── No profile at all ─────────────────────────────────────────────────────
+  if (!context.businessProfile) {
     return {
       reply: `📋 **פרופיל עסקי — ${profileName}:**\n\nעדיין אין פרופיל עסקי. הפרופיל הוא הבסיס לכל הניתוחים — בלעדיו אני לא יודע מה אתה מוכר ולכמה.\n\n❓ **${buildNextProfileQuestion(missingRequired, missingEnrichment) || 'מה אתה מוכר?'}**`,
       quickActions: ['עדכן פרופיל', 'חשב כלכלת יחידה', 'הצג ניתוח ביצועים'],
     };
   }
 
-  const summary = formatProfileSummary(businessProfile);
-  const completionBar = pct >= 100 ? '🟢 פרופיל מלא' : pct >= 70 ? `🟡 ${pct}% הושלם` : `🔴 ${pct}% הושלם`;
+  const { pct: updatedPct } = scoreCompletion(context.businessProfile);
+  const summary = formatProfileSummary(context.businessProfile);
+  const completionBar = updatedPct >= 100 ? '🟢 פרופיל מלא' : updatedPct >= 70 ? `🟡 ${updatedPct}% הושלם` : `🔴 ${updatedPct}% הושלם`;
 
-  let reply = `📋 **פרופיל עסקי — ${completionBar}:**\n\n${summary}\n`;
+  let reply = '';
+  if (extractedConfirmation) reply += `${extractedConfirmation}\n\n`;
+  reply += `📋 **פרופיל עסקי — ${completionBar}:**\n\n${summary}\n`;
 
-  // Beginner-aware: show next question if profile incomplete
   if (missingRequired.length > 0) {
     const nextQ = buildNextProfileQuestion(missingRequired, missingEnrichment);
     reply += `\n⚠️ **חסר מידע חשוב** (${missingRequired.length} שדות נדרשים):\n`;
@@ -866,6 +889,7 @@ exports.handler = async (event) => {
 
     // Build context from DB
     const chatContext = await buildContext(user.id);
+    chatContext.message = message;   // thread raw message so generators can read it
 
     // Detect intent
     const intent = detectIntent(message);
