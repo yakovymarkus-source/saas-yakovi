@@ -22,6 +22,8 @@ const { ensureFreshToken }   = require('./token-manager');
 const { trackBottlenecks }   = require('./bottleneck-tracker');
 const { runLearningEngine, persistStrategyMemory } = require('./learning-engine');
 const { buildIterationAction } = require('./iteration-advisor');
+const { orchestrate, CAPABILITIES } = require('./orchestrator');
+const { loadBusinessProfile } = require('./business-profile');
 
 // ── Provider data fetchers ─────────────────────────────────────────────────────
 
@@ -326,13 +328,26 @@ async function analyzeCampaign({ userId, campaignId, query = {}, requestId }) {
       };
 
   // ── 5. Score, decide, recommend ───────────────────────────────────────────
-  const scores          = scoreMetrics(metrics);
-  const decisions       = buildDecisions(metrics);
-  const bottlenecks     = identifyBottlenecks(metrics, scores);
-  const recommendations = buildRecommendations(metrics, scores);
-  const confidence      = hasAnyData ? 85 : 40;
+  const scores      = scoreMetrics(metrics);
+  const decisions   = buildDecisions(metrics);
+  const bottlenecks = identifyBottlenecks(metrics, scores);
+  const confidence  = hasAnyData ? 85 : 40;
 
-  // ── 5b. Phase 4F: Bottleneck delta (load previous, compare) ───────────────
+  // ── 5a. Load business profile for AI context (non-blocking fallback) ──────
+  const businessProfile = await loadBusinessProfile(userId).catch(() => null);
+
+  // ── 5b. AI-enhanced recommendations (orchestrator → fallback to templates) ─
+  // The decision engine identifies WHAT is wrong; the AI explains WHY + HOW.
+  const aiSummary = await orchestrate(
+    CAPABILITIES.ANALYSIS_SUMMARY,
+    { metrics, scores, bottlenecks, decisions, businessProfile: businessProfile || {} },
+    { userId, requestId },
+  );
+  const recommendations = (aiSummary.ok && Array.isArray(aiSummary.content?.recommendations))
+    ? aiSummary.content.recommendations
+    : buildRecommendations(metrics, scores);
+
+  // ── 5c. Phase 4F: Bottleneck delta (load previous, compare) ───────────────
   // getPreviousAnalysis is optional — a DB error here must not abort the analysis.
   const previousAnalysis  = await getPreviousAnalysis(userId, campaignId).catch(() => null);
   const bottleneckDelta   = trackBottlenecks(metrics, scores, previousAnalysis);
@@ -355,12 +370,28 @@ async function analyzeCampaign({ userId, campaignId, query = {}, requestId }) {
     throw new AppError({ code: 'DB_WRITE_FAILED', userMessage: 'שמירת הניתוח נכשלה', devMessage: 'persistAnalysis returned empty analysisId', status: 500 });
   }
 
-  // ── 7. Phase 4F: Fire-and-forget learning + strategy memory ───────────────
-  // Uses .then().catch() — consistent with existing pattern in this codebase and
-  // safe in serverless (Promise is already in-flight when handler returns).
+  // ── 7. Fire-and-forget: learning + strategy memory + AI iteration advice ──
+  // AI enriches the hardcoded heAction/reason with contextual Hebrew guidance.
+  // Uses .then().catch() — safe in serverless, consistent with existing pattern.
   runLearningEngine(userId, campaignId)
-    .then((learningResult) => {
+    .then(async (learningResult) => {
+      // Base verdict from the pure decision-tree (always runs, never fails)
       const iterationAction = buildIterationAction(bottleneckDelta, learningResult, metrics);
+
+      // Optionally enrich with AI-generated action text
+      const aiAdvice = await orchestrate(
+        CAPABILITIES.ITERATION_ADVICE,
+        { verdict: iterationAction.verdict, bottleneckDelta, currentMetrics: metrics, businessProfile: businessProfile || {} },
+        { userId, requestId },
+      );
+      if (aiAdvice.ok && aiAdvice.content) {
+        iterationAction.heAction     = aiAdvice.content.action      || iterationAction.heAction;
+        iterationAction.reason       = aiAdvice.content.reason       || iterationAction.reason;
+        iterationAction.steps        = aiAdvice.content.steps        || [];
+        iterationAction.urgency      = aiAdvice.content.urgency      || iterationAction.urgency;
+        iterationAction.time_horizon = aiAdvice.content.time_horizon || null;
+      }
+
       return persistStrategyMemory(userId, campaignId, learningResult, iterationAction);
     })
     .catch((e) => console.warn('[analyze] Phase 4F learning update failed (non-fatal):', e.message));

@@ -36,6 +36,7 @@ const { computeUnitEconomics, computeFunnelEconomics, cplStatusLabel, roasLabel 
 const { loadRunningTests, buildNextTestSuggestion, formatTestCard } = require('./_shared/ab-test-tracker');
 const { generateAdCopy, formatCopyCard } = require('./_shared/ad-copy-generator');
 const { extractProfileAnswer } = require('./_shared/profile-intake-extractor');
+const { orchestrate, CAPABILITIES }     = require('./_shared/orchestrator');
 
 // ── Intent detection ──────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
@@ -448,8 +449,8 @@ function generateIntegrationsResponse(context) {
   return generateTrackingResponse(context);
 }
 
-function generateRecsResponse(context) {
-  const { statsByProvider, integrations, recentAnalysis } = context;
+async function generateRecsResponse(context) {
+  const { statsByProvider, integrations, recentAnalysis, businessProfile, userId } = context;
   const connected = integrations.filter(i => i.connection_status === 'active');
 
   // Aggregate all live metrics
@@ -487,6 +488,35 @@ function generateRecsResponse(context) {
     && adaptive.recurringIssue.key === top?.dict_key
     && adaptive.recurringIssue.count >= 3;
 
+  // ── Try AI-enhanced analysis_summary ─────────────────────────────────────
+  // The decision engine identifies WHAT is wrong. AI explains WHY and HOW.
+  // Falls back to template output if provider is unavailable.
+  const scores = result.scores || {};
+  const bottlenecks = result.issues?.map(i => i.dict_key).filter(Boolean) || [];
+  const aiResult = await orchestrate(
+    CAPABILITIES.ANALYSIS_SUMMARY,
+    { metrics: globalRaw, scores, bottlenecks, decisions: actions, businessProfile: businessProfile || {} },
+    { userId },
+  );
+
+  if (aiResult.ok && aiResult.content?.recommendations?.length > 0) {
+    const ai = aiResult.content;
+    let reply = `🎯 **המלצות (ביטחון ${confidence}%):**\n\n`;
+    if (ai.main_finding) reply += `📌 ${ai.main_finding}\n\n`;
+    if (isRecurring) {
+      reply += `⚠️ _בעיית ה-${top.simple_label || top.dict_key} חוזרת אצלך ${adaptive.recurringIssue.count} פעמים — הגיע הזמן לטפל בה לעומק._\n\n`;
+    }
+    ai.recommendations.slice(0, 3).forEach((r, i) => {
+      reply += `${i + 1}. **${r.issue}**\n`;
+      if (r.root_cause) reply += `   _${r.root_cause}_\n`;
+      reply += `   ⚡ ${r.action}\n`;
+      if (r.expected_impact) reply += `   ✅ ${r.expected_impact}\n`;
+      reply += '\n';
+    });
+    return { reply, quickActions: ['נתח ביצועים כלליים', 'הצע הזזת תקציב', 'בדוק CTR'] };
+  }
+
+  // ── Fallback: template-based recommendations ─────────────────────────────
   let reply = `🎯 **המלצות מותאמות אישית (ביטחון ${confidence}%):**\n\n`;
   if (isRecurring) {
     reply += `⚠️ _בעיית ה-${top.simple_label || top.dict_key} חוזרת אצלך ${adaptive.recurringIssue.count} פעמים — הגיע הזמן לטפל בה לעומק._\n\n`;
@@ -799,8 +829,8 @@ function generateTestResponse(context) {
 
 // ── Phase 4H: Ad Copy Generation response ─────────────────────────────────────
 
-function generateCopyResponse(context) {
-  const { businessProfile, strategyMemory, profileName } = context;
+async function generateCopyResponse(context) {
+  const { businessProfile, strategyMemory, profileName, userId } = context;
 
   if (!businessProfile?.offer) {
     return {
@@ -811,25 +841,39 @@ function generateCopyResponse(context) {
 
   // Determine bottleneck to prioritise the right framework
   const bottleneck = strategyMemory?.persistent_bottlenecks?.[0] || null;
+  const platform   = 'meta';
 
-  // Detect platform preference from context (default meta)
-  const platform = 'meta';
-
-  const variants = generateAdCopy({ businessProfile, bottleneck, platform });
-
-  // Build bottleneck note
+  // Build bottleneck note (shared by AI and fallback paths)
   let bottleneckNote = '';
   if (bottleneck) {
     const bnLabel = {
-      ctr:        'CTR נמוך — הוריאציות מתחילות בהוק חזק',
-      conversion: 'המרה נמוכה — הוריאציות מדגישות תוצאה ו-CTA',
-      roas:       'ROAS נמוך — הוריאציות מדגישות ערך ייחודי',
-      creative:   'קריאייטיב — הוריאציות מתחילות בפתיחת כאב',
+      ctr:          'CTR נמוך — הוריאציות מתחילות בהוק חזק',
+      conversion:   'המרה נמוכה — הוריאציות מדגישות תוצאה ו-CTA',
+      roas:         'ROAS נמוך — הוריאציות מדגישות ערך ייחודי',
+      creative:     'קריאייטיב — הוריאציות מתחילות בפתיחת כאב',
       landing_page: 'דף נחיתה — הוריאציות מדגישות בהירות הצעה',
     }[bottleneck] || '';
     if (bnLabel) bottleneckNote = `\n_🎯 מותאם לצוואר הבקבוק: ${bnLabel}_\n`;
   }
 
+  // ── Try AI-generated copy via orchestrator ─────────────────────────────────
+  const aiResult = await orchestrate(
+    CAPABILITIES.AD_COPY,
+    { businessProfile, bottleneck, platform },
+    { userId },
+  );
+
+  if (aiResult.ok && Array.isArray(aiResult.content?.variants) && aiResult.content.variants.length > 0) {
+    const aiVariants = aiResult.content.variants;
+    let reply = `✍️ **3 וריאציות קופי — ${businessProfile.business_name || profileName}:**${bottleneckNote}\n\n`;
+    reply += `_בדוק משתנה אחד בלבד — בחר וריאציה אחת ל-A/B test._\n\n`;
+    reply += aiVariants.map(v => formatCopyCard(v)).join('\n\n---\n\n');
+    reply += `\n\n📌 **הצעד הבא:** בחר וריאציה אחת, הרץ אותה 7 ימים מול ה-control הנוכחי.`;
+    return { reply, quickActions: ['פתח בדיקת A/B', 'נתח ביצועים כלליים', 'חשב כלכלת יחידה'] };
+  }
+
+  // ── Fallback: template-based copy ─────────────────────────────────────────
+  const variants = generateAdCopy({ businessProfile, bottleneck, platform });
   let reply = `✍️ **3 וריאציות קופי — ${businessProfile.business_name || profileName}:**${bottleneckNote}\n\n`;
   reply += `_בדוק משתנה אחד בלבד — בחר וריאציה אחת ל-A/B test._\n\n`;
   reply += variants.map(v => formatCopyCard(v)).join('\n\n---\n\n');
@@ -846,8 +890,10 @@ function providerLabel(provider) {
   return { google_ads: 'Google Ads', ga4: 'Google Analytics 4', meta: 'Meta Ads' }[provider] || provider;
 }
 
-// ── Router ─────────────────────────────────────────────────────────���──────────
-function generateResponse(intent, context) {
+// ── Router ────────────────────────────────────────────────────────────────────
+// Async because generateCopyResponse and generateRecsResponse are async.
+// All other generators are sync and resolve immediately when awaited.
+async function generateResponse(intent, context) {
   switch (intent) {
     case 'overview':      return generateOverviewResponse(context);
     case 'budget':        return generateBudgetResponse(context);
@@ -855,13 +901,13 @@ function generateResponse(intent, context) {
     case 'tracking':      return generateTrackingResponse(context);
     case 'roas':          return generateROASResponse(context);
     case 'ctr':           return generateCTRResponse(context);
-    case 'recs':          return generateRecsResponse(context);
+    case 'recs':          return await generateRecsResponse(context);
     case 'integrations':  return generateIntegrationsResponse(context);
     case 'trends':        return generateTrendsResponse(context);
     case 'business':      return generateBusinessProfileResponse(context);
     case 'economics':     return generateEconomicsResponse(context);
     case 'test':          return generateTestResponse(context);
-    case 'copy':          return generateCopyResponse(context);
+    case 'copy':          return await generateCopyResponse(context);
     default:              return generateOverviewResponse(context);
   }
 }
@@ -915,11 +961,11 @@ exports.handler = async (event) => {
         responseData = override;
       } else {
         // Normal flow runs, but we append milestone progress bar + next-step guidance
-        const normal = generateResponse(intent, chatContext);
+        const normal = await generateResponse(intent, chatContext);
         responseData = appendBeginnerAddendum(beginnerState, normal, engineResult);
       }
     } else {
-      responseData = generateResponse(intent, chatContext);
+      responseData = await generateResponse(intent, chatContext);
     }
 
     const { reply, quickActions } = responseData;

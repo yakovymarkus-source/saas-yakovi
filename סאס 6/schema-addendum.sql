@@ -358,3 +358,41 @@ CREATE POLICY user_intelligence_service_only
   FOR ALL
   USING (false)
   WITH CHECK (false);
+
+-- ── 12. AI Request Log — Provider Observability ───────────────────────────────
+--
+-- One row per AI provider call. Written fire-and-forget by orchestrator.js.
+-- Stores metadata only — no prompt text, no response content (privacy + cost).
+-- Useful for: cost attribution, provider debugging, latency tracking.
+-- RLS: service role only — users never read/write directly.
+--
+CREATE TABLE IF NOT EXISTS public.ai_requests (
+  id                uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id           uuid        REFERENCES auth.users(id) ON DELETE SET NULL,
+  request_id        text,
+  capability        text        NOT NULL,
+  provider          text        NOT NULL,
+  model             text,
+  prompt_tokens     integer,
+  completion_tokens integer,
+  latency_ms        integer,
+  status            text        NOT NULL CHECK (status IN ('success', 'error', 'timeout')),
+  error_code        text,
+  error_message     text,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.ai_requests ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS ai_requests_service_only ON public.ai_requests;
+CREATE POLICY ai_requests_service_only
+  ON public.ai_requests
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);
+
+CREATE INDEX IF NOT EXISTS idx_ai_requests_user_created
+  ON public.ai_requests (user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ai_requests_capability_status
+  ON public.ai_requests (capability, status, created_at DESC);
