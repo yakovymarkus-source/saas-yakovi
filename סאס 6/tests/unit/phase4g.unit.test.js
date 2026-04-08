@@ -24,6 +24,8 @@ const {
 
 const {
   scoreCompletion,
+  formatProfileSummary,
+  buildNextProfileQuestion,
 } = require('../../netlify/functions/_shared/business-profile');
 
 const {
@@ -362,4 +364,104 @@ test('riskLabel — covers all levels', () => {
   assert.ok(riskLabel('high').includes('גבוה'));
   assert.ok(riskLabel('critical').includes('קריטי'));
   assert.equal(riskLabel('unknown'), '—');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// formatProfileSummary
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const fullProfile = {
+  business_name:    'לייזר פרו',
+  offer:            'מכשיר לייזר ביתי להסרת שיער',
+  price_amount:     1500,
+  price_currency:   'ILS',
+  pricing_model:    'one_time',
+  target_audience:  'נשים שלא רוצות ללכת למכון',
+  problem_solved:   'עלות גבוהה בטיפולים חיצוניים',
+  primary_goal:     'leads',
+};
+
+test('formatProfileSummary — returns null for null profile', () => {
+  assert.equal(formatProfileSummary(null), null);
+});
+
+test('formatProfileSummary — includes business_name in bold', () => {
+  const summary = formatProfileSummary(fullProfile);
+  assert.ok(summary.includes('**לייזר פרו**'));
+});
+
+test('formatProfileSummary — includes offer with emoji', () => {
+  const summary = formatProfileSummary(fullProfile);
+  assert.ok(summary.includes('📦'));
+  assert.ok(summary.includes('מכשיר לייזר'));
+});
+
+test('formatProfileSummary — includes price_amount and currency', () => {
+  const summary = formatProfileSummary(fullProfile);
+  assert.ok(summary.includes('1500'));
+  assert.ok(summary.includes('ILS'));
+});
+
+test('formatProfileSummary — includes target_audience', () => {
+  const summary = formatProfileSummary(fullProfile);
+  assert.ok(summary.includes('👥'));
+  assert.ok(summary.includes('נשים שלא רוצות'));
+});
+
+test('formatProfileSummary — omits missing fields silently', () => {
+  const minimal = { offer: 'שירות מעולה' };
+  const summary = formatProfileSummary(minimal);
+  assert.ok(summary.includes('שירות מעולה'));
+  assert.ok(!summary.includes('undefined'));
+  assert.ok(!summary.includes('null'));
+});
+
+test('formatProfileSummary — primary_goal rendered as Hebrew label', () => {
+  const summary = formatProfileSummary(fullProfile);
+  // 'leads' should appear as Hebrew text, not the raw key
+  assert.ok(summary.includes('⚡'));
+  assert.ok(!summary.includes(': leads'));
+});
+
+test('formatProfileSummary — returns empty string for empty profile', () => {
+  const summary = formatProfileSummary({});
+  assert.equal(summary, '');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// buildNextProfileQuestion
+// ═══════════════════════════════════════════════════════════════════════════════
+
+test('buildNextProfileQuestion — returns question for first missing required field', () => {
+  const q = buildNextProfileQuestion(['offer', 'price_amount'], []);
+  assert.ok(typeof q === 'string');
+  assert.ok(q.length > 5);
+  // offer is first → should return the offer question
+  assert.ok(q.includes('מה בדיוק אתה מוכר'));
+});
+
+test('buildNextProfileQuestion — required fields take priority over enrichment', () => {
+  const q = buildNextProfileQuestion(['primary_goal'], ['business_name', 'category']);
+  // primary_goal is required → comes first
+  assert.ok(q.includes('מטרה') || q.toLowerCase().includes('קמפיין'));
+});
+
+test('buildNextProfileQuestion — falls through to enrichment when required is empty', () => {
+  const q = buildNextProfileQuestion([], ['business_name']);
+  assert.ok(typeof q === 'string');
+  assert.ok(q.includes('שם העסק'));
+});
+
+test('buildNextProfileQuestion — returns null when both lists are empty', () => {
+  const q = buildNextProfileQuestion([], []);
+  assert.equal(q, null);
+});
+
+test('buildNextProfileQuestion — returns null for unknown field key', () => {
+  const q = buildNextProfileQuestion(['unknown_field'], []);
+  assert.equal(q, null);
+});
+
+test('buildNextProfileQuestion — handles null inputs without crashing', () => {
+  assert.doesNotThrow(() => buildNextProfileQuestion(null, null));
 });

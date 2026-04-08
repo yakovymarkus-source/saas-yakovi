@@ -221,7 +221,7 @@ function buildNextProfileQuestion(missingRequired, missingEnrichment) {
     main_promise:     'מה ההבטחה המרכזית שלך — המשפט שיעצור מישהו תוך שניה?',
     monthly_budget:   'מה התקציב החודשי שלך לפרסום?',
   };
-  const next = [...missingRequired, ...missingEnrichment][0];
+  const next = [...(missingRequired || []), ...(missingEnrichment || [])][0];
   return next ? QUESTIONS[next] || null : null;
 }
 
