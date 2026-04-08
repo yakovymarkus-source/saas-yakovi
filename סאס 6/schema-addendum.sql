@@ -182,3 +182,179 @@ ALTER TABLE public.subscriptions
   DROP CONSTRAINT IF EXISTS subscriptions_user_id_unique;
 ALTER TABLE public.subscriptions
   ADD CONSTRAINT subscriptions_user_id_unique UNIQUE (user_id);
+
+-- ── 8. Phase 4F: Strategy Memory ──────────────────────────────────────────────
+--
+-- One row per (user, campaign). Written by the learning engine (service role)
+-- after every analyze run. Users can SELECT their own rows only.
+-- Stores pre-computed trends so chat responses don't need heavy computation.
+--
+CREATE TABLE IF NOT EXISTS public.strategy_memory (
+  id                     uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  campaign_id            text        NOT NULL,
+  period_start           timestamptz,
+  period_end             timestamptz,
+  data_points            integer     NOT NULL DEFAULT 0,
+  persistent_bottlenecks jsonb       NOT NULL DEFAULT '[]',
+  score_trend            text        NOT NULL DEFAULT 'stable'
+                         CHECK (score_trend IN ('improving', 'declining', 'stable')),
+  score_delta            numeric,
+  dominant_verdict       text,
+  iteration_action       jsonb,
+  created_at             timestamptz NOT NULL DEFAULT now(),
+  updated_at             timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT strategy_memory_user_campaign UNIQUE (user_id, campaign_id)
+);
+
+ALTER TABLE public.strategy_memory ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS strategy_memory_select_own ON public.strategy_memory;
+CREATE POLICY strategy_memory_select_own
+  ON public.strategy_memory FOR SELECT
+  USING (auth.uid() = user_id);
+
+-- All writes are service-role only (admin client bypasses RLS)
+DROP POLICY IF EXISTS strategy_memory_no_client_write ON public.strategy_memory;
+CREATE POLICY strategy_memory_no_client_write
+  ON public.strategy_memory FOR ALL
+  USING (false) WITH CHECK (false);
+
+CREATE INDEX IF NOT EXISTS idx_strategy_memory_user_campaign
+  ON public.strategy_memory (user_id, campaign_id);
+
+CREATE INDEX IF NOT EXISTS idx_strategy_memory_user_updated
+  ON public.strategy_memory (user_id, updated_at DESC);
+
+DROP TRIGGER IF EXISTS set_strategy_memory_updated_at ON public.strategy_memory;
+CREATE TRIGGER set_strategy_memory_updated_at
+  BEFORE UPDATE ON public.strategy_memory
+  FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
+
+-- ── 9. Business Profile — Static Business Memory ─────────────────────────────
+--
+-- One row per user. Stores the stable facts about the business: offer, pricing,
+-- audience, positioning, tone, goals. Written via chat or intake flow.
+-- This is the "brain" context that all other engines read from.
+--
+CREATE TABLE IF NOT EXISTS public.business_profiles (
+  id               uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- Core identity
+  business_name    text,
+  category         text        CHECK (category IN ('ecommerce','services','lead_generation','course','saas','other')),
+  -- Offer
+  offer            text,                          -- one-sentence: what they sell
+  price_amount     numeric,
+  price_currency   text        NOT NULL DEFAULT 'ILS',
+  pricing_model    text        CHECK (pricing_model IN ('one_time','recurring','session','retainer','free')),
+  -- Target
+  target_audience  text,                          -- who buys
+  problem_solved   text,                          -- what pain it solves
+  desired_outcome  text,                          -- what transformation/result the customer gets
+  -- Positioning
+  unique_mechanism text,                          -- the "how" that's different from competitors
+  main_promise     text,                          -- headline promise
+  tone_keywords    text[]      NOT NULL DEFAULT '{}',
+  -- Business goals
+  primary_goal     text        CHECK (primary_goal IN ('leads','sales','appointments','awareness')),
+  monthly_budget   numeric,
+  test_budget      numeric,
+  -- Completion flag — used to detect if intake is done
+  completed        boolean     NOT NULL DEFAULT false,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  updated_at       timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT business_profiles_user_unique UNIQUE (user_id)
+);
+
+ALTER TABLE public.business_profiles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS business_profiles_select_own ON public.business_profiles;
+DROP POLICY IF EXISTS business_profiles_write_own  ON public.business_profiles;
+CREATE POLICY business_profiles_select_own ON public.business_profiles FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY business_profiles_write_own  ON public.business_profiles FOR ALL   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE INDEX IF NOT EXISTS idx_business_profiles_user ON public.business_profiles (user_id);
+
+DROP TRIGGER IF EXISTS set_business_profiles_updated_at ON public.business_profiles;
+CREATE TRIGGER set_business_profiles_updated_at
+  BEFORE UPDATE ON public.business_profiles
+  FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
+
+-- ── 10. A/B Tests — Testing Architecture ──────────────────────────────────────
+--
+-- One row per test. Tracks: hypothesis, which variable is being tested, what's
+-- constant, duration, stop condition, and final result.
+-- Rule: one variable at a time. Never replace everything simultaneously.
+--
+CREATE TABLE IF NOT EXISTS public.ab_tests (
+  id              uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid        NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  campaign_id     text,
+  -- Test definition
+  hypothesis      text        NOT NULL,
+  variable_name   text        NOT NULL
+                  CHECK (variable_name IN ('headline','hook','creative','cta','offer_framing','audience','landing_order','copy')),
+  control_value   text        NOT NULL,
+  variant_value   text        NOT NULL,
+  constants       text[]      NOT NULL DEFAULT '{}',   -- what must NOT change during this test
+  -- Duration / stop rules
+  start_date      date        NOT NULL DEFAULT CURRENT_DATE,
+  planned_days    integer     NOT NULL DEFAULT 7,
+  min_impressions integer     NOT NULL DEFAULT 1000,
+  stop_condition  text,
+  -- Status
+  status          text        NOT NULL DEFAULT 'running'
+                  CHECK (status IN ('running','paused','concluded','invalidated')),
+  -- Result (filled when concluded)
+  winner          text        CHECK (winner IN ('control','variant','inconclusive')),
+  result_summary  text,
+  concluded_at    date,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.ab_tests ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS ab_tests_select_own ON public.ab_tests;
+DROP POLICY IF EXISTS ab_tests_write_own  ON public.ab_tests;
+CREATE POLICY ab_tests_select_own ON public.ab_tests FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY ab_tests_write_own  ON public.ab_tests FOR ALL   USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE INDEX IF NOT EXISTS idx_ab_tests_user_status   ON public.ab_tests (user_id, status);
+CREATE INDEX IF NOT EXISTS idx_ab_tests_user_campaign ON public.ab_tests (user_id, campaign_id);
+
+DROP TRIGGER IF EXISTS set_ab_tests_updated_at ON public.ab_tests;
+CREATE TRIGGER set_ab_tests_updated_at
+  BEFORE UPDATE ON public.ab_tests
+  FOR EACH ROW EXECUTE PROCEDURE public.set_updated_at();
+
+-- ── 11. Phase 4D: User Intelligence & Adaptive Memory ────────────────────────
+--
+-- One row per (user, category, key). Upserted from the backend; never updated
+-- by the user directly. RLS blocks direct client access entirely.
+--
+CREATE TABLE IF NOT EXISTS public.user_intelligence (
+  id          uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid        NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  category    text        NOT NULL CHECK (category IN ('preference','pattern','insight','goal')),
+  key         text        NOT NULL,
+  value       jsonb       NOT NULL DEFAULT '{}',
+  confidence  numeric(3,2) NOT NULL DEFAULT 0.5
+              CHECK (confidence >= 0 AND confidence <= 1),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT  user_intelligence_unique UNIQUE (user_id, category, key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_intelligence_user
+  ON public.user_intelligence (user_id);
+
+-- RLS: service role only — users never read/write this table directly
+ALTER TABLE public.user_intelligence ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS user_intelligence_service_only ON public.user_intelligence;
+CREATE POLICY user_intelligence_service_only
+  ON public.user_intelligence
+  FOR ALL
+  USING (false)
+  WITH CHECK (false);

@@ -15,10 +15,13 @@
 
 'use strict';
 
-const { persistAnalysis }    = require('./persistence');
+const { persistAnalysis, getPreviousAnalysis } = require('./persistence');
 const { AppError }           = require('./errors');
 const { loadAllIntegrations, markIntegrationSynced, markIntegrationError } = require('./supabase');
 const { ensureFreshToken }   = require('./token-manager');
+const { trackBottlenecks }   = require('./bottleneck-tracker');
+const { runLearningEngine, persistStrategyMemory } = require('./learning-engine');
+const { buildIterationAction } = require('./iteration-advisor');
 
 // ── Provider data fetchers ─────────────────────────────────────────────────────
 
@@ -329,6 +332,11 @@ async function analyzeCampaign({ userId, campaignId, query = {}, requestId }) {
   const recommendations = buildRecommendations(metrics, scores);
   const confidence      = hasAnyData ? 85 : 40;
 
+  // ── 5b. Phase 4F: Bottleneck delta (load previous, compare) ───────────────
+  // getPreviousAnalysis is optional — a DB error here must not abort the analysis.
+  const previousAnalysis  = await getPreviousAnalysis(userId, campaignId).catch(() => null);
+  const bottleneckDelta   = trackBottlenecks(metrics, scores, previousAnalysis);
+
   // ── 6. Persist everything atomically ─────────────────────────────────────
   const analysisId = await persistAnalysis({
     userId,
@@ -347,7 +355,17 @@ async function analyzeCampaign({ userId, campaignId, query = {}, requestId }) {
     throw new AppError({ code: 'DB_WRITE_FAILED', userMessage: 'שמירת הניתוח נכשלה', devMessage: 'persistAnalysis returned empty analysisId', status: 500 });
   }
 
-  return { analysisId, scores, decisions, recommendations, metrics };
+  // ── 7. Phase 4F: Fire-and-forget learning + strategy memory ───────────────
+  // Uses .then().catch() — consistent with existing pattern in this codebase and
+  // safe in serverless (Promise is already in-flight when handler returns).
+  runLearningEngine(userId, campaignId)
+    .then((learningResult) => {
+      const iterationAction = buildIterationAction(bottleneckDelta, learningResult, metrics);
+      return persistStrategyMemory(userId, campaignId, learningResult, iterationAction);
+    })
+    .catch((e) => console.warn('[analyze] Phase 4F learning update failed (non-fatal):', e.message));
+
+  return { analysisId, scores, decisions, recommendations, metrics, bottleneckDelta };
 }
 
 module.exports = { analyzeCampaign };

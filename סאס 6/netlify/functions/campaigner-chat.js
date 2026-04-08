@@ -25,8 +25,16 @@ const { writeRequestLog, getAdminClient }       = require('./_shared/supabase');
 const { requireAuth }                           = require('./_shared/auth');
 const { AppError }                              = require('./_shared/errors');
 const { parseJsonBody }                         = require('./_shared/request');
+const { sanitiseText }                          = require('./_shared/validation');
 const { analyze }                               = require('./_shared/decision-engine');
 const { dictionary }                            = require('./_shared/dictionary');
+const { loadUserMemory, deriveAdaptiveContext, updateIntelligenceFromInteraction } = require('./_shared/user-intelligence');
+const { detectBeginnerState, generateBeginnerOverride, appendBeginnerAddendum, resolveProgressUpdate, persistMilestoneProgress } = require('./_shared/beginner-mode');
+const { loadStrategyMemory } = require('./_shared/learning-engine');
+const { loadBusinessProfile, scoreCompletion, formatProfileSummary, buildNextProfileQuestion } = require('./_shared/business-profile');
+const { computeUnitEconomics, computeFunnelEconomics, cplStatusLabel, roasLabel } = require('./_shared/revenue-calculator');
+const { loadRunningTests, buildNextTestSuggestion, formatTestCard } = require('./_shared/ab-test-tracker');
+const { generateAdCopy, formatCopyCard } = require('./_shared/ad-copy-generator');
 
 // ── Intent detection ──────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
@@ -38,6 +46,11 @@ const INTENT_PATTERNS = [
   { intent: 'ctr',       patterns: /\b(ctr|קליקים|clicks|חשיפות|impressions)\b/i },
   { intent: 'recs',      patterns: /\b(המלצ|מה לעש|recommend|suggest|what should|תעשה|עצה)\b/i },
   { intent: 'integrations', patterns: /\b(חיבור|integration|connected|גוגל|מטא|google|meta|ga4)\b/i },
+  { intent: 'trends',    patterns: /\b(טרנד|מגמה|שיפור|ירידה|trend|progress|היסטוריה|לאורך זמן|תקופה|שינוי|למידה|פרי|כיוון)\b/i },
+  { intent: 'business',  patterns: /\b(עסק|פרופיל|מה אני מוכר|מחיר שלי|קהל יעד|הצעה שלי|business|profile|offer)\b/i },
+  { intent: 'economics', patterns: /\b(כלכלה|CAC|LTV|CPL|cac|ltv|cpl|עלות ליד|break.?even|רווחיות|כמה להמיר|payback|economics|feasib)\b/i },
+  { intent: 'test',      patterns: /\b(בדיקה|a\/b|ab test|וריאציה|ניסוי|מה לבדוק|hypothesis|variant|control)\b/i },
+  { intent: 'copy',      patterns: /\b(כתוב|קופי|copy|מודעה|ad text|creative text|כותרת|headline|טקסט|מסר|נוסח)\b/i },
 ];
 
 function detectIntent(message) {
@@ -53,7 +66,7 @@ async function buildContext(userId) {
   const sb = getAdminClient();
   const now = new Date().toISOString();
 
-  const [integrationsRes, cacheRes, analysisRes, profileRes] = await Promise.all([
+  const [integrationsRes, cacheRes, analysisRes, profileRes, memoryRaw, strategyMemory, businessProfile, runningTests] = await Promise.all([
     sb.from('user_integrations')
       .select('provider, account_name, connection_status, last_sync_at, last_error')
       .eq('user_id', userId),
@@ -71,6 +84,10 @@ async function buildContext(userId) {
       .select('name')
       .eq('id', userId)
       .maybeSingle(),
+    loadUserMemory(userId),
+    loadStrategyMemory(userId, null),  // Phase 4F: most recent campaign strategy
+    loadBusinessProfile(userId),       // Phase 4G: static business facts
+    loadRunningTests(userId),          // Phase 4G: active A/B tests
   ]);
 
   const integrations = integrationsRes.data || [];
@@ -83,11 +100,31 @@ async function buildContext(userId) {
     }
   }
 
+  // Compute global raw metrics for intelligence update and adaptive shaping
+  const allConnected = integrations.filter(i => i.connection_status === 'active');
+  const globalRaw = { impressions: 0, clicks: 0, spend: 0, conversions: 0, revenue: 0, sessions: 0 };
+  for (const integ of allConnected) {
+    const data = statsByProvider[integ.provider];
+    if (!data?.metrics) continue;
+    const t = sumMetrics(Array.isArray(data.metrics) ? data.metrics : []);
+    globalRaw.impressions += t.impressions;
+    globalRaw.clicks      += t.clicks;
+    globalRaw.spend       += t.spend;
+    globalRaw.conversions += t.conversions;
+    globalRaw.revenue     += t.revenue;
+    globalRaw.sessions    += t.sessions;
+  }
+
   return {
     integrations,
     statsByProvider,
-    recentAnalysis: analysisRes.data,
-    profileName:    profileRes.data?.name || 'משתמש',
+    recentAnalysis:  analysisRes.data,
+    profileName:     profileRes.data?.name || 'משתמש',
+    adaptive:        deriveAdaptiveContext(memoryRaw),
+    globalRaw,
+    strategyMemory:  strategyMemory || null,  // Phase 4F
+    businessProfile: businessProfile || null, // Phase 4G
+    runningTests:    runningTests    || [],   // Phase 4G
   };
 }
 
@@ -169,16 +206,42 @@ function generateOverviewResponse(context) {
   }
 
   // Run decision engine on global metrics
-  const engineResult = globalRaw.clicks > 0 ? analyze(globalRaw) : null;
+  const overviewRaw = { impressions: 0, clicks: 0, spend: 0, conversions: 0, revenue: 0, sessions: 0, bounceRate: 0, frequency: 0 };
+  for (const integ of connected) {
+    const data = statsByProvider[integ.provider];
+    if (!data?.metrics) continue;
+    const t = sumMetrics(Array.isArray(data.metrics) ? data.metrics : []);
+    overviewRaw.impressions += t.impressions; overviewRaw.clicks += t.clicks;
+    overviewRaw.spend += t.spend; overviewRaw.conversions += t.conversions;
+    overviewRaw.revenue += t.revenue; overviewRaw.sessions += t.sessions;
+  }
+  const engineResult = overviewRaw.clicks > 0 ? analyze(overviewRaw) : null;
 
-  let reply = `היי ${profileName}! הנה סקירת הביצועים שלך:\n\n`;
+  // ── Adaptive greeting: campaign stage awareness ───────────────────────────
+  const { adaptive } = context;
+  const stagePrefix = adaptive.campaignStage === 'growing'
+    ? '📈 הנתונים מראים מגמת צמיחה — '
+    : adaptive.campaignStage === 'struggling'
+    ? '⚠️ שים לב — הנתונים מצביעים על ירידה — '
+    : '';
+
+  let reply = `היי ${profileName}! ${stagePrefix}הנה סקירת הביצועים שלך:\n\n`;
   reply += sections.join('\n\n') + '\n\n';
 
   if (engineResult) {
     const top    = engineResult.issues[0];
     const action = engineResult.prioritizedActions[0];
     const confidence = Math.round(engineResult.confidence * 100);
+
+    // If this issue is recurring, call it out explicitly
+    const isRecurring = adaptive.recurringIssue
+      && adaptive.recurringIssue.key === top?.dict_key
+      && adaptive.recurringIssue.count >= 3;
+
     reply += `🔍 **הממצא המרכזי (ביטחון ${confidence}%):**\n`;
+    if (isRecurring) {
+      reply += `_בעיה זו חוזרת ${adaptive.recurringIssue.count} פעמים בנתונים שלך — שווה לטפל בה._\n`;
+    }
     reply += formatIssueBlock(top) + '\n';
     if (action.simple_label && action.simple_label !== action.title) {
       reply += `\n✅ **תוצאה צפויה:** ${action.expectedImpact}`;
@@ -402,7 +465,6 @@ function generateRecsResponse(context) {
   }
 
   if (globalRaw.clicks === 0) {
-    const recs = (recentAnalysis?.metrics) ? [] : [];
     return {
       reply: 'אין עדיין נתונים חיים להמלצות. חבר אינטגרציה והרץ ניתוח כדי לקבל המלצות מבוססות נתונים.',
       quickActions: ['חבר אינטגרציה', 'הרץ ניתוח'],
@@ -413,24 +475,350 @@ function generateRecsResponse(context) {
   const actions = result.prioritizedActions.slice(0, 3);
   const confidence = Math.round(result.confidence * 100);
 
+  // ── Adaptive: use business-type-specific impact from dictionary if known ──
+  const { adaptive } = context;
+  const businessType = adaptive.businessType; // 'ecommerce' | 'services' | 'lead_generation' | null
+
+  // ── Adaptive: acknowledge recurring issue ────────────────────────────────
+  const top = result.issues[0];
+  const isRecurring = adaptive.recurringIssue
+    && adaptive.recurringIssue.key === top?.dict_key
+    && adaptive.recurringIssue.count >= 3;
+
   let reply = `🎯 **המלצות מותאמות אישית (ביטחון ${confidence}%):**\n\n`;
+  if (isRecurring) {
+    reply += `⚠️ _בעיית ה-${top.simple_label || top.dict_key} חוזרת אצלך ${adaptive.recurringIssue.count} פעמים — הגיע הזמן לטפל בה לעומק._\n\n`;
+  }
+
   actions.forEach((a, i) => {
-    // Use simple_label from dictionary if available, else fall back to action title
     const displayTitle = a.simple_label || a.title;
     reply += `${i + 1}. **${displayTitle}**\n`;
-    if (a.simple_summary) reply += `   _${a.simple_summary}_\n`;
+
+    // If business type is known and the dictionary has a specific impact for it, use it
+    const dictEntry  = a.dict_key ? dictionary[a.dict_key] : null;
+    const bizImpact  = businessType && dictEntry?.business_impact?.[businessType];
+    if (bizImpact) {
+      reply += `   _${bizImpact}_\n`;
+    } else if (a.simple_summary) {
+      reply += `   _${a.simple_summary}_\n`;
+    }
+
     const firstAction = a.first_action || a.why;
     reply += `   ⚡ ${firstAction}\n`;
     reply += `   ✅ ${a.expectedImpact}\n\n`;
   });
-  // Primary issue in plain language
-  const top = result.issues[0];
+
   reply += `🔍 **הממצא הדומיננטי:**\n${formatIssueBlock(top)}`;
 
   return { reply, quickActions: ['נתח ביצועים כלליים', 'הצע הזזת תקציב', 'בדוק CTR'] };
 }
 
-// ── Helper ─────────────────────────��──────────────────────────────���───────────
+// ── Phase 4F: Trends & Learning response ──────────────────────────────────────
+
+/**
+ * generateTrendsResponse(context)
+ *
+ * Uses pre-computed strategy_memory (written by learning-engine after each analyze run).
+ * Falls back gracefully when no learning data exists yet.
+ */
+function generateTrendsResponse(context) {
+  const { strategyMemory, profileName, recentAnalysis } = context;
+
+  // ── No learning data yet ───────────────────────────────────────────────────
+  if (!strategyMemory || strategyMemory.data_points < 2) {
+    const dataNote = recentAnalysis
+      ? 'יש לך ניתוח אחד — צריך לפחות 2 כדי לזהות מגמות. הרץ ניתוח נוסף בסבב הבא.'
+      : 'עדיין אין ניתוחים. הרץ ניתוח על קמפיין כדי שהמערכת תתחיל ללמוד.';
+    return {
+      reply:        `📊 **מגמות — ${profileName}:**\n\n${dataNote}`,
+      quickActions: ['נתח את הקמפיינים שלי', 'מה מצב הביצועים?', 'הצג המלצות'],
+    };
+  }
+
+  // ── Trend line ─────────────────────────────────────────────────────────────
+  const trendEmoji = {
+    improving: '📈',
+    declining: '📉',
+    stable:    '➡️',
+  }[strategyMemory.score_trend] || '➡️';
+
+  const trendLabel = {
+    improving: 'מגמת עלייה',
+    declining: 'מגמת ירידה',
+    stable:    'יציב',
+  }[strategyMemory.score_trend] || 'יציב';
+
+  const deltaStr = strategyMemory.score_delta !== null
+    ? ` (${strategyMemory.score_delta > 0 ? '+' : ''}${strategyMemory.score_delta} נקודות)`
+    : '';
+
+  let reply = `${trendEmoji} **מגמת ביצועים — ${profileName}:**\n\n`;
+  reply += `📌 **מגמה:** ${trendLabel}${deltaStr} על פני ${strategyMemory.data_points} ניתוחים\n`;
+  reply += `📌 **ציון ממוצע:** ${strategyMemory.dominant_verdict === 'healthy' ? '🟢 בריא' : strategyMemory.dominant_verdict === 'needs_work' ? '🟡 דורש עבודה' : '🔴 קריטי'}\n`;
+
+  // ── Persistent bottlenecks ─────────────────────────────────────────────────
+  const pbn = Array.isArray(strategyMemory.persistent_bottlenecks)
+    ? strategyMemory.persistent_bottlenecks
+    : [];
+
+  if (pbn.length > 0) {
+    const bnLabels = {
+      ctr:        'CTR — הקריאייטיב לא מושך קליקים',
+      conversion: 'המרה — הדף לא סוגר',
+      roas:       'ROAS — ההוצאה לא מכוסה',
+      traffic:    'תנועה — אין מספיק חשיפות',
+    };
+    reply += `\n⚠️ **צווארי בקבוק חוזרים (${pbn.length}):**\n`;
+    for (const stage of pbn) {
+      reply += `  • ${bnLabels[stage] || stage}\n`;
+    }
+    reply += `_אלה הבעיות שמופיעות שוב ושוב — לא מספיק לפתור פעם אחת._\n`;
+  } else {
+    reply += `\n✅ **אין צווארי בקבוק חוזרים** — כל בעיה שהופיעה טופלה.\n`;
+  }
+
+  // ── Iteration action ───────────────────────────────────────────────────────
+  const ia = strategyMemory.iteration_action;
+  if (ia?.heAction) {
+    const urgencyEmoji = {
+      critical: '🚨',
+      high:     '🔴',
+      medium:   '🟡',
+      low:      '🟢',
+    }[ia.urgency] || '🔵';
+
+    reply += `\n${urgencyEmoji} **הפעולה הנכונה עכשיו:**\n`;
+    reply += `  **${ia.heAction}**\n`;
+    reply += `  _${ia.reason}_\n`;
+  }
+
+  // ── Period note ────────────────────────────────────────────────────────────
+  if (strategyMemory.period_start && strategyMemory.period_end) {
+    const from = new Date(strategyMemory.period_start).toLocaleDateString('he-IL');
+    const to   = new Date(strategyMemory.period_end).toLocaleDateString('he-IL');
+    reply += `\n📅 _תקופת ניתוח: ${from} — ${to}_`;
+  }
+
+  return {
+    reply,
+    quickActions: ['נתח ביצועים כלליים', 'הצג המלצות', 'הצע הזזת תקציב'],
+  };
+}
+
+// ── Phase 4G: Business Profile response ───────────────────────────────────────
+
+function generateBusinessProfileResponse(context) {
+  const { businessProfile, profileName, adaptive } = context;
+  const { pct, missingRequired, missingEnrichment } = scoreCompletion(businessProfile);
+
+  // No profile at all
+  if (!businessProfile) {
+    return {
+      reply: `📋 **פרופיל עסקי — ${profileName}:**\n\nעדיין אין פרופיל עסקי. הפרופיל הוא הבסיס לכל הניתוחים — בלעדיו אני לא יודע מה אתה מוכר ולכמה.\n\n❓ **${buildNextProfileQuestion(missingRequired, missingEnrichment) || 'מה אתה מוכר?'}**`,
+      quickActions: ['עדכן פרופיל', 'חשב כלכלת יחידה', 'הצג ניתוח ביצועים'],
+    };
+  }
+
+  const summary = formatProfileSummary(businessProfile);
+  const completionBar = pct >= 100 ? '🟢 פרופיל מלא' : pct >= 70 ? `🟡 ${pct}% הושלם` : `🔴 ${pct}% הושלם`;
+
+  let reply = `📋 **פרופיל עסקי — ${completionBar}:**\n\n${summary}\n`;
+
+  // Beginner-aware: show next question if profile incomplete
+  if (missingRequired.length > 0) {
+    const nextQ = buildNextProfileQuestion(missingRequired, missingEnrichment);
+    reply += `\n⚠️ **חסר מידע חשוב** (${missingRequired.length} שדות נדרשים):\n`;
+    reply += `❓ **${nextQ}**\n`;
+    reply += `_השלמת הפרופיל תשפר את דיוק כל הניתוחים._`;
+  } else if (missingEnrichment.length > 0) {
+    const nextQ = buildNextProfileQuestion([], missingEnrichment);
+    reply += `\n💡 **שדות אופציונליים שיעשירו את הניתוח:**\n`;
+    reply += `❓ ${nextQ}`;
+  } else {
+    reply += `\n✅ _כל המידע הנדרש קיים — הניתוחים מדויקים._`;
+  }
+
+  return {
+    reply,
+    quickActions: ['חשב כלכלת יחידה', 'הצג ניתוח ביצועים', 'פתח בדיקת A/B'],
+  };
+}
+
+// ── Phase 4G: Economics response ──────────────────────────────────────────────
+
+function generateEconomicsResponse(context) {
+  const { businessProfile, globalRaw, profileName, adaptive } = context;
+
+  if (!businessProfile?.price_amount) {
+    return {
+      reply: `💰 **כלכלת יחידה — ${profileName}:**\n\nלא ניתן לחשב — חסר מחיר בפרופיל העסקי.\n\n❓ **מה המחיר של ההצעה שלך? (מספר בלבד)**`,
+      quickActions: ['עדכן פרופיל', 'הצג פרופיל עסקי'],
+    };
+  }
+
+  // Build live metrics from globalRaw
+  const liveMetrics = {
+    spend:       globalRaw.spend,
+    clicks:      globalRaw.clicks,
+    impressions: globalRaw.impressions,
+    conversions: globalRaw.conversions,
+    revenue:     globalRaw.revenue,
+    ctr:         globalRaw.impressions > 0 ? globalRaw.clicks / globalRaw.impressions : 0,
+    convRate:    globalRaw.clicks      > 0 ? globalRaw.conversions / globalRaw.clicks : 0,
+    cpc:         globalRaw.clicks      > 0 ? globalRaw.spend / globalRaw.clicks : 0,
+    roas:        globalRaw.spend       > 0 ? globalRaw.revenue / globalRaw.spend : null,
+  };
+
+  const ue = computeUnitEconomics({ businessProfile, liveMetrics });
+
+  // Core numbers
+  let reply = `💰 **כלכלת יחידה — ${profileName}:**\n\n`;
+
+  if (ue.cpl !== null) {
+    reply += `  • **CPL** (עלות ליד): ₪${ue.cpl} ${cplStatusLabel(ue.cplStatus)}\n`;
+    reply += `  • **break-even CPL**: ₪${ue.breakEvenCPL} | **מקסימום בר-קיימא**: ₪${ue.sustainableCPL}\n`;
+  }
+  if (ue.cac !== null) reply += `  • **CAC** (עלות גיוס לקוח): ₪${ue.cac}\n`;
+  if (ue.ltv !== null) reply += `  • **LTV** (ערך חיי לקוח): ₪${ue.ltv}${businessProfile.pricing_model === 'recurring' ? ' (3 חודשים)' : ''}\n`;
+  if (ue.roas !== null) reply += `  • **ROAS**: ${ue.roas}x ${roasLabel(ue.roas)}\n`;
+  if (ue.paybackMonths !== null) reply += `  • **החזר השקעה**: ${ue.paybackMonths} חודשים\n`;
+
+  // Verdict
+  if (ue.cplStatus === 'profitable') {
+    reply += `\n✅ **המספרים בריאים** — אתה מרוויח על כל ליד. שקול להגדיל תקציב.`;
+  } else if (ue.cplStatus === 'marginal') {
+    reply += `\n⚠️ **גבולי** — אתה סביב נקודת האיזון. שפר המרות או הורד עלות ליד.`;
+  } else if (ue.cplStatus === 'losing') {
+    reply += `\n🔴 **מפסיד** — עלות הליד גבוהה מה-LTV. עצור והתאם לפני שמגדילים תקציב.`;
+  } else if (globalRaw.spend === 0) {
+    // Pre-launch state — show simulation hint
+    reply += `\n💡 _אין עדיין נתוני קמפיין. אחרי ההשקה תראה כאן CPL ו-ROAS בפועל._`;
+  }
+
+  // Funnel backward calculation if monthly budget set
+  if (businessProfile.monthly_budget && businessProfile.price_amount) {
+    const targetRevenue = businessProfile.monthly_budget * 3; // rough 3x ROAS target
+    const funnel = computeFunnelEconomics({ targetRevenue, businessProfile, liveMetrics });
+    if (funnel.salesNeeded) {
+      reply += `\n\n📊 **פונל לעמידה ביעד (ROAS 3x):**`;
+      reply += `\n  • מכירות נדרשות: ${funnel.salesNeeded}`;
+      if (funnel.leadsNeeded)       reply += ` | לידים: ${funnel.leadsNeeded}`;
+      if (funnel.clicksNeeded)      reply += ` | קליקים: ${funnel.clicksNeeded}`;
+      if (funnel.budgetNeeded)      reply += `\n  • תקציב נדרש: ₪${funnel.budgetNeeded}`;
+      if (funnel.feasible === false) reply += ` ⚠️ (פער של ₪${funnel.gap} מהתקציב הנוכחי)`;
+      if (funnel.feasible === true)  reply += ` ✅ (בתוך התקציב)`;
+    }
+  }
+
+  return {
+    reply,
+    quickActions: ['הצג ביצועי קמפיין', 'עדכן פרופיל עסקי', 'פתח בדיקת A/B'],
+  };
+}
+
+// ── Phase 4G: A/B Test response ───────────────────────────────────────────────
+
+function generateTestResponse(context) {
+  const { runningTests, strategyMemory, profileName } = context;
+
+  // ── No tests running ──────────────────────────────────────────────────────
+  if (!runningTests || runningTests.length === 0) {
+    // Suggest what to test next based on bottleneck
+    const bottleneckStage = strategyMemory?.persistent_bottlenecks?.[0] || null;
+    const suggestion      = buildNextTestSuggestion([], bottleneckStage);
+
+    let reply = `🔬 **בדיקות A/B — ${profileName}:**\n\nאין בדיקות פעילות כרגע.\n\n`;
+    reply += `**כלל הברזל:** בודקים משתנה אחד בלבד. לא מחליפים הכול ביחד.\n`;
+
+    if (suggestion) {
+      reply += `\n💡 **מה לבדוק עכשיו — ${suggestion.label}:**\n`;
+      reply += `  ${suggestion.guidance}\n`;
+    } else {
+      reply += `\n💡 _הרץ ניתוח ביצועים כדי שאדע על איזה צוואר בקבוק להמליץ לבדוק._`;
+    }
+
+    return {
+      reply,
+      quickActions: ['נתח ביצועים כלליים', 'הצג מגמות', 'עדכן פרופיל עסקי'],
+    };
+  }
+
+  // ── Show running tests ────────────────────────────────────────────────────
+  const today = new Date();
+  const dueTests = runningTests.filter(t => {
+    const end = new Date(t.start_date);
+    end.setDate(end.getDate() + (t.planned_days || 7));
+    return today >= end;
+  });
+
+  let reply = `🔬 **בדיקות A/B פעילות — ${profileName}:**\n\n`;
+
+  for (const test of runningTests) {
+    reply += formatTestCard(test) + '\n\n';
+  }
+
+  if (dueTests.length > 0) {
+    reply += `⏰ **${dueTests.length} בדיקה/ות הגיעו לתאריך הסיום** — זמן להכריע winner ולסגור.\n`;
+  }
+
+  // Suggest next variable to test (avoid already-running ones)
+  const bottleneckStage = strategyMemory?.persistent_bottlenecks?.[0] || null;
+  const next = buildNextTestSuggestion(runningTests, bottleneckStage);
+  if (next) {
+    reply += `\n➡️ **הבדיקה הבאה בתור — ${next.label}:**\n  ${next.guidance}`;
+  }
+
+  return {
+    reply,
+    quickActions: ['הצג מגמות', 'נתח ביצועים כלליים', 'חשב כלכלת יחידה'],
+  };
+}
+
+// ── Phase 4H: Ad Copy Generation response ─────────────────────────────────────
+
+function generateCopyResponse(context) {
+  const { businessProfile, strategyMemory, profileName } = context;
+
+  if (!businessProfile?.offer) {
+    return {
+      reply: `✍️ **כתיבת קופי — ${profileName}:**\n\nלא ניתן לכתוב מודעות ללא פרופיל עסקי.\n\n❓ **מה אתה מוכר? (משפט אחד, ספציפי)**\n\n_עדכן את הפרופיל כדי שאוכל לכתוב קופי מותאם לעסק שלך._`,
+      quickActions: ['עדכן פרופיל עסקי', 'הצג פרופיל נוכחי'],
+    };
+  }
+
+  // Determine bottleneck to prioritise the right framework
+  const bottleneck = strategyMemory?.persistent_bottlenecks?.[0] || null;
+
+  // Detect platform preference from context (default meta)
+  const platform = 'meta';
+
+  const variants = generateAdCopy({ businessProfile, bottleneck, platform });
+
+  // Build bottleneck note
+  let bottleneckNote = '';
+  if (bottleneck) {
+    const bnLabel = {
+      ctr:        'CTR נמוך — הוריאציות מתחילות בהוק חזק',
+      conversion: 'המרה נמוכה — הוריאציות מדגישות תוצאה ו-CTA',
+      roas:       'ROAS נמוך — הוריאציות מדגישות ערך ייחודי',
+      creative:   'קריאייטיב — הוריאציות מתחילות בפתיחת כאב',
+      landing_page: 'דף נחיתה — הוריאציות מדגישות בהירות הצעה',
+    }[bottleneck] || '';
+    if (bnLabel) bottleneckNote = `\n_🎯 מותאם לצוואר הבקבוק: ${bnLabel}_\n`;
+  }
+
+  let reply = `✍️ **3 וריאציות קופי — ${businessProfile.business_name || profileName}:**${bottleneckNote}\n\n`;
+  reply += `_בדוק משתנה אחד בלבד — בחר וריאציה אחת ל-A/B test._\n\n`;
+  reply += variants.map(v => formatCopyCard(v)).join('\n\n---\n\n');
+  reply += `\n\n📌 **הצעד הבא:** בחר וריאציה אחת, הרץ אותה 7 ימים מול ה-control הנוכחי.`;
+
+  return {
+    reply,
+    quickActions: ['פתח בדיקת A/B', 'נתח ביצועים כלליים', 'חשב כלכלת יחידה'],
+  };
+}
+
+// ── Helper ────────────────────────────────────────────────────────────────────
 function providerLabel(provider) {
   return { google_ads: 'Google Ads', ga4: 'Google Analytics 4', meta: 'Meta Ads' }[provider] || provider;
 }
@@ -446,6 +834,11 @@ function generateResponse(intent, context) {
     case 'ctr':           return generateCTRResponse(context);
     case 'recs':          return generateRecsResponse(context);
     case 'integrations':  return generateIntegrationsResponse(context);
+    case 'trends':        return generateTrendsResponse(context);
+    case 'business':      return generateBusinessProfileResponse(context);
+    case 'economics':     return generateEconomicsResponse(context);
+    case 'test':          return generateTestResponse(context);
+    case 'copy':          return generateCopyResponse(context);
     default:              return generateOverviewResponse(context);
   }
 }
@@ -469,19 +862,66 @@ exports.handler = async (event) => {
     if (message.length > 2000) {
       throw new AppError({ code: 'BAD_REQUEST', userMessage: 'ההודעה ארוכה מדי', devMessage: 'message > 2000 chars', status: 400 });
     }
+    sanitiseText(message); // reject XSS patterns before reaching business logic
 
     // Build context from DB
     const chatContext = await buildContext(user.id);
 
-    // Detect intent + generate response
-    const intent  = detectIntent(message);
-    const { reply, quickActions } = generateResponse(intent, chatContext);
+    // Detect intent
+    const intent = detectIntent(message);
+
+    // ── Engine result (shared between beginner layer + intelligence update) ──
+    const engineResult = chatContext.globalRaw.clicks > 0
+      ? analyze(chatContext.globalRaw)
+      : null;
+
+    // ── Beginner execution layer ─────────────────────────────────────────────
+    // Runs before generateResponse — may override, wrap, or pass through.
+    const beginnerState = detectBeginnerState(
+      chatContext.adaptive,
+      chatContext.integrations,
+      chatContext.recentAnalysis,
+    );
+
+    let responseData;
+    if (beginnerState.active) {
+      const override = generateBeginnerOverride(beginnerState, intent, message, chatContext);
+      if (override) {
+        // Redirect or friction/overthink intercept — replace normal response
+        responseData = override;
+      } else {
+        // Normal flow runs, but we append milestone progress bar + next-step guidance
+        const normal = generateResponse(intent, chatContext);
+        responseData = appendBeginnerAddendum(beginnerState, normal, engineResult);
+      }
+    } else {
+      responseData = generateResponse(intent, chatContext);
+    }
+
+    const { reply, quickActions } = responseData;
 
     await writeRequestLog(buildLogPayload(context, 'info', 'campaigner_chat_response', {
-      user_id: user.id,
+      user_id:             user.id,
       intent,
+      beginner_milestone:  beginnerState.active ? beginnerState.milestone : 'graduated',
       providers_connected: chatContext.integrations.filter(i => i.connection_status === 'active').length,
     }));
+
+    // ── Fire-and-forget: user intelligence update ────────────────────────────
+    updateIntelligenceFromInteraction(user.id, {
+      intent,
+      message,
+      engineResult,
+      globalRaw: chatContext.globalRaw,
+    }).catch(() => {});
+
+    // ── Fire-and-forget: beginner milestone progress ─────────────────────────
+    if (beginnerState.active) {
+      const nextProgress = resolveProgressUpdate(beginnerState, intent, message, chatContext, engineResult);
+      if (nextProgress) {
+        persistMilestoneProgress(user.id, nextProgress).catch(() => {});
+      }
+    }
 
     return ok({ reply, quickActions, intent }, context.requestId);
 
