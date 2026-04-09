@@ -4,6 +4,7 @@ const { writeRequestLog } = require('./_shared/supabase');
 const { requireAuth } = require('./_shared/auth');
 const { getProfile, updateProfile } = require('./_shared/account');
 const { parseJsonBody } = require('./_shared/request');
+const { validateAccountProfile } = require('./_shared/validation');
 
 exports.handler = async (event) => {
   const context = createRequestContext(event, 'account-profile');
@@ -15,7 +16,8 @@ exports.handler = async (event) => {
       return ok(profile, context.requestId, { 'X-Correlation-Id': context.correlationId });
     }
     if (event.httpMethod === 'PUT') {
-      const payload = parseJsonBody(event, { fallback: {}, allowEmpty: true, devMessage: 'Invalid JSON in account-profile body' });
+      const raw     = parseJsonBody(event, { fallback: {}, allowEmpty: true, devMessage: 'Invalid JSON in account-profile body' });
+      const payload = validateAccountProfile(raw);
       const profile = await updateProfile(user, payload);
       await writeRequestLog(buildLogPayload(context, 'info', 'account_profile_updated', { user_id: user.id }));
       return ok(profile, context.requestId, { 'X-Correlation-Id': context.correlationId });

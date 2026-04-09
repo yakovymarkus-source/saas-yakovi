@@ -33,6 +33,10 @@
   --sh-lg: 0 10px 32px rgba(0,0,0,0.13);
   --sh-xl: 0 20px 60px rgba(0,0,0,0.16);
   --sh-brand: 0 4px 20px rgba(99,102,241,0.35);
+
+  --brand-200: #c7d2fe;
+  --brand-rgb: 99, 102, 241;
+  --transition-default: all 0.15s ease;
 }
 
 /* ── Reset & Base ──────────────────────────────────────────────────────────── */
@@ -293,10 +297,11 @@ input, select, textarea { font-family: inherit; }
 .card-title    { font-size: 1rem; font-weight: 700; color: var(--gray-800); margin-bottom: 1rem; }
 .card-subtitle { font-size: 0.875rem; color: var(--gray-500); margin-top: 0.25rem; margin-bottom: 1rem; }
 
-/* analysis-card — used in admin & analysis detail pages */
+/* analysis-card — data/results card with brand accent top border */
 .analysis-card {
   background: white; border-radius: var(--r-md); padding: 1.5rem;
   box-shadow: var(--sh-xs); border: 1px solid var(--gray-100);
+  border-top: 3px solid var(--brand-100);
 }
 
 /* insight highlight card */
@@ -306,6 +311,50 @@ input, select, textarea { font-family: inherit; }
 }
 .insight-card-title { font-weight: 700; color: var(--brand-dark); font-size: 0.9375rem; }
 .insight-card-body  { font-size: 0.875rem; color: var(--gray-700); margin-top: 0.25rem; }
+
+/* ── Insight Panel ──────────────────────────────────────────────────────────── */
+.insight-panel {
+  background: linear-gradient(135deg, var(--brand-50) 0%, #f5f3ff 100%);
+  border: 1.5px solid var(--brand-100); border-radius: var(--r-md);
+  padding: 1.25rem 1.5rem;
+}
+.insight-panel-title {
+  font-weight: 700; color: var(--brand-dark); font-size: 0.9375rem;
+  display: flex; align-items: center; gap: 0.5rem;
+}
+.insight-panel-body { font-size: 0.875rem; color: var(--gray-700); margin-top: 0.5rem; line-height: 1.6; }
+
+/* ── Action Block ───────────────────────────────────────────────────────────── */
+.action-block {
+  display: flex; gap: 1rem; align-items: flex-start;
+  background: white; border: 1px solid var(--gray-200); border-radius: var(--r-md);
+  padding: 1rem; transition: var(--transition-default);
+}
+.action-block:hover { box-shadow: var(--sh-sm); border-color: var(--brand-100); }
+.action-block-num {
+  width: 1.75rem; height: 1.75rem; border-radius: 50%; flex-shrink: 0;
+  background: var(--brand); color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 0.8125rem;
+}
+.action-block-title  { font-weight: 700; color: var(--gray-800); font-size: 0.9375rem; }
+.action-block-desc   { font-size: 0.8125rem; color: var(--gray-500); margin-top: 0.2rem; }
+.action-block-impact { font-size: 0.75rem; color: var(--brand); font-weight: 600; margin-top: 0.3rem; }
+
+/* ── Status Indicator ───────────────────────────────────────────────────────── */
+.status-indicator {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  padding: 0.25rem 0.75rem; border-radius: 9999px;
+  font-size: 0.75rem; font-weight: 600;
+}
+.status-indicator::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; flex-shrink: 0;
+}
+.status-success { background: #dcfce7; color: #15803d; }
+.status-warning { background: #fef9c3; color: #a16207; }
+.status-danger  { background: #fee2e2; color: #b91c1c; }
+.status-info    { background: var(--brand-50); color: var(--brand-dark); }
 
 /* ── Promo Banner ───────────────────────────────────────────────────────────── */
 .promo-banner {

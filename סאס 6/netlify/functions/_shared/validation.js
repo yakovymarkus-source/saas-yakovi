@@ -123,6 +123,20 @@ function validateIntegrationConnect(body) {
   };
 }
 
+function validateCreateCampaign(body) {
+  return {
+    name: sanitiseText(isNonEmptyString(body.name, 'name', { max: 200 })),
+  };
+}
+
+function validatePaymentPending(body) {
+  // Only these plans are available via manual GrowLink payment
+  const ALLOWED = ['early_bird', 'pro'];
+  return {
+    plan: isEnum(body.plan || 'early_bird', 'plan', ALLOWED),
+  };
+}
+
 function validateGdprExport(_body) {
   // No body fields required; user is always derived from token
   return {};
@@ -163,6 +177,8 @@ module.exports = {
   isUuid, isEmail, isNonEmptyString, isSlug, isIsoDate,
   isPositiveInt, isEnum, isOptionalString, isObject,
   sanitiseText,
+  validateCreateCampaign,
+  validatePaymentPending,
   validateEnqueueSyncJob,
   validateAccountProfile,
   validateBillingCheckout,

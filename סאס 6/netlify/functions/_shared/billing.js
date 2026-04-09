@@ -10,12 +10,78 @@ const { getAdminClient } = require('./supabase');
 
 // ─── Plan definitions ─────────────────────────────────────────────────────────
 const PLANS = {
-  free:       { campaignLimit: 0,        assetsLimit: 5,   analysisPerDay: 5,            label: 'חינמי' },
-  early_bird: { campaignLimit: 1,        assetsLimit: 50,  analysisPerDay: 50,           label: 'Early Bird' },
-  starter:    { campaignLimit: 3,        assetsLimit: 30,  analysisPerDay: 30,           label: 'Starter' },
-  pro:        { campaignLimit: 20,       assetsLimit: 500, analysisPerDay: 200,          label: 'Pro' },
-  agency:     { campaignLimit: Infinity, assetsLimit: Infinity, analysisPerDay: Infinity, label: 'Agency' },
+  free:       { campaignLimit: 0,        assetsLimit: 5,        analysisPerDay: 5,            label: 'חינמי' },
+  early_bird: { campaignLimit: 1,        assetsLimit: 50,       analysisPerDay: 50,           label: 'Early Bird' },
+  starter:    { campaignLimit: 3,        assetsLimit: 30,       analysisPerDay: 30,           label: 'Starter' },
+  pro:        { campaignLimit: 20,       assetsLimit: 500,      analysisPerDay: 200,          label: 'Pro' },
+  agency:     { campaignLimit: Infinity, assetsLimit: Infinity, analysisPerDay: Infinity,     label: 'Agency' },
 };
+
+// Monthly price in USD per plan — single source of truth (imported by admin-metrics.js)
+// early_bird was a one-time/GrowLink payment — no recurring monthly contribution.
+const PLAN_PRICES = {
+  free:       0,
+  early_bird: 0,
+  starter:    29,
+  pro:        79,
+  agency:     199,
+};
+
+/**
+ * getFeatureGates(plan) → canonical feature-flag map for a given plan.
+ *
+ * These are the INTENDED access rules. Enforcement is phased in per feature.
+ * Currently used for: frontend display, future middleware guards.
+ *
+ * @param {string} plan
+ * @returns {{ canAnalyze: boolean, canChat: boolean, canExport: boolean,
+ *             canIntegrate: boolean, canViewHistory: boolean, maxCampaigns: number|Infinity }}
+ */
+function getFeatureGates(plan) {
+  const gates = {
+    free: {
+      canAnalyze:     true,   // limited by analysisPerDay quota
+      canChat:        true,   // basic chat available on all plans
+      canExport:      false,
+      canIntegrate:   false,
+      canViewHistory: false,
+      maxCampaigns:   PLANS.free.campaignLimit,
+    },
+    early_bird: {
+      canAnalyze:     true,
+      canChat:        true,
+      canExport:      true,
+      canIntegrate:   true,
+      canViewHistory: true,
+      maxCampaigns:   PLANS.early_bird.campaignLimit,
+    },
+    starter: {
+      canAnalyze:     true,
+      canChat:        true,
+      canExport:      true,
+      canIntegrate:   true,
+      canViewHistory: true,
+      maxCampaigns:   PLANS.starter.campaignLimit,
+    },
+    pro: {
+      canAnalyze:     true,
+      canChat:        true,
+      canExport:      true,
+      canIntegrate:   true,
+      canViewHistory: true,
+      maxCampaigns:   PLANS.pro.campaignLimit,
+    },
+    agency: {
+      canAnalyze:     true,
+      canChat:        true,
+      canExport:      true,
+      canIntegrate:   true,
+      canViewHistory: true,
+      maxCampaigns:   Infinity,
+    },
+  };
+  return gates[plan] || gates.free;
+}
 
 // ─── Stripe helpers ───────────────────────────────────────────────────────────
 function getStripe() {
@@ -201,6 +267,8 @@ async function handleWebhookEvent(event) {
 
 module.exports = {
   PLANS,
+  PLAN_PRICES,
+  getFeatureGates,
   getStripe,
   getSubscription,
   getPlan,

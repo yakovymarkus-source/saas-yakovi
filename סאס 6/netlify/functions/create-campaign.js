@@ -10,7 +10,8 @@ const { writeRequestLog, getAdminClient }        = require('./_shared/supabase')
 const { requireAuth }                            = require('./_shared/auth');
 const { assertCampaignLimit }                    = require('./_shared/billing');
 const { AppError }                               = require('./_shared/errors');
-const { parseJsonBody, requireField }            = require('./_shared/request');
+const { parseJsonBody }                          = require('./_shared/request');
+const { validateCreateCampaign }                 = require('./_shared/validation');
 const { writeAudit }                             = require('./_shared/audit');
 const crypto                                     = require('node:crypto');
 
@@ -22,12 +23,8 @@ exports.handler = async (event) => {
     }
 
     const user = await requireAuth(event, context.functionName, context);
-    const body = parseJsonBody(event, { fallback: {}, allowEmpty: false, devMessage: 'Invalid JSON in create-campaign body' });
-    const name = requireField(body.name?.trim(), 'name');
-
-    if (name.length > 200) {
-      throw new AppError({ code: 'BAD_REQUEST', userMessage: 'שם הקמפיין ארוך מדי (מקסימום 200 תווים)', devMessage: 'Campaign name too long', status: 400 });
-    }
+    const body         = parseJsonBody(event, { fallback: {}, allowEmpty: false, devMessage: 'Invalid JSON in create-campaign body' });
+    const { name }     = validateCreateCampaign(body);
 
     // Enforce plan quota before insert
     await assertCampaignLimit(user.id);

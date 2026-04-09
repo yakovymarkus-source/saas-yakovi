@@ -4,3 +4,6 @@ dist/
 .env
 .env.local
 *.db
+
+# Local Netlify folder
+.netlify

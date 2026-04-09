@@ -8,9 +8,7 @@
  */
 
 const { getAdminClient } = require('./supabase');
-
-// Plan → monthly price in USD (must mirror PLANS in billing.js)
-const PLAN_PRICES = { starter: 29, pro: 79, agency: 199, free: 0 };
+const { PLAN_PRICES }    = require('./billing');
 
 function sb(client) { return client || getAdminClient(); }
 
@@ -23,15 +21,15 @@ async function getMrrSnapshot(client) {
   if (error || !data) return { mrr: 0, breakdown: {}, activeCount: 0, trialingCount: 0 };
 
   let mrr = 0;
-  const breakdown = { starter: 0, pro: 0, agency: 0 };
+  const breakdown = { free: 0, early_bird: 0, starter: 0, pro: 0, agency: 0 };
   let activeCount = 0;
   let trialingCount = 0;
 
   for (const row of data) {
     if (row.status !== 'active' && row.status !== 'trialing') continue;
-    const price = PLAN_PRICES[row.plan] || 0;
+    const price = PLAN_PRICES[row.plan] ?? 0;
     mrr += price;
-    if (breakdown[row.plan] !== undefined) breakdown[row.plan] += price;
+    if (row.plan in breakdown) breakdown[row.plan] += price;
     if (row.status === 'active')   activeCount++;
     if (row.status === 'trialing') trialingCount++;
   }

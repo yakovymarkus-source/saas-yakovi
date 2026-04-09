@@ -14,12 +14,10 @@ const { writeRequestLog, getAdminClient }        = require('./_shared/supabase')
 const { requireAdmin }                          = require('./_shared/admin-auth');
 const { AppError }                              = require('./_shared/errors');
 const { parseJsonBody, requireField }           = require('./_shared/request');
+const { isEnum }                                = require('./_shared/validation');
+const { writeAudit }                            = require('./_shared/audit');
 const { sendActivationEmail }                   = require('./_shared/email');
-const PLAN_LABELS = {
-  early_bird: 'Early Bird',
-  pro:        'Pro',
-  agency:     'Agency',
-};
+const { PLANS }                                 = require('./_shared/billing');
 
 exports.handler = async (event) => {
   const context = createRequestContext(event, 'activate-payment');
@@ -31,12 +29,14 @@ exports.handler = async (event) => {
     await requireAdmin(event, context.functionName, context);
     const body   = parseJsonBody(event, { fallback: {}, allowEmpty: false });
     const userId = requireField(body.userId, 'userId');
-    const plan   = body.plan || 'early_bird';
+    const plan   = isEnum(body.plan || 'early_bird', 'plan', Object.keys(PLANS));
 
     const sb = getAdminClient();
 
     // Activate subscription
     await sb.rpc('activate_payment', { p_user_id: userId, p_plan: plan });
+
+    await writeAudit({ userId: context.adminId || 'admin', action: 'payment.activate', targetType: 'user', targetId: userId, metadata: { plan }, ip: context.ip, requestId: context.requestId });
 
     // Fetch user profile for email
     const { data: profile } = await sb.from('profiles')
@@ -48,7 +48,7 @@ exports.handler = async (event) => {
       await sendActivationEmail({
         to:        profile.email,
         name:      profile.name,
-        planLabel: PLAN_LABELS[plan] || plan,
+        planLabel: PLANS[plan]?.label || plan,
       }).catch(e => console.warn('[activate-payment] email failed:', e.message));
     }
 
