@@ -173,9 +173,15 @@ function generateBeginnerOverride(state, intent, message, context) {
 
   // ── Per-milestone routing ─────────────────────────────────────────────────
   switch (milestone) {
-    case 'connect':
-      // Always redirect — nothing useful without connected data
+    case 'connect': {
+      // CA-009: intents that work WITHOUT live ad data — let normal flow run
+      // (ad copy, economics, business profile, A/B test suggestions)
+      const NO_DATA_INTENTS = new Set(['copy', 'economics', 'business', 'test']);
+      if (NO_DATA_INTENTS.has(intent)) return null;
+      // All other intents (overview, budget, top_ads, roas, ctr, recs, trends,
+      // tracking, integrations) require real campaign data — redirect
       return { reply: ms.redirect(name), quickActions: ms.quickActions };
+    }
 
     case 'analyze':
       // overview/recs are on-topic; all others redirect

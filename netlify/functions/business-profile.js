@@ -12,7 +12,7 @@
 
 'use strict';
 
-const { ok, fail }                              = require('./_shared/http');
+const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload } = require('./_shared/observability');
 const { writeRequestLog }                       = require('./_shared/supabase');
 const { requireAuth }                           = require('./_shared/auth');
@@ -79,6 +79,7 @@ function buildResponse(profile) {
 }
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const ctx = createRequestContext(event, 'business-profile');
 
   try {

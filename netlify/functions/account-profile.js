@@ -1,4 +1,4 @@
-const { ok, fail } = require('./_shared/http');
+const { ok, fail, options } = require('./_shared/http');
 const { createRequestContext, buildLogPayload } = require('./_shared/observability');
 const { writeRequestLog } = require('./_shared/supabase');
 const { requireAuth } = require('./_shared/auth');
@@ -7,6 +7,7 @@ const { parseJsonBody } = require('./_shared/request');
 const { validateAccountProfile } = require('./_shared/validation');
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'account-profile');
   try {
     const user = await requireAuth(event, context.functionName, context);

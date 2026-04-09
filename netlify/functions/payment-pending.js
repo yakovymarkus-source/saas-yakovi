@@ -8,7 +8,7 @@
  * and activate.  Does NOT grant plan access until admin calls activate-payment.
  */
 
-const { ok, fail }                              = require('./_shared/http');
+const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload }  = require('./_shared/observability');
 const { writeRequestLog, getAdminClient }        = require('./_shared/supabase');
 const { requireAuth }                           = require('./_shared/auth');
@@ -20,6 +20,7 @@ const { sendAdminPaymentAlert }                 = require('./_shared/email');
 const { getEnv }                                = require('./_shared/env');
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'payment-pending');
   try {
     if (event.httpMethod !== 'POST') {

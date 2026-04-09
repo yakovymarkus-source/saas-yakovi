@@ -1,4 +1,4 @@
-const { accepted, fail } = require('./_shared/http');
+const { accepted, fail, options } = require('./_shared/http');
 const { createRequestContext, buildLogPayload } = require('./_shared/observability');
 const { getAdminClient, writeRequestLog } = require('./_shared/supabase');
 const { requireAuth } = require('./_shared/auth');
@@ -7,6 +7,7 @@ const { AppError } = require('./_shared/errors');
 const { parseJsonBody, requireField } = require('./_shared/request');
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'enqueue-sync-job');
   try {
     if (event.httpMethod !== 'POST') {
