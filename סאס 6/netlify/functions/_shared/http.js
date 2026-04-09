@@ -1,14 +1,36 @@
+'use strict';
+
 const { toAppError } = require('./errors');
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin':  'https://campaignbrain.netlify.app',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Request-ID',
+  'Access-Control-Max-Age':       '86400',
+};
 
 function respond(statusCode, payload, requestId, extraHeaders = {}) {
   return {
     statusCode,
     headers: {
       'content-type': 'application/json; charset=utf-8',
+      ...CORS_HEADERS,
       ...(requestId ? { 'x-request-id': requestId } : {}),
       ...extraHeaders,
     },
     body: JSON.stringify(payload),
+  };
+}
+
+/**
+ * options() — respond to CORS preflight (OPTIONS) requests.
+ * Call this at the top of every handler before any auth logic.
+ */
+function options() {
+  return {
+    statusCode: 204,
+    headers: { ...CORS_HEADERS },
+    body: '',
   };
 }
 
@@ -30,4 +52,4 @@ function fail(error, requestId, headers) {
   }, requestId, headers);
 }
 
-module.exports = { respond, ok, accepted, fail };
+module.exports = { respond, ok, accepted, fail, options, CORS_HEADERS };

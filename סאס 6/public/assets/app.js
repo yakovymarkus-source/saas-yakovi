@@ -409,7 +409,9 @@ async function renderDashboard() {
         <div class="empty-state-icon">🚀</div>
         <h3 class="empty-state-title">מוכנים להשיק נכס שיווקי מנצח?</h3>
         <p class="empty-state-desc">בנו אסטרטגיה, מסרים, תסריטים ולוגיקת דף נחיתה<br>חברו את חשבונות הפרסום שלכם להתחלה</p>
-        <button class="btn btn-gradient" style="width:auto;padding:0.75rem 2.25rem;font-size:1rem" onclick="navigate('campaigns')">צרו נכס שיווקי ראשון →</button>
+        ${getPlanLimits(plan).campaignLimit === 0
+          ? `<button class="btn btn-gradient" style="width:auto;padding:0.75rem 2.25rem;font-size:1rem" onclick="navigate('billing')">שדרגו ליצירת נכסים שיווקיים →</button>`
+          : `<button class="btn btn-gradient" style="width:auto;padding:0.75rem 2.25rem;font-size:1rem" onclick="navigate('campaigns')">צרו נכס שיווקי ראשון →</button>`}
       </div>
       <div class="features-grid" style="margin-top:0.5rem">
         <div class="feature-item">
@@ -565,7 +567,7 @@ async function renderCampaigns() {
             <div class="campaign-meta">נוצר: ${new Date(c.created_at).toLocaleDateString('he-IL')}</div>
           </div>
           <div class="flex items-center gap-2">
-            <button class="btn btn-sm btn-primary" onclick="event.stopPropagation();runAnalysis('${c.id}')">הרץ ניתוח</button>
+            <button class="btn btn-sm btn-primary" data-analysis-btn="${c.id}" onclick="event.stopPropagation();runAnalysis('${c.id}')">הרץ ניתוח</button>
           </div>
         </div>`).join('') : `
         <div class="card">
@@ -573,7 +575,9 @@ async function renderCampaigns() {
             <div class="empty-state-icon">🎯</div>
             <h3 class="empty-state-title">עדיין אין נכסים שיווקיים</h3>
             <p class="empty-state-desc">לחצו על "+ נכס חדש" כדי ליצור תסריט מודעה, דף נחיתה, אסטרטגיית פנל ועוד</p>
-            <button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ צור נכס ראשון</button>
+            ${getPlanLimits(state.subscription?.plan || 'free').campaignLimit === 0
+              ? `<button class="btn btn-gradient" style="width:auto" onclick="navigate('billing')">שדרג ליצירת נכסים →</button>`
+              : `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ צור נכס ראשון</button>`}
           </div>
         </div>`}
     </div>
@@ -581,6 +585,13 @@ async function renderCampaigns() {
 }
 
 function showAddCampaignModal() {
+  // CA-008: guard for free plan — campaign creation is blocked, redirect to billing
+  const plan = state.subscription?.plan || 'free';
+  if (getPlanLimits(plan).campaignLimit === 0) {
+    navigate('billing');
+    toast('שדרג את התוכנית שלך כדי ליצור נכסים שיווקיים', 'info');
+    return;
+  }
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
@@ -616,33 +627,52 @@ async function addCampaign() {
 }
 
 async function runAnalysis(campaignId) {
+  // STATE-01: disable all buttons for this campaign to prevent duplicate jobs
+  const btns = document.querySelectorAll(`[data-analysis-btn="${campaignId}"]`);
+  btns.forEach(b => { b.disabled = true; b.textContent = 'מנתח...'; });
   try {
     toast('מריץ ניתוח...', 'info');
     const job = await api('POST', 'enqueue-sync-job', { campaignId });
     toast('המשימה נקלטה — מושך נתונים חיים ומנתח...', 'success');
     pollJobStatus(job.jobId, campaignId);
   } catch (err) {
+    btns.forEach(b => { b.disabled = false; b.textContent = 'הרץ ניתוח'; });
     toast(err.message || 'שגיאה בהרצת ניתוח', 'error');
   }
 }
 
 async function pollJobStatus(jobId, campaignId) {
   let attempts = 0;
+  const restoreBtns = () => {
+    document.querySelectorAll(`[data-analysis-btn="${campaignId}"]`)
+      .forEach(b => { b.disabled = false; b.textContent = 'הרץ ניתוח'; });
+  };
   const poll = async () => {
     attempts++;
     try {
       const { data } = await sb.from('sync_jobs').select('status,result_payload').eq('id', jobId).maybeSingle();
       if (data?.status === 'done') {
+        restoreBtns();
         toast('הניתוח הסתיים!', 'success');
         showCampaignDetail(campaignId);
         return;
       }
       if (data?.status === 'failed') {
-        toast('הניתוח נכשל', 'error');
+        restoreBtns();
+        toast('הניתוח נכשל — נסה שנית', 'error');
         return;
       }
+      if (attempts < 20) {
+        setTimeout(poll, 3000);
+      } else {
+        // STATE-02: notify user on timeout instead of silent fail
+        restoreBtns();
+        toast('הניתוח לוקח יותר מהצפוי. נסה שנית בעוד כמה דקות.', 'warning');
+      }
+    } catch {
       if (attempts < 20) setTimeout(poll, 3000);
-    } catch {}
+      else { restoreBtns(); toast('שגיאה בבדיקת סטטוס הניתוח', 'error'); }
+    }
   };
   setTimeout(poll, 3000);
 }
@@ -766,7 +796,7 @@ async function showCampaignDetail(campaignId) {
     <div class="card text-center" style="padding:3rem">
       <div style="font-size:2.5rem;margin-bottom:1rem">🔍</div>
       <p class="text-muted mb-4">אין עדיין ניתוח לקמפיין הזה.</p>
-      <button class="btn btn-primary" style="width:auto;padding:0.625rem 1.5rem" onclick="runAnalysis('${campaignId}')">הרץ ניתוח ראשון</button>
+      <button class="btn btn-primary" style="width:auto;padding:0.625rem 1.5rem" data-analysis-btn="${campaignId}" onclick="runAnalysis('${campaignId}')">הרץ ניתוח ראשון</button>
     </div>`}
 
     ${analyses.length > 1 ? `
