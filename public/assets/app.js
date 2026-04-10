@@ -1400,10 +1400,6 @@ function resolveInitialPage() {
 async function boot() {
   const initialPage = resolveInitialPage();
 
-  await fetch(window.__SUPABASE_URL__ + '/rest/v1/', {
-    headers: { 'apikey': window.__SUPABASE_ANON_KEY__ }
-  }).catch(() => {});
-
   sb.auth.onAuthStateChange(async (event, session) => {
     if (!session) { renderAuth(); return; }
 
