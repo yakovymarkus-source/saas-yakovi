@@ -572,6 +572,45 @@ DROP POLICY IF EXISTS ai_requests_service_only ON public.ai_requests;
 CREATE POLICY ai_requests_service_only ON public.ai_requests FOR ALL USING (false) WITH CHECK (false);
 CREATE INDEX IF NOT EXISTS idx_ai_requests_user_created ON public.ai_requests (user_id, created_at DESC);
 
+-- ── טבלה: payment_events (provider-agnostic) ─────────────────────────────────
+-- מקור אמת לכל אירועי תשלום מכל ספק (Grow / Stripe / עתידי)
+-- external_event_id משמש כ-idempotency key
+CREATE TABLE IF NOT EXISTS public.payment_events (
+  id                    uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id               uuid        REFERENCES auth.users(id) ON DELETE SET NULL,
+  provider_name         text        NOT NULL DEFAULT 'grow',
+  external_event_id     text        UNIQUE,                    -- idempotency key
+  external_customer_id  text,                                  -- provider customer ID
+  external_sub_id       text,                                  -- provider subscription ID
+  event_type            text        NOT NULL,                  -- normalized event type
+  internal_status       text        NOT NULL,                  -- canonical status
+  raw_status            text,                                  -- provider's original status
+  plan                  text,
+  amount_cents          integer     NOT NULL DEFAULT 0,
+  currency              text        NOT NULL DEFAULT 'ils',
+  period_start          timestamptz,
+  period_end            timestamptz,
+  raw_payload           jsonb       NOT NULL DEFAULT '{}',     -- full provider payload
+  created_at            timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.payment_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS payment_events_service_only ON public.payment_events;
+CREATE POLICY payment_events_service_only
+  ON public.payment_events FOR ALL USING (false) WITH CHECK (false);
+
+CREATE INDEX IF NOT EXISTS idx_payment_events_user_created
+  ON public.payment_events (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_events_external_event
+  ON public.payment_events (external_event_id);
+CREATE INDEX IF NOT EXISTS idx_payment_events_provider_type
+  ON public.payment_events (provider_name, event_type, created_at DESC);
+
+-- ── עדכון subscriptions: הוספת עמודות כלליות לכל ספק ────────────────────────
+-- שם כללי במקום stripe_sub_id (שמור לתאימות לאחור)
+ALTER TABLE public.subscriptions
+  ADD COLUMN IF NOT EXISTS stripe_sub_id text;               -- alias for external subscription ID
+
 -- ── בדיקת תקינות — הרץ SELECT אחרי הכל ────────────────────────────────────
 -- חייב לחזור 3 שורות:
 SELECT routine_name FROM information_schema.routines

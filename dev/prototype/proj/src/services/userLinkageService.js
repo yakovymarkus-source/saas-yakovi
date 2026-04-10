@@ -31,15 +31,9 @@ async function appendAnalysisToUser(userId, analysisId) {
   const analysisHistory = user.analysis_history || [];
   if (!analysisHistory.includes(analysisId)) {
     analysisHistory.push(analysisId);
+    await userRepo.updateUser(userId, { ...user, analysis_history: analysisHistory });
+    await syncUserLinkageSummary(userId);
   }
-
-  const updatedUser = await userRepo.updateUser(userId, {
-    ...user,
-    analysis_history: analysisHistory
-  });
-
-  await syncUserLinkageSummary(userId);
-  return updatedUser;
 }
 
 async function appendCampaignToUser(userId, campaignId) {
@@ -53,15 +47,9 @@ async function appendCampaignToUser(userId, campaignId) {
   const campaigns = user.campaigns || [];
   if (!campaigns.includes(campaignId)) {
     campaigns.push(campaignId);
+    await userRepo.updateUser(userId, { ...user, campaigns });
+    await syncUserLinkageSummary(userId);
   }
-
-  const updatedUser = await userRepo.updateUser(userId, {
-    ...user,
-    campaigns
-  });
-
-  await syncUserLinkageSummary(userId);
-  return updatedUser;
 }
 
 module.exports = { appendAnalysisToUser, appendCampaignToUser, syncUserLinkageSummary };

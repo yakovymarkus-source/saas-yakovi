@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(netlify api:*)",
+      "Bash(psql --version)",
+      "Read(//c/Users/User/.config/**)",
+      "Bash(node -e \"require\\('@supabase/supabase-js'\\)\")",
+      "Bash(curl:*)",
+      "Bash(node -e ':*)"
+    ]
+  }
+}

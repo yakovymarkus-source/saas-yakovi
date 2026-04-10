@@ -5,11 +5,13 @@ const { requireUserId } = require('../lib/requireUserId');
 const { asyncHandler } = require('../middleware/asyncHandler');
 const { createCampaign, listCampaignsByUserId } = require('../repositories/campaignRepository');
 const { logHistory } = require('../repositories/historyRepository');
-const { appendCampaignToUser, syncUserLinkageSummary } = require('../services/userLinkageService');
+const { appendCampaignToUser } = require('../services/userLinkageService');
 const { assertUserExists } = require('../services/analysisLinkageService');
 const { assertOwnsCampaign } = require('../services/ownershipService');
 
 const router = express.Router();
+
+const SYSTEM_FIELDS = new Set(['id', 'user_id', 'created_at']);
 
 router.post(
   '/campaigns',
@@ -18,12 +20,16 @@ router.post(
     const userId = requireUserId(req.userId, 'campaignRoutes.POST /campaigns');
     await assertUserExists(userId);
 
+    const extraPayload = Object.fromEntries(
+      Object.entries(req.body || {}).filter(([key]) => !SYSTEM_FIELDS.has(key) && key !== 'name')
+    );
+
     const campaign = {
       id: 'campaign_' + crypto.randomUUID(),
       user_id: userId,
       name: req.body.name || 'Untitled campaign',
       created_at: new Date().toISOString(),
-      ...req.body
+      ...extraPayload
     };
 
     await createCampaign(campaign);
@@ -41,7 +47,6 @@ router.post(
       },
       created_at: new Date().toISOString()
     });
-    await syncUserLinkageSummary(userId);
 
     res.json(campaign);
   })

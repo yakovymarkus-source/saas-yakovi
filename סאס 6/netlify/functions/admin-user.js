@@ -78,19 +78,12 @@ exports.handler = async (event) => {
       }
 
       if (action === 'cancel_subscription') {
-        const { data: sub } = await sb.from('subscriptions')
-          .select('stripe_sub_id, plan, status')
-          .eq('user_id', targetId).maybeSingle();
-        if (!sub?.stripe_sub_id) {
-          throw new AppError({ code: 'NOT_FOUND', userMessage: 'No active Stripe subscription found', status: 404 });
-        }
-        const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-        await stripe.subscriptions.cancel(sub.stripe_sub_id, { prorate: true });
-        await sb.from('subscriptions').update({ status: 'canceled', updated_at: new Date().toISOString() }).eq('user_id', targetId);
+        const { cancelSubscription } = require('./_shared/payments');
+        await cancelSubscription({ userId: targetId, prorate: true });
         await writeAudit({
           userId: admin.id, action: 'admin.cancel_subscription',
           targetId, targetType: 'user',
-          metadata: { plan: sub.plan, stripeSubId: sub.stripe_sub_id, performedBy: admin.id },
+          metadata: { performedBy: admin.id },
           ip: context.ip, requestId: context.requestId,
         });
         await writeRequestLog(buildLogPayload(context, 'info', 'admin_cancel_subscription', { targetId }));
