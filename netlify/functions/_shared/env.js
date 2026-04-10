@@ -5,7 +5,7 @@ const REQUIRED = [
   'SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',
   'APP_ENCRYPTION_KEY',
-  'APP_URL',           // used by OAuth callbacks, billing redirects, and transactional emails
+  // APP_URL is resolved below — falls back to Netlify's automatic URL var
 ];
 
 function requireEnv(name) {
@@ -26,6 +26,10 @@ function optionalEnv(name, fallback = '') {
  */
 function getEnv() {
   const env = {};
+
+  // APP_URL: explicit setting wins; fall back to Netlify's automatic URL var
+  // (Netlify injects URL = primary domain automatically on every deploy)
+  env.APP_URL = process.env.APP_URL || process.env.URL || requireEnv('APP_URL');
 
   // Required
   for (const key of REQUIRED) env[key] = requireEnv(key);
