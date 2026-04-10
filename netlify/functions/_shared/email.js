@@ -2,11 +2,9 @@
  * email.js — Resend email service wrapper
  *
  * Usage:
- *   const { sendEmail, sendWelcome, sendBillingConfirmation } = require('./email');
- *   await sendWelcome({ to: 'user@example.com', name: 'Yakov' });
+ *   const { sendWelcome, sendBillingConfirmation, sendPaymentFailed, sendSubscriptionRenewed, sendSubscriptionCanceled } = require('./email');
+ *   await sendWelcome({ to: 'user@example.com' });
  */
-
-const { optionalEnv } = require('./env');
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
@@ -39,111 +37,134 @@ async function sendEmail({ to, subject, html, replyTo }) {
 
 // ─── Transactional email templates ───────────────────────────────────────────
 
-async function sendWelcome({ to, name }) {
+const APP_URL     = () => process.env.APP_URL     || '';
+const BILLING_URL = () => `${APP_URL()}/settings/billing`;
+
+const WRAPPER_OPEN  = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px;line-height:1.7;color:#1a1a1a;max-width:540px;margin:0 auto;padding:32px 24px;">`;
+const WRAPPER_CLOSE = `<hr style="border:none;border-top:1px solid #e5e5e5;margin:32px 0 16px;"><p style="font-size:12px;color:#999;margin:0;">CampaignBrain — מערכת ניהול קמפיינים חכמה</p></div>`;
+
+const btn = (href, text) =>
+  `<p style="margin:28px 0;"><a href="${href}" style="display:inline-block;background:#111;color:#fff;padding:13px 26px;text-decoration:none;border-radius:7px;font-weight:bold;font-size:15px;">${text}</a></p>`;
+
+// 1. הרשמה
+async function sendWelcome({ to }) {
   return sendEmail({
     to,
-    subject: 'ברוכים הבאים! 🎉',
-    html: `
-      <h1>שלום ${name || ''}!</h1>
-      <p>החשבון שלך נוצר בהצלחה.</p>
-      <p>כדי להתחיל, חבר את חשבונות הפרסום שלך (Google Ads, Meta, GA4) בהגדרות.</p>
-      <p><a href="${process.env.APP_URL}/settings/integrations">לחץ כאן להתחיל</a></p>
-      <hr/>
-      <small>אם לא יצרת חשבון זה, התעלם מהמייל.</small>
-    `,
+    subject: 'ברוך הבא למערכת — מתחילים לעבוד',
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">ברוך הבא 👋</h2>
+<p>נרשמת למערכת — ועכשיו מתחיל החלק האמיתי.</p>
+<p>המטרה כאן פשוטה:<br>
+לא לבזבז זמן על ניסוי וטעייה — אלא לבנות שיווק שעובד.</p>
+${btn(APP_URL(), 'כניסה למערכת')}
+<p>אם אתה כאן — כנראה שאתה מחפש תוצאות, לא רעש.<br>
+אז בוא נתחיל לעבוד.</p>
+<p style="margin-top:24px;">— צוות CampaignBrain</p>
+${WRAPPER_CLOSE}`,
   });
 }
 
-async function sendBillingConfirmation({ to, name, planName, amount, currency = 'USD' }) {
+// 2. תשלום התקבל / הופעל
+async function sendBillingConfirmation({ to }) {
   return sendEmail({
     to,
-    subject: `קבלה — מנוי ${planName}`,
-    html: `
-      <h1>תודה על המנוי!</h1>
-      <p>שלום ${name || ''},</p>
-      <p>קיבלנו את התשלום עבור תוכנית <strong>${planName}</strong>.</p>
-      <p>סכום: <strong>${amount} ${currency}</strong></p>
-      <p><a href="${process.env.APP_URL}/settings/billing">צפה בפרטי החיוב</a></p>
-    `,
+    subject: 'התשלום התקבל — אפשר להתחיל',
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">התשלום התקבל ✔️</h2>
+<p>המנוי שלך הופעל בהצלחה.</p>
+<p style="margin:16px 0 8px;"><strong>מה זה אומר בפועל?</strong></p>
+<ul style="padding-right:20px;margin:0 0 16px;">
+  <li>גישה מלאה לכל הכלים</li>
+  <li>יצירת קמפיינים ותוצרים שיווקיים</li>
+  <li>שליטה מלאה על התהליך</li>
+</ul>
+${btn(APP_URL(), 'כניסה למערכת')}
+<p>מכאן — זה כבר תלוי בך.<br>
+תשתמש בזה נכון — וזה יעבוד.</p>
+<p style="margin-top:24px;">— צוות CampaignBrain</p>
+${WRAPPER_CLOSE}`,
   });
 }
 
-async function sendTrialEndingWarning({ to, name, daysLeft }) {
+// 3. כשל תשלום
+async function sendPaymentFailed({ to }) {
   return sendEmail({
     to,
-    subject: `תקופת הניסיון שלך מסתיימת בעוד ${daysLeft} ימים`,
-    html: `
-      <h1>שלום ${name || ''},</h1>
-      <p>תקופת הניסיון החינמית שלך מסתיימת בעוד <strong>${daysLeft} ימים</strong>.</p>
-      <p>שדרג עכשיו כדי לא לאבד גישה לנתונים שלך.</p>
-      <p><a href="${process.env.APP_URL}/settings/billing">שדרג עכשיו</a></p>
-    `,
+    subject: 'הייתה בעיה בתשלום שלך',
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">שנייה לפני שנעצור ⚠️</h2>
+<p>ניסינו לחייב את אמצעי התשלום שלך — וזה לא עבר.</p>
+<p>זה קורה.<br>אבל בלי עדכון — הגישה שלך תוגבל בקרוב.</p>
+${btn(BILLING_URL(), 'עדכון פרטי תשלום')}
+<p>אל תחכה לרגע האחרון.<br>
+עדכן עכשיו וחזור לעבוד.</p>
+<p style="margin-top:24px;">— צוות CampaignBrain</p>
+${WRAPPER_CLOSE}`,
   });
 }
 
-async function sendAccountDeletedConfirmation({ to, name }) {
+// 4. חידוש מנוי
+async function sendSubscriptionRenewed({ to }) {
   return sendEmail({
     to,
-    subject: 'החשבון שלך נמחק',
-    html: `
-      <h1>שלום ${name || ''},</h1>
-      <p>החשבון שלך נמחק בהצלחה.</p>
-      <p>כל הנתונים שלך יוסרו תוך 30 ימים בהתאם למדיניות הפרטיות שלנו.</p>
-      <p>אם זו הייתה טעות, צור איתנו קשר בהקדם.</p>
-    `,
+    subject: 'המנוי שלך חודש',
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">המנוי חודש ✔️</h2>
+<p>המנוי שלך חודש בהצלחה לתקופה נוספת.</p>
+<p>הגישה שלך למערכת ממשיכה כרגיל — אין צורך בשום פעולה.</p>
+${btn(APP_URL(), 'כניסה למערכת')}
+<p>זה בדיוק הזמן להוציא עוד תוצאה.</p>
+<p style="margin-top:24px;">— צוות CampaignBrain</p>
+${WRAPPER_CLOSE}`,
   });
 }
 
-async function sendSyncCompleted({ to, name, campaignId, analysisId, verdict }) {
+// 5. ביטול מנוי
+async function sendSubscriptionCanceled({ to }) {
   return sendEmail({
     to,
-    subject: `ניתוח קמפיין הסתיים — ${verdict}`,
-    html: `
-      <h1>שלום ${name || ''},</h1>
-      <p>הניתוח עבור קמפיין <strong>${campaignId}</strong> הסתיים.</p>
-      <p>תוצאה: <strong>${verdict}</strong></p>
-      <p><a href="${process.env.APP_URL}/campaigns/${campaignId}/analysis/${analysisId}">צפה בניתוח המלא</a></p>
-    `,
+    subject: 'המנוי בוטל',
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">המנוי בוטל</h2>
+<p>המנוי שלך בוטל.</p>
+<p>הגישה למערכת תישאר זמינה עד סוף התקופה ששולמה.</p>
+<p>אם תרצה לחזור בכל שלב — המערכת מחכה לך.</p>
+${btn(APP_URL(), 'חזרה למערכת')}
+<p style="margin-top:24px;">— צוות CampaignBrain</p>
+${WRAPPER_CLOSE}`,
   });
 }
 
-async function sendActivationEmail({ to, name, planLabel }) {
-  return sendEmail({
-    to,
-    subject: '✅ החשבון שלך הופעל — ברוכים הבאים!',
-    html: `
-      <div dir="rtl" style="font-family:sans-serif;max-width:520px;margin:auto">
-        <h1 style="color:#4f46e5">🎉 החשבון הופעל בהצלחה!</h1>
-        <p>שלום ${name || ''},</p>
-        <p>אישרנו את התשלום שלך ותוכנית <strong>${planLabel || 'Early Bird'}</strong> פעילה עכשיו.</p>
-        <p><strong>המחיר שתפסתם נשמר לכם לתמיד!</strong></p>
-        <p style="margin-top:1.5rem">
-          <a href="${process.env.APP_URL || ''}"
-             style="background:#4f46e5;color:white;padding:0.75rem 1.5rem;border-radius:0.5rem;text-decoration:none;font-weight:bold">
-            היכנסו לדאשבורד והשיקו קמפיין אסטרטגי ראשון →
-          </a>
-        </p>
-        <hr style="margin:2rem 0;border:none;border-top:1px solid #e2e8f0"/>
-        <small style="color:#64748b">CampaignAI — השותף האסטרטגי שלך לצמיחה</small>
-      </div>
-    `,
-  });
+// שמור לשימוש פנימי / אדמין
+async function sendActivationEmail({ to }) {
+  return sendBillingConfirmation({ to });
 }
 
 async function sendAdminPaymentAlert({ adminEmail, userEmail, userName, plan }) {
   return sendEmail({
     to: adminEmail,
     subject: `💳 תשלום ממתין לאישור — ${userEmail}`,
-    html: `
-      <div dir="rtl" style="font-family:sans-serif">
-        <h2>תשלום חדש ממתין לאישור</h2>
-        <p><strong>משתמש:</strong> ${userName || userEmail}</p>
-        <p><strong>אימייל:</strong> ${userEmail}</p>
-        <p><strong>תוכנית:</strong> ${plan}</p>
-        <p><strong>פעולה נדרשת:</strong> היכנסו ללוח הניהול ואשרו את התשלום.</p>
-        <p><a href="${process.env.APP_URL || ''}">פתח לוח ניהול</a></p>
-      </div>
-    `,
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">תשלום ממתין לאישור</h2>
+<p><strong>משתמש:</strong> ${userName || userEmail}</p>
+<p><strong>אימייל:</strong> ${userEmail}</p>
+<p><strong>תוכנית:</strong> ${plan}</p>
+${btn(APP_URL(), 'פתח לוח ניהול')}
+${WRAPPER_CLOSE}`,
+  });
+}
+
+async function sendSyncCompleted({ to, campaignId, analysisId, verdict }) {
+  return sendEmail({
+    to,
+    subject: `ניתוח קמפיין הסתיים — ${verdict}`,
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">הניתוח הסתיים ✔️</h2>
+<p>הניתוח עבור קמפיין <strong>${campaignId}</strong> מוכן.</p>
+<p>תוצאה: <strong>${verdict}</strong></p>
+${btn(`${APP_URL()}/campaigns/${campaignId}/analysis/${analysisId}`, 'צפה בניתוח המלא')}
+<p style="margin-top:24px;">— צוות CampaignBrain</p>
+${WRAPPER_CLOSE}`,
   });
 }
 
@@ -151,9 +172,10 @@ module.exports = {
   sendEmail,
   sendWelcome,
   sendBillingConfirmation,
-  sendTrialEndingWarning,
-  sendAccountDeletedConfirmation,
-  sendSyncCompleted,
+  sendPaymentFailed,
+  sendSubscriptionRenewed,
+  sendSubscriptionCanceled,
   sendActivationEmail,
   sendAdminPaymentAlert,
+  sendSyncCompleted,
 };
