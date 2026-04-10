@@ -5,7 +5,7 @@
  * Returns a JSON bundle of all personal data belonging to the requesting user.
  */
 
-const { ok, fail }                              = require('./_shared/http');
+const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload }  = require('./_shared/observability');
 const { writeRequestLog, getAdminClient }        = require('./_shared/supabase');
 const { requireAuth }                            = require('./_shared/auth');
@@ -13,6 +13,7 @@ const { writeAudit }                             = require('./_shared/audit');
 const { AppError }                               = require('./_shared/errors');
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'gdpr-export');
   try {
     if (event.httpMethod !== 'POST') {

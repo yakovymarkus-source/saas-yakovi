@@ -8,7 +8,7 @@
  * The OAuth callback validates and deletes it before accepting the code.
  */
 
-const { ok, fail }                              = require('./_shared/http');
+const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload }  = require('./_shared/observability');
 const { writeRequestLog, getAdminClient }        = require('./_shared/supabase');
 const { requireAuth }                            = require('./_shared/auth');
@@ -19,6 +19,7 @@ const crypto                                     = require('node:crypto');
 const ALLOWED_PROVIDERS = ['ga4', 'google_ads', 'meta'];
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'oauth-nonce');
   try {
     if (event.httpMethod !== 'POST') {
