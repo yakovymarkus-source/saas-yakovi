@@ -3,7 +3,7 @@
 /**
  * providers/adapters/claude.js — Anthropic Claude API Adapter
  *
- * Capability: landing_page
+ * Capabilities: landing_page, ad_creative
  *
  * Uses the Anthropic Messages API directly via fetch.
  * Note: This adapter calls the Anthropic cloud API as an *external provider*.
@@ -19,6 +19,7 @@ const { AdapterError, CAPABILITIES } = require('../contract');
 
 const SUPPORTED_CAPABILITIES = [
   CAPABILITIES.LANDING_PAGE,
+  CAPABILITIES.AD_CREATIVE,
 ];
 
 const BASE_URL      = 'https://api.anthropic.com/v1/messages';
@@ -114,6 +115,12 @@ const ClaudeAdapter = {
     if (capability === CAPABILITIES.LANDING_PAGE) {
       if (!Array.isArray(parsed.sections)) {
         throw new AdapterError('PARSE_ERROR', 'landing_page response missing sections array');
+      }
+    }
+
+    if (capability === CAPABILITIES.AD_CREATIVE) {
+      if (!Array.isArray(parsed.creatives)) {
+        throw new AdapterError('PARSE_ERROR', 'ad_creative response missing creatives array');
       }
     }
 

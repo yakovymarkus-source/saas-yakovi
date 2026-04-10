@@ -93,6 +93,7 @@ const CAPABILITIES = Object.freeze({
   ISSUE_EXPLANATION:  'issue_explanation',
   ITERATION_ADVICE:   'iteration_advice',
   LANDING_PAGE:       'landing_page',
+  AD_CREATIVE:        'ad_creative',
   IMAGE_GENERATION:   'image_generation',
 });
 

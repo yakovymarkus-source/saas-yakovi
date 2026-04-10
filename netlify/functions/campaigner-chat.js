@@ -53,6 +53,8 @@ const INTENT_PATTERNS = [
   { intent: 'economics', patterns: /\b(כלכלה|CAC|LTV|CPL|cac|ltv|cpl|עלות ליד|break.?even|רווחיות|כמה להמיר|payback|economics|feasib)\b/i },
   { intent: 'test',      patterns: /\b(בדיקה|a\/b|ab test|וריאציה|ניסוי|מה לבדוק|hypothesis|variant|control)\b/i },
   { intent: 'copy',      patterns: /\b(כתוב|קופי|copy|מודעה|ad text|creative text|כותרת|headline|טקסט|מסר|נוסח)\b/i },
+  { intent: 'creative',  patterns: /\b(קריאייטיב|creative brief|ויזואל|visual|עיצוב מודעה|תמונה למודעה|creative|brief|מה לשים בתמונה|תמונה לקמפיין|image prompt)\b/i },
+  { intent: 'landing',   patterns: /\b(דף נחיתה|landing page|LP|לנדינג|עמוד נחיתה|לנד)\b/i },
 ];
 
 function detectIntent(message) {
@@ -885,14 +887,117 @@ async function generateCopyResponse(context) {
   };
 }
 
+// ── Creative brief generator (Claude) ────────────────────────────────────────
+async function generateCreativeResponse(context) {
+  const { businessProfile, strategyMemory, profileName, userId } = context;
+
+  if (!businessProfile || !scoreCompletion(businessProfile)) {
+    return {
+      reply: `🎨 כדי לייצר קריאייטיב ויזואלי אני צריך קודם להכיר את העסק שלך.\n\n` +
+             `ספר לי: **מה אתה מוכר, למי, ומה התוצאה שהלקוח מקבל?**`,
+      quickActions: ['ספר על העסק שלך', 'כתוב קופי למודעה', 'נתח ביצועים'],
+    };
+  }
+
+  const bottleneck = strategyMemory?.persistent_bottlenecks?.[0] || null;
+
+  // Build base copy variants first (template), then pass to Claude for creative brief
+  const { generateAdCopy } = require('./_shared/ad-copy-generator');
+  const adCopyVariants = generateAdCopy({ businessProfile, bottleneck, platform: 'meta' });
+
+  const aiResult = await orchestrate(
+    CAPABILITIES.AD_CREATIVE,
+    { businessProfile, adCopyVariants, platform: 'meta' },
+    { userId },
+  );
+
+  if (aiResult.ok && Array.isArray(aiResult.content?.creatives) && aiResult.content.creatives.length > 0) {
+    const creatives = aiResult.content.creatives;
+    let reply = `🎨 **${creatives.length} ברפי קריאייטיב ויזואלי — ${businessProfile.business_name || profileName}:**\n\n`;
+    reply += `_כל וריאציה מותאמת לקופי המתאים לה._\n\n`;
+
+    creatives.forEach((c, i) => {
+      reply += `**וריאציה ${c.variant || String.fromCharCode(65 + i)} — ${c.mood || ''}**\n`;
+      reply += `🖼️ **קונספט:** ${c.visual_concept}\n`;
+      reply += `📝 **טקסט על התמונה:** ${c.text_overlay}\n`;
+      reply += `🎨 **פלטת צבעים:** ${Array.isArray(c.color_palette) ? c.color_palette.join(' · ') : c.color_palette}\n`;
+      if (c.image_prompt) reply += `🤖 **Image prompt (DALL-E/Midjourney):**\n> ${c.image_prompt}\n`;
+      if (c.design_notes) reply += `💡 _${c.design_notes}_\n`;
+      reply += '\n---\n\n';
+    });
+
+    reply += `📌 **הצעד הבא:** שלח את ה-image prompt לכלי יצירת תמונות (DALL-E, Midjourney, Firefly) ליצירת הנכס.`;
+    return {
+      reply,
+      quickActions: ['צור קופי מודעה', 'צור דף נחיתה', 'נתח ביצועים'],
+    };
+  }
+
+  // Fallback
+  return {
+    reply: `🎨 **קריאייטיב ויזואלי — ${businessProfile.business_name || profileName}:**\n\n` +
+           `לא הצלחתי ליצור בריף ויזואלי כרגע. ודא שמפתח Anthropic מוגדר ונסה שנית.\n\n` +
+           `בינתיים, צור קופי טקסט ושתף אותו עם הדיזיינר שלך.`,
+    quickActions: ['כתוב קופי למודעה', 'צור דף נחיתה'],
+  };
+}
+
+// ── Landing page generator (Claude) ──────────────────────────────────────────
+async function generateLandingPageResponse(context) {
+  const { businessProfile, profileName, userId } = context;
+
+  if (!businessProfile || !scoreCompletion(businessProfile)) {
+    return {
+      reply: `📄 כדי לבנות דף נחיתה אני צריך קודם להכיר את העסק שלך.\n\n` +
+             `ספר לי: **מה אתה מוכר, מה המחיר, ומה התוצאה שהלקוח מקבל?**`,
+      quickActions: ['ספר על העסק שלך', 'נתח ביצועים'],
+    };
+  }
+
+  const aiResult = await orchestrate(
+    CAPABILITIES.LANDING_PAGE,
+    { businessProfile, adCopy: null, targetKeyword: null },
+    { userId },
+  );
+
+  if (aiResult.ok && Array.isArray(aiResult.content?.sections) && aiResult.content.sections.length > 0) {
+    const lp = aiResult.content;
+    let reply = `📄 **מבנה דף נחיתה — ${lp.page_title || businessProfile.business_name || profileName}:**\n\n`;
+    if (lp.seo_title)       reply += `🔍 **SEO Title:** ${lp.seo_title}\n`;
+    if (lp.seo_description) reply += `📋 **Meta Description:** ${lp.seo_description}\n\n`;
+
+    lp.sections.forEach((s, i) => {
+      const typeLabel = {
+        hero: '🦸 Hero', problem: '😤 Problem', solution: '💡 Solution',
+        social_proof: '⭐ Social Proof', offer: '💰 Offer', faq: '❓ FAQ', cta: '🎯 CTA',
+      }[s.type] || `סקשן ${i + 1}`;
+      reply += `**${typeLabel}**\n`;
+      reply += `📌 _${s.headline}_\n`;
+      reply += `${s.body}\n`;
+      if (s.cta_text) reply += `🔘 **CTA:** ${s.cta_text}\n`;
+      if (s.notes)    reply += `💡 _${s.notes}_\n`;
+      reply += '\n---\n\n';
+    });
+
+    reply += `📌 **הצעד הבא:** שלח את המבנה לבונה דפים (Unbounce, Elementor, Webflow) ליצירת הדף.`;
+    return {
+      reply,
+      quickActions: ['צור קריאייטיב ויזואלי', 'כתוב קופי מודעה', 'נתח ביצועים'],
+    };
+  }
+
+  return {
+    reply: `📄 לא הצלחתי לייצר דף נחיתה כרגע. ודא שמפתח Anthropic מוגדר ונסה שנית.`,
+    quickActions: ['כתוב קופי מודעה', 'נתח ביצועים'],
+  };
+}
+
 // ── Helper ────────────────────────────────────────────────────────────────────
 function providerLabel(provider) {
   return { google_ads: 'Google Ads', ga4: 'Google Analytics 4', meta: 'Meta Ads' }[provider] || provider;
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
-// Async because generateCopyResponse and generateRecsResponse are async.
-// All other generators are sync and resolve immediately when awaited.
 async function generateResponse(intent, context) {
   switch (intent) {
     case 'overview':      return generateOverviewResponse(context);
@@ -908,6 +1013,8 @@ async function generateResponse(intent, context) {
     case 'economics':     return generateEconomicsResponse(context);
     case 'test':          return generateTestResponse(context);
     case 'copy':          return await generateCopyResponse(context);
+    case 'creative':      return await generateCreativeResponse(context);
+    case 'landing':       return await generateLandingPageResponse(context);
     default:              return generateOverviewResponse(context);
   }
 }
