@@ -79,7 +79,7 @@ async function buildContext(userId) {
       .eq('user_id', userId)
       .gte('stale_until', now),
     sb.from('analysis_results')
-      .select('scores, metrics, confidence, created_at')
+      .select('scores, metrics, bottlenecks, confidence, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(1)

@@ -38,7 +38,7 @@ function buildMarketingMemory({
   apiCache         = null,
   analysisResults  = null,
   strategyMemory   = null,
-  userIntelligence = [],
+  userIntelligence = null,
   abTests          = [],
 } = {}) {
 
@@ -56,13 +56,13 @@ function buildMarketingMemory({
   // ── Helper: user_intelligence lookup ──────────────────────────────────────
 
   // Find a single intelligence record by category + key.
+  // Expects the nested map shape from loadUserMemory():
+  //   { preference: { focus_area: { value, confidence } }, insight: { ... }, ... }
   // Only returns value if confidence meets a minimum threshold (0.5).
   // userIntelligence is inferred — low-confidence values are noise.
   const MIN_CONFIDENCE = 0.5;
   const getIntel = (category, key) => {
-    const record = userIntelligence.find(
-      (r) => r.category === category && r.key === key
-    );
+    const record = userIntelligence?.[category]?.[key];
     if (!record) return null;
     if (typeof record.confidence === 'number' && record.confidence < MIN_CONFIDENCE) return null;
     return record.value ?? null;
@@ -102,6 +102,11 @@ function buildMarketingMemory({
   // These fields are not directly stored in a single column — they are
   // reconstructed from the most semantically relevant profile fields.
 
+  // recurring_issue is stored as { key: "low_ctr", count: 3, last_seen: "..." }
+  // Extract the key string — str() rejects objects, so we unwrap first.
+  const riRaw = getIntel('insight', 'recurring_issue');
+  const riStr = (riRaw && typeof riRaw === 'object') ? str(riRaw.key) : str(riRaw);
+
   const audience = {
     // problem_solved is the clearest signal for pain points
     pain_points: str(bp.problem_solved) || null,
@@ -112,7 +117,7 @@ function buildMarketingMemory({
     // No structured objections field exists in the current schema.
     // userIntelligence may carry a 'recurring_issue' insight that
     // sometimes reflects objections — use with low trust.
-    objections: str(getIntel('insight', 'recurring_issue')) || null,
+    objections: riStr || null,
 
     // Language patterns: tone_keywords is the closest proxy.
     // Falls back to inferred focus_area from intelligence.
@@ -173,12 +178,11 @@ function buildMarketingMemory({
     rawCpl = cache.spend / cache.conversions;
   }
 
-  // Top bottleneck: from analysisResults (diagnosed, not raw).
-  // analysisResults.issues is sorted by severity — first item is highest priority.
+  // Top bottleneck: from analysisResults.bottlenecks (array of stage strings: 'ctr','conversion',...)
+  // persistAnalysis() stores the bottlenecks array directly on the analysis_results row.
   let topBottleneck = null;
-  if (analysisResults?.issues && Array.isArray(analysisResults.issues) && analysisResults.issues.length > 0) {
-    const topIssue = analysisResults.issues[0];
-    topBottleneck = str(topIssue?.message) || str(topIssue?.type) || null;
+  if (Array.isArray(analysisResults?.bottlenecks) && analysisResults.bottlenecks.length > 0) {
+    topBottleneck = str(analysisResults.bottlenecks[0]) || null;
   }
   // Fallback: strategyMemory.persistent_bottlenecks[0] (recurring across sessions)
   if (!topBottleneck && strategyMemory?.persistent_bottlenecks?.length > 0) {
@@ -264,9 +268,8 @@ function buildMarketingMemory({
   // analysisResults.verdict is a live diagnosis — highest trust for current state
   const mainIssue =
     topBottleneck ||
-    str(analysisResults?.verdict)              ||
     str(strategyMemory?.dominant_verdict)      ||
-    str(getIntel('insight', 'recurring_issue')) ||
+    riStr                                      || // riStr already extracted above
     null;
 
   const current = {
