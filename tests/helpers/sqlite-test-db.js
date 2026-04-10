@@ -361,6 +361,7 @@ function createRealTestDb(options = {}) {
       users: [],
       campaigns: [],
       campaign_memberships: [],
+      user_integrations: [],
       analysis_results: [],
       campaign_snapshots: [],
       decision_history: [],
