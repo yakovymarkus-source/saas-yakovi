@@ -611,6 +611,56 @@ CREATE INDEX IF NOT EXISTS idx_payment_events_provider_type
 ALTER TABLE public.subscriptions
   ADD COLUMN IF NOT EXISTS stripe_sub_id text;               -- alias for external subscription ID
 
+-- ── RPCs: Admin Dashboard Analytics ─────────────────────────────────────────
+-- נדרש עבור גרפי MRR, הרשמות ולוח הבקרה
+
+CREATE OR REPLACE FUNCTION public.admin_mrr_trend(p_days int DEFAULT 30)
+RETURNS TABLE(day date, revenue_cents bigint)
+LANGUAGE sql SECURITY DEFINER AS $$
+  SELECT
+    d::date AS day,
+    COALESCE(SUM(pe.amount_cents), 0)::bigint AS revenue_cents
+  FROM generate_series(
+    (CURRENT_DATE - (p_days - 1) * INTERVAL '1 day'),
+    CURRENT_DATE,
+    INTERVAL '1 day'
+  ) AS d
+  LEFT JOIN public.payment_events pe
+    ON pe.event_type = 'payment_succeeded'
+    AND pe.created_at::date = d::date
+  GROUP BY d ORDER BY d;
+$$;
+
+CREATE OR REPLACE FUNCTION public.admin_signup_trend(p_days int DEFAULT 30)
+RETURNS TABLE(day date, signups bigint)
+LANGUAGE sql SECURITY DEFINER AS $$
+  SELECT
+    d::date AS day,
+    COUNT(p.id)::bigint AS signups
+  FROM generate_series(
+    (CURRENT_DATE - (p_days - 1) * INTERVAL '1 day'),
+    CURRENT_DATE,
+    INTERVAL '1 day'
+  ) AS d
+  LEFT JOIN public.profiles p
+    ON p.created_at::date = d::date
+    AND p.deleted_at IS NULL
+  GROUP BY d ORDER BY d;
+$$;
+
+CREATE OR REPLACE FUNCTION public.admin_last_active(p_user_ids uuid[])
+RETURNS TABLE(user_id uuid, last_active_at timestamptz)
+LANGUAGE sql SECURITY DEFINER AS $$
+  SELECT
+    p.id AS user_id,
+    GREATEST(
+      p.updated_at,
+      (SELECT MAX(created_at) FROM public.audit_log al WHERE al.user_id = p.id)
+    ) AS last_active_at
+  FROM public.profiles p
+  WHERE p.id = ANY(p_user_ids);
+$$;
+
 -- ── בדיקת תקינות — הרץ SELECT אחרי הכל ────────────────────────────────────
 -- חייב לחזור 3 שורות:
 SELECT routine_name FROM information_schema.routines
