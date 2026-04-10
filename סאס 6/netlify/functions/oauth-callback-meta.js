@@ -19,12 +19,26 @@ exports.handler = async (event) => {
   const errorParam = params.error;
   const appUrl     = resolveAppUrl();
 
+  // Diagnostic log — visible in Netlify Function Logs
+  console.log('[oauth-meta] incoming', {
+    method:    event.httpMethod,
+    appUrl,
+    hasCode:   !!code,
+    hasState:  !!state,
+    hasError:  !!errorParam,
+    allParams: Object.keys(params),
+    REDIRECT_URI: REDIRECT_URI(),
+  });
+
   if (errorParam) {
     await writeRequestLog(buildLogPayload(context, 'warn', 'meta_oauth_denied', { error: errorParam }));
     return redirect(`${appUrl}/settings/integrations?error=meta_denied`);
   }
 
   if (!code || !state) {
+    await writeRequestLog(buildLogPayload(context, 'warn', 'meta_oauth_missing_params', {
+      hasCode: !!code, hasState: !!state, allParams: Object.keys(params),
+    }));
     return redirect(`${appUrl}/settings/integrations?error=meta_missing_params`);
   }
 
