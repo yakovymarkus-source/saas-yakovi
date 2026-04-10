@@ -37,18 +37,62 @@ async function getMrrSnapshot(client) {
   return { mrr, breakdown, activeCount, trialingCount };
 }
 
-// ─── MRR trend (via SQL RPC) ──────────────────────────────────────────────────
+// ─── MRR trend (JS implementation — no stored proc required) ─────────────────
 async function getMrrTrend(client, days = 30) {
-  const { data, error } = await sb(client).rpc('admin_mrr_trend', { p_days: days });
+  const since = new Date(Date.now() - (days - 1) * 86400 * 1000);
+  since.setUTCHours(0, 0, 0, 0);
+
+  const { data, error } = await sb(client)
+    .from('payment_events')
+    .select('created_at, amount_cents')
+    .eq('event_type', 'payment_succeeded')
+    .gte('created_at', since.toISOString());
+
   if (error) { console.warn('[admin-metrics] getMrrTrend:', error.message); return []; }
-  return (data || []).map(r => ({ date: r.day, revenueCents: Number(r.revenue_cents) }));
+
+  // Build day → total map
+  const byDay = {};
+  for (const row of (data || [])) {
+    const day = row.created_at.slice(0, 10); // 'YYYY-MM-DD'
+    byDay[day] = (byDay[day] || 0) + (row.amount_cents || 0);
+  }
+
+  // Fill all days (including zeros)
+  const result = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400 * 1000);
+    const day = d.toISOString().slice(0, 10);
+    result.push({ date: day, revenueCents: byDay[day] || 0 });
+  }
+  return result;
 }
 
-// ─── Signup trend (via SQL RPC) ───────────────────────────────────────────────
+// ─── Signup trend (JS implementation — no stored proc required) ──────────────
 async function getSignupTrend(client, days = 30) {
-  const { data, error } = await sb(client).rpc('admin_signup_trend', { p_days: days });
+  const since = new Date(Date.now() - (days - 1) * 86400 * 1000);
+  since.setUTCHours(0, 0, 0, 0);
+
+  const { data, error } = await sb(client)
+    .from('profiles')
+    .select('created_at')
+    .gte('created_at', since.toISOString())
+    .is('deleted_at', null);
+
   if (error) { console.warn('[admin-metrics] getSignupTrend:', error.message); return []; }
-  return (data || []).map(r => ({ date: r.day, count: Number(r.signups) }));
+
+  const byDay = {};
+  for (const row of (data || [])) {
+    const day = row.created_at.slice(0, 10);
+    byDay[day] = (byDay[day] || 0) + 1;
+  }
+
+  const result = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400 * 1000);
+    const day = d.toISOString().slice(0, 10);
+    result.push({ date: day, count: byDay[day] || 0 });
+  }
+  return result;
 }
 
 // ─── Churn rate (30-day rolling) ──────────────────────────────────────────────
