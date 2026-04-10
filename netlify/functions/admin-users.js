@@ -57,7 +57,7 @@ exports.handler = async (event) => {
         .select('owner_user_id')
         .in('owner_user_id', userIds),
 
-      sb.rpc('admin_last_active', { p_user_ids: userIds }).catch(() => ({ data: [] })),
+      Promise.resolve(sb.rpc('admin_last_active', { p_user_ids: userIds })).catch(() => ({ data: [] })),
     ]);
 
     // Build lookup maps
@@ -87,7 +87,6 @@ exports.handler = async (event) => {
     await writeRequestLog(buildLogPayload(context, 'info', 'admin_users_read', { page, limit }));
     return ok({ users, total, page, limit }, context.requestId);
   } catch (error) {
-    console.error('[admin-users] CAUGHT ERROR:', error.code, error.status, error.message, error.devMessage || error.stack);
     await writeRequestLog(buildLogPayload(context, 'error', 'admin_users_failed', { code: error.code })).catch(() => {});
     return fail(error, context.requestId);
   }
