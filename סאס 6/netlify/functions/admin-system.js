@@ -1,12 +1,13 @@
 'use strict';
 
-const { ok, fail }                              = require('./_shared/http');
+const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload }  = require('./_shared/observability');
 const { writeRequestLog, getAdminClient }        = require('./_shared/supabase');
 const { requireAdmin }                           = require('./_shared/admin-auth');
 const { AppError }                               = require('./_shared/errors');
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'admin-system');
   try {
     if (event.httpMethod !== 'GET') {

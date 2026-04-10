@@ -15,7 +15,8 @@ const { encrypt }                               = require('./_shared/crypto');
 const { writeAudit }                            = require('./_shared/audit');
 const { getEnv }                                = require('./_shared/env');
 
-const REDIRECT_URI = () => `${process.env.APP_URL}/.netlify/functions/oauth-callback-google`;
+const resolveAppUrl = () => process.env.APP_URL || process.env.URL || '';
+const REDIRECT_URI  = () => `${resolveAppUrl()}/.netlify/functions/oauth-callback-google`;
 
 exports.handler = async (event) => {
   const context = createRequestContext(event, 'oauth-callback-google');

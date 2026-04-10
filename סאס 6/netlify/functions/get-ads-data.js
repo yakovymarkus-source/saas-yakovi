@@ -25,7 +25,7 @@
 
 'use strict';
 
-const { ok, fail }                              = require('./_shared/http');
+const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload } = require('./_shared/observability');
 const { writeRequestLog, loadIntegration, markIntegrationSynced, markIntegrationError } = require('./_shared/supabase');
 const { requireAuth }                           = require('./_shared/auth');
@@ -161,6 +161,7 @@ async function fetchMeta(integration, body) {
 // ── Handler ────────────────────────────────────────────────────────────────────
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'get-ads-data');
 
   try {

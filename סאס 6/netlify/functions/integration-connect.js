@@ -6,7 +6,7 @@
  * GET   /integration-connect  — list connected integrations (status only, no secrets)
  */
 
-const { ok, fail }                              = require('./_shared/http');
+const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload }  = require('./_shared/observability');
 const { writeRequestLog, getAdminClient }        = require('./_shared/supabase');
 const { requireAuth }                            = require('./_shared/auth');
@@ -18,6 +18,7 @@ const { parseJsonBody, requireField }            = require('./_shared/request');
 const ALLOWED_PROVIDERS = ['ga4', 'meta', 'google_ads'];
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'integration-connect');
   try {
     const user = await requireAuth(event, context.functionName, context);

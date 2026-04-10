@@ -8,7 +8,7 @@
  * welcome email to the user.
  */
 
-const { ok, fail }                              = require('./_shared/http');
+const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload }  = require('./_shared/observability');
 const { writeRequestLog, getAdminClient }        = require('./_shared/supabase');
 const { requireAdmin }                          = require('./_shared/admin-auth');
@@ -20,13 +20,14 @@ const { sendActivationEmail }                   = require('./_shared/email');
 const { PLANS }                                 = require('./_shared/billing');
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'activate-payment');
   try {
     if (event.httpMethod !== 'POST') {
       throw new AppError({ code: 'METHOD_NOT_ALLOWED', userMessage: 'Method not allowed', status: 405 });
     }
 
-    await requireAdmin(event, context.functionName, context);
+    const admin = await requireAdmin(event, context.functionName, context);
     const body   = parseJsonBody(event, { fallback: {}, allowEmpty: false });
     const userId = requireField(body.userId, 'userId');
     const plan   = isEnum(body.plan || 'early_bird', 'plan', Object.keys(PLANS));
@@ -36,7 +37,7 @@ exports.handler = async (event) => {
     // Activate subscription
     await sb.rpc('activate_payment', { p_user_id: userId, p_plan: plan });
 
-    await writeAudit({ userId: context.adminId || 'admin', action: 'payment.activate', targetType: 'user', targetId: userId, metadata: { plan }, ip: context.ip, requestId: context.requestId });
+    await writeAudit({ userId: admin.id, action: 'payment.activate', targetType: 'user', targetId: userId, metadata: { plan }, ip: context.ip, requestId: context.requestId });
 
     // Fetch user profile for email
     const { data: profile } = await sb.from('profiles')

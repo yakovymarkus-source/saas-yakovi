@@ -8,7 +8,8 @@ const { exchangeCodeForToken }                  = require('./_shared/integration
 const { encrypt }                               = require('./_shared/crypto');
 const { writeAudit }                            = require('./_shared/audit');
 
-const REDIRECT_URI = () => `${process.env.APP_URL}/.netlify/functions/oauth-callback-meta`;
+const resolveAppUrl = () => process.env.APP_URL || process.env.URL || '';
+const REDIRECT_URI  = () => `${resolveAppUrl()}/.netlify/functions/oauth-callback-meta`;
 
 exports.handler = async (event) => {
   const context    = createRequestContext(event, 'oauth-callback-meta');
@@ -16,7 +17,7 @@ exports.handler = async (event) => {
   const code       = params.code;
   const state      = params.state;
   const errorParam = params.error;
-  const appUrl     = process.env.APP_URL;
+  const appUrl     = resolveAppUrl();
 
   if (errorParam) {
     await writeRequestLog(buildLogPayload(context, 'warn', 'meta_oauth_denied', { error: errorParam }));

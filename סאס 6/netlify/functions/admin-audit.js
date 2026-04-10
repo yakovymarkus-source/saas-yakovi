@@ -1,6 +1,6 @@
 'use strict';
 
-const { ok, fail }                              = require('./_shared/http');
+const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload }  = require('./_shared/observability');
 const { writeRequestLog, getAdminClient }        = require('./_shared/supabase');
 const { requireAdmin }                           = require('./_shared/admin-auth');
@@ -9,6 +9,7 @@ const { AppError }                               = require('./_shared/errors');
 const PAGE_LIMIT = 50;
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'admin-audit');
   try {
     if (event.httpMethod !== 'GET') {
@@ -32,7 +33,11 @@ exports.handler = async (event) => {
     if (params.since)  q = q.gte('created_at', params.since);
 
     const { data: entries, count: total, error } = await q;
-    if (error) throw new AppError({ code: 'DB_READ_FAILED', devMessage: error.message, status: 500 });
+    // Table may not exist yet — return empty list instead of 500
+    if (error) {
+      console.warn('[admin-audit] query error (table may not exist yet):', error.message);
+      return ok({ entries: [], total: 0, page, limit }, context.requestId);
+    }
 
     // Enrich with emails — single query for unique user IDs in page
     const userIds = [...new Set((entries || []).map(e => e.user_id).filter(Boolean))];

@@ -1,4 +1,4 @@
-const { ok, fail }                             = require('./_shared/http');
+const { ok, fail, options }                    = require('./_shared/http');
 const { createRequestContext, buildLogPayload }  = require('./_shared/observability');
 const { writeRequestLog }                        = require('./_shared/supabase');
 const { requireAuth }                            = require('./_shared/auth');
@@ -7,6 +7,7 @@ const { AppError }                               = require('./_shared/errors');
 const { getEnv }                                 = require('./_shared/env');
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'billing-portal');
   try {
     if (event.httpMethod !== 'POST') {
