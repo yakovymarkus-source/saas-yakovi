@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 process.env.SUPABASE_URL = process.env.SUPABASE_URL || 'http://localhost';
 process.env.SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'test-key';
 process.env.APP_ENCRYPTION_KEY = process.env.APP_ENCRYPTION_KEY || 'test-encryption-key';
+process.env.APP_URL = process.env.APP_URL || 'http://localhost:3000';
 const handlerPath = require.resolve('../../netlify/functions/process-sync-job.js');
 const supabasePath = require.resolve('../../netlify/functions/_shared/supabase.js');
 const authPath = require.resolve('../../netlify/functions/_shared/auth.js');
