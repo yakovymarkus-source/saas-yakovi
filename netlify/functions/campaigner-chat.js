@@ -125,6 +125,7 @@ async function buildContext(userId) {
     recentAnalysis:  analysisRes.data,
     profileName:     profileRes.data?.name || 'משתמש',
     adaptive:        deriveAdaptiveContext(memoryRaw),
+    memoryRaw,                               // raw loadUserMemory() map — needed by buildMarketingMemory
     globalRaw,
     strategyMemory:  strategyMemory || null,  // Phase 4F
     businessProfile: businessProfile || null, // Phase 4G
@@ -889,7 +890,7 @@ async function generateCopyResponse(context) {
 
 // ── Creative brief generator (Claude) ────────────────────────────────────────
 async function generateCreativeResponse(context) {
-  const { businessProfile, strategyMemory, profileName, userId } = context;
+  const { businessProfile, recentAnalysis, strategyMemory, memoryRaw, runningTests, profileName, userId } = context;
 
   if (!businessProfile || !scoreCompletion(businessProfile)) {
     return {
@@ -899,34 +900,61 @@ async function generateCreativeResponse(context) {
     };
   }
 
-  const bottleneck = strategyMemory?.persistent_bottlenecks?.[0] || null;
+  // ── Step 1: build marketing memory from all available context sources ───────
+  // recentAnalysis.metrics contains merged computed metrics (ctr, roas, cpc, etc.)
+  // memoryRaw is the raw loadUserMemory() nested map — correct shape for buildMarketingMemory
+  const { buildMarketingMemory } = require('./_shared/marketing-memory');
+  const memory = buildMarketingMemory({
+    businessProfile:  businessProfile,
+    apiCache:         recentAnalysis?.metrics       || null,
+    analysisResults:  recentAnalysis                || null,
+    strategyMemory:   strategyMemory                || null,
+    userIntelligence: memoryRaw                     || null,
+    abTests:          runningTests                  || [],
+  });
 
-  // Build base copy variants first (template), then pass to Claude for creative brief
+  // ── Step 2: build asset-type-specific context pack ───────────────────────────
+  // ad_visual: cold traffic feed — pain > differentiator > message priority
+  const { buildCreativeContext } = require('./_shared/creative-context-pack');
+  const contextPack = buildCreativeContext(memory, 'ad_visual');
+
+  // ── Step 3: build template copy variants to anchor the creative brief ────────
+  const bottleneck = strategyMemory?.persistent_bottlenecks?.[0] || null;
   const { generateAdCopy } = require('./_shared/ad-copy-generator');
   const adCopyVariants = generateAdCopy({ businessProfile, bottleneck, platform: 'meta' });
 
+  // ── Step 4: orchestrate — passes memory + contextPack into upgraded prompt ───
   const aiResult = await orchestrate(
     CAPABILITIES.AD_CREATIVE,
-    { businessProfile, adCopyVariants, platform: 'meta' },
+    { memory, contextPack, adCopyVariants, platform: 'meta' },
     { userId },
   );
 
   if (aiResult.ok && Array.isArray(aiResult.content?.creatives) && aiResult.content.creatives.length > 0) {
-    const creatives = aiResult.content.creatives;
-    let reply = `🎨 **${creatives.length} ברפי קריאייטיב ויזואלי — ${businessProfile.business_name || profileName}:**\n\n`;
-    reply += `_כל וריאציה מותאמת לקופי המתאים לה._\n\n`;
+    const creatives  = aiResult.content.creatives;
+    const decision   = aiResult.content.decision || null;
+
+    let reply = `🎨 **${creatives.length} קונספטים קריאייטיב — ${businessProfile.business_name || profileName}:**\n\n`;
+
+    // Surface the strategic decision so the user sees the creative reasoning
+    if (decision?.primary_emotional_trigger) {
+      reply += `_עוגן רגשי: **${decision.primary_emotional_trigger}**_\n\n`;
+    }
 
     creatives.forEach((c, i) => {
-      reply += `**וריאציה ${c.variant || String.fromCharCode(65 + i)} — ${c.mood || ''}**\n`;
-      reply += `🖼️ **קונספט:** ${c.visual_concept}\n`;
-      reply += `📝 **טקסט על התמונה:** ${c.text_overlay}\n`;
-      reply += `🎨 **פלטת צבעים:** ${Array.isArray(c.color_palette) ? c.color_palette.join(' · ') : c.color_palette}\n`;
-      if (c.image_prompt) reply += `🤖 **Image prompt (DALL-E/Midjourney):**\n> ${c.image_prompt}\n`;
-      if (c.design_notes) reply += `💡 _${c.design_notes}_\n`;
+      const label = c.variant_name || String.fromCharCode(65 + i);
+      reply += `**${i + 1}. ${label}** — _${c.emotional_angle || ''}_\n`;
+      if (c.visual_strategy)   reply += `🎯 **אסטרטגיה:** ${c.visual_strategy}\n`;
+      if (c.core_scene)        reply += `🖼️ **סצנה:** ${c.core_scene}\n`;
+      if (c.tension_or_contrast) reply += `⚡ **מתח ויזואלי:** ${c.tension_or_contrast}\n`;
+      if (c.text_overlay)      reply += `📝 **טקסט על תמונה:** ${c.text_overlay}\n`;
+      if (c.color_palette)     reply += `🎨 **צבעים:** ${Array.isArray(c.color_palette) ? c.color_palette.join(' · ') : c.color_palette}\n`;
+      if (c.external_image_prompt) reply += `🤖 **Image prompt:**\n> ${c.external_image_prompt}\n`;
+      if (c.designer_notes)    reply += `💡 _${c.designer_notes}_\n`;
       reply += '\n---\n\n';
     });
 
-    reply += `📌 **הצעד הבא:** שלח את ה-image prompt לכלי יצירת תמונות (DALL-E, Midjourney, Firefly) ליצירת הנכס.`;
+    reply += `📌 **הצעד הבא:** שלח את ה-image prompt לכלי יצירת תמונות (DALL-E, Midjourney, Firefly).`;
     return {
       reply,
       quickActions: ['צור קופי מודעה', 'צור דף נחיתה', 'נתח ביצועים'],
