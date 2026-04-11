@@ -38,6 +38,8 @@ const routes = {
   billing:      renderBilling,
   settings:     renderSettings,
   admin:        renderAdmin,
+  updates:      renderUpdates,
+  support:      renderSupport,
 };
 
 // ── Plan definitions (mirrors billing.js PLANS) ───────────────────────────────
@@ -205,6 +207,8 @@ function renderShell(content) {
     { id: 'integrations', icon: '🔌', label: 'אינטגרציות' },
     { id: 'billing',      icon: '💳', label: 'חיוב' },
     { id: 'settings',     icon: '⚙️', label: 'הגדרות' },
+    { id: 'updates',      icon: '🆕', label: 'עדכונים' },
+    { id: 'support',      icon: '💬', label: 'תמיכה' },
     ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול' }] : []),
   ];
   const initials  = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
@@ -2088,6 +2092,115 @@ function clearChatHistory() {
   renderQuickActions(chatState.quickActions);
 }
 
+// ── Updates page ──────────────────────────────────────────────────────────────
+async function renderUpdates() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  let updates;
+  try {
+    updates = await api('GET', 'get-updates');
+  } catch (err) {
+    renderShell(`
+      <div class="page-header"><h1 class="page-title">🆕 עדכוני מערכת</h1></div>
+      <div class="analysis-card" style="text-align:center;padding:2rem;color:var(--gray-500)">
+        שגיאה בטעינת עדכונים. נסה שוב מאוחר יותר.
+      </div>`);
+    return;
+  }
+
+  const typeLabel = { new: 'חדש', improved: 'שיפור', fixed: 'תוקן' };
+  const typeCls   = { new: 'update-tag-new', improved: 'update-tag-improved', fixed: 'update-tag-fixed' };
+
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">🆕 עדכוני מערכת</h1>
+      <p class="page-subtitle text-muted">מה חדש ב-CampaignAI</p>
+    </div>
+    ${updates.length === 0
+      ? `<div class="updates-empty"><div class="updates-empty-icon">📭</div><p>אין עדכונים להצגה כרגע. בקרוב יגיעו חדשות!</p></div>`
+      : `<div class="updates-list">
+          ${updates.map(u => `
+            <div class="update-card ${u.is_pinned ? 'update-card-pinned' : ''}">
+              <div class="update-card-meta">
+                <span class="update-tag ${typeCls[u.type] || ''}">${typeLabel[u.type] || u.type}</span>
+                ${u.is_pinned ? '<span class="update-tag update-tag-pinned">📌 נעוץ</span>' : ''}
+                <span class="update-date">${new Date(u.created_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+              </div>
+              <h3 class="update-title">${escHtml(u.title)}</h3>
+              <p class="update-body">${escHtml(u.content)}</p>
+            </div>
+          `).join('')}
+        </div>`
+    }`);
+}
+
+// ── Support page ───────────────────────────────────────────────────────────────
+function renderSupport() {
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">💬 תמיכה</h1>
+      <p class="page-subtitle text-muted">שלח לנו פנייה ונחזור אליך בהקדם</p>
+    </div>
+    <div class="support-wrap">
+      <div class="support-card">
+        <div id="support-success" class="support-success" style="display:none">
+          ✅ קיבלנו את הפנייה שלך. נחזור אליך בהקדם.
+        </div>
+        <form id="support-form" onsubmit="submitSupportTicket(event)">
+          <div class="form-group">
+            <label class="form-label">סוג פנייה *</label>
+            <select id="ticket-type" class="form-input" required>
+              <option value="">בחר סוג...</option>
+              <option value="question">שאלה</option>
+              <option value="bug">באג</option>
+              <option value="feature_request">רעיון לשיפור</option>
+              <option value="feedback">פידבק</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">כותרת *</label>
+            <input id="ticket-title" type="text" class="form-input" placeholder="תאר בקצרה את הנושא" maxlength="200" required />
+          </div>
+          <div class="form-group">
+            <label class="form-label">תיאור *</label>
+            <textarea id="ticket-desc" class="form-input" placeholder="תאר את הנושא בפירוט — ככל שתפרט יותר, כך נוכל לעזור מהר יותר" rows="5" maxlength="2000" required style="resize:vertical"></textarea>
+          </div>
+          <div id="support-error" class="form-error" style="display:none;margin-bottom:.75rem"></div>
+          <button type="submit" id="support-submit" class="btn btn-primary" style="width:auto;padding:.625rem 1.5rem">שלח פנייה</button>
+        </form>
+      </div>
+    </div>`);
+}
+
+async function submitSupportTicket(e) {
+  e.preventDefault();
+  const type  = document.getElementById('ticket-type')?.value?.trim();
+  const title = document.getElementById('ticket-title')?.value?.trim();
+  const desc  = document.getElementById('ticket-desc')?.value?.trim();
+  const errEl = document.getElementById('support-error');
+  const btn   = document.getElementById('support-submit');
+
+  const showErr = (msg) => { errEl.textContent = msg; errEl.style.display = 'block'; };
+  errEl.style.display = 'none';
+
+  if (!type)                         return showErr('בחר סוג פנייה');
+  if (!title || title.length < 3)    return showErr('כותרת קצרה מדי — לפחות 3 תווים');
+  if (!desc  || desc.length  < 10)   return showErr('תיאור קצר מדי — אנא פרט יותר (לפחות 10 תווים)');
+
+  btn.disabled = true;
+  btn.textContent = 'שולח...';
+
+  try {
+    await api('POST', 'submit-ticket', { type, title, description: desc });
+    document.getElementById('support-form').style.display = 'none';
+    document.getElementById('support-success').style.display = 'block';
+  } catch (err) {
+    showErr(err.message || 'שגיאה בשליחה. נסה שוב.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'שלח פנייה';
+  }
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
@@ -2119,5 +2232,6 @@ window.toggleChat            = toggleChat;
 window.submitChatMessage     = submitChatMessage;
 window.clearChatHistory      = clearChatHistory;
 window.handleQuickAction     = handleQuickAction;
+window.submitSupportTicket   = submitSupportTicket;
 
 boot();

@@ -54,11 +54,13 @@ function showError(msg) {
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function shell(content) {
   const nav = [
-    { id: 'overview',     icon: '📊', label: 'Overview' },
-    { id: 'users',        icon: '👥', label: 'Users' },
-    { id: 'billing',      icon: '💰', label: 'Billing' },
-    { id: 'system',       icon: '🖥️',  label: 'System' },
-    { id: 'audit',        icon: '📋', label: 'Audit Log' },
+    { id: 'overview',      icon: '📊', label: 'Overview' },
+    { id: 'users',         icon: '👥', label: 'Users' },
+    { id: 'billing',       icon: '💰', label: 'Billing' },
+    { id: 'system',        icon: '🖥️',  label: 'System' },
+    { id: 'audit',         icon: '📋', label: 'Audit Log' },
+    { id: 'updates-mgmt',  icon: '📣', label: 'Updates' },
+    { id: 'support-mgmt',  icon: '🎫', label: 'Support' },
   ];
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
@@ -469,15 +471,239 @@ async function renderAudit() {
     </div>`);
 }
 
+// ── Updates Management ────────────────────────────────────────────────────────
+let updatesAdminState = { editing: null, items: [] };
+
+async function renderAdminUpdates() {
+  shell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  let items;
+  try { items = await api('GET', 'admin-updates'); } catch { return; }
+  updatesAdminState.items = items || [];
+  _drawUpdatesPage();
+}
+
+function _drawUpdatesPage() {
+  const { items, editing: ed } = updatesAdminState;
+  const typeBadge = { new: 'badge-green', improved: 'badge-blue', fixed: 'badge-yellow' };
+
+  shell(`
+    <div class="page-header flex items-center justify-between">
+      <div><h1 class="page-title">📣 Updates</h1><p class="page-subtitle">${items.length} total</p></div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-title">${ed ? 'Edit Update' : 'New Update'}</div>
+      <form onsubmit="saveUpdate(event)" style="display:grid;gap:.75rem">
+        ${ed ? `<input type="hidden" id="upd-id" value="${ed.id}"/>` : ''}
+        <input class="filter-input" id="upd-title" placeholder="Title *" value="${ed ? ed.title.replace(/"/g,'&quot;') : ''}" required style="width:100%;box-sizing:border-box"/>
+        <textarea class="filter-input" id="upd-content" placeholder="Content *" rows="4" style="width:100%;box-sizing:border-box;resize:vertical">${ed ? ed.content : ''}</textarea>
+        <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+          <select class="filter-select" id="upd-type">
+            <option value="new"      ${!ed || ed.type==='new'      ? 'selected':''}>New</option>
+            <option value="improved" ${ed?.type==='improved'       ? 'selected':''}>Improved</option>
+            <option value="fixed"    ${ed?.type==='fixed'          ? 'selected':''}>Fixed</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.875rem;cursor:pointer">
+            <input type="checkbox" id="upd-published" ${ed?.is_published ? 'checked':''}> Publish
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;font-size:.875rem;cursor:pointer">
+            <input type="checkbox" id="upd-pinned" ${ed?.is_pinned ? 'checked':''}> Pin
+          </label>
+          <button type="submit" class="btn btn-primary" style="width:auto">${ed ? 'Save' : 'Create'}</button>
+          ${ed ? '<button type="button" class="btn btn-secondary" onclick="cancelEditUpdate()">Cancel</button>' : ''}
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Title</th><th>Type</th><th>Status</th><th>Pin</th><th>Created</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${items.length === 0
+              ? '<tr><td colspan="6" class="text-center text-muted" style="padding:2rem">No updates yet — create one above</td></tr>'
+              : items.map(u => `<tr>
+                  <td>
+                    <div style="font-weight:600;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.title}</div>
+                    <div class="text-muted text-xs" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${u.content.slice(0, 70)}${u.content.length > 70 ? '…' : ''}</div>
+                  </td>
+                  <td><span class="badge ${typeBadge[u.type] || 'badge-gray'}">${u.type}</span></td>
+                  <td><span class="badge ${u.is_published ? 'badge-green' : 'badge-gray'}">${u.is_published ? 'Published' : 'Draft'}</span></td>
+                  <td>${u.is_pinned ? '📌' : '—'}</td>
+                  <td class="text-muted">${new Date(u.created_at).toLocaleDateString()}</td>
+                  <td style="white-space:nowrap">
+                    <button class="btn btn-sm btn-secondary" onclick="editUpdate('${u.id}')">Edit</button>
+                    <button class="btn btn-sm ${u.is_published ? 'btn-secondary' : 'btn-primary'}" style="margin-right:.25rem" onclick="togglePublishUpdate('${u.id}',${!u.is_published})">${u.is_published ? 'Unpublish' : 'Publish'}</button>
+                    <button class="btn btn-sm btn-danger" style="margin-right:.25rem" onclick="deleteUpdate('${u.id}')">Delete</button>
+                  </td>
+                </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`);
+}
+
+function editUpdate(id) {
+  updatesAdminState.editing = updatesAdminState.items.find(x => x.id === id) || null;
+  _drawUpdatesPage();
+}
+function cancelEditUpdate() {
+  updatesAdminState.editing = null;
+  _drawUpdatesPage();
+}
+async function saveUpdate(e) {
+  e.preventDefault();
+  const id   = document.getElementById('upd-id')?.value || null;
+  const body = {
+    title:        document.getElementById('upd-title').value.trim(),
+    content:      document.getElementById('upd-content').value.trim(),
+    type:         document.getElementById('upd-type').value,
+    is_published: document.getElementById('upd-published').checked,
+    is_pinned:    document.getElementById('upd-pinned').checked,
+  };
+  if (id) body.id = id;
+  try {
+    await api(id ? 'PATCH' : 'POST', 'admin-updates', body);
+    updatesAdminState.editing = null;
+    toast(id ? 'Updated ✓' : 'Created ✓', 'success');
+    await renderAdminUpdates();
+  } catch (err) { toast(err.message, 'error'); }
+}
+async function togglePublishUpdate(id, publish) {
+  try {
+    const updated = await api('PATCH', 'admin-updates', { id, is_published: publish });
+    const idx = updatesAdminState.items.findIndex(x => x.id === id);
+    if (idx >= 0) updatesAdminState.items[idx] = { ...updatesAdminState.items[idx], is_published: publish };
+    toast(publish ? 'Published ✓' : 'Unpublished', 'success');
+    _drawUpdatesPage();
+  } catch (err) { toast(err.message, 'error'); }
+}
+async function deleteUpdate(id) {
+  if (!confirm('Delete this update permanently?')) return;
+  try {
+    await api('DELETE', 'admin-updates', { id });
+    updatesAdminState.items = updatesAdminState.items.filter(x => x.id !== id);
+    if (updatesAdminState.editing?.id === id) updatesAdminState.editing = null;
+    toast('Deleted', 'success');
+    _drawUpdatesPage();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+// ── Support Tickets Management ─────────────────────────────────────────────────
+let supportAdminState = { page: 1, status: '', selected: null, tickets: [], total: 0, limit: 25 };
+
+async function renderAdminSupport() {
+  shell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  let d;
+  try {
+    d = await api('GET', 'admin-support', null, {
+      page:   supportAdminState.page,
+      status: supportAdminState.status || undefined,
+    });
+  } catch { return; }
+  supportAdminState.tickets = d.tickets || [];
+  supportAdminState.total   = d.total   || 0;
+  supportAdminState.limit   = d.limit   || 25;
+  _drawSupportPage();
+}
+
+function _drawSupportPage() {
+  const { tickets, total, limit, page, status, selected } = supportAdminState;
+  const sel = selected ? tickets.find(t => t.id === selected) : null;
+
+  const statusBadge = { open: 'badge-blue', in_progress: 'badge-yellow', closed: 'badge-gray' };
+  const statusLabel = { open: 'Open', in_progress: 'In Progress', closed: 'Closed' };
+  const typeLabel   = { question: 'Question', bug: 'Bug', feature_request: 'Feature', feedback: 'Feedback' };
+
+  shell(`
+    <div class="page-header flex items-center justify-between">
+      <div><h1 class="page-title">🎫 Support Tickets</h1><p class="page-subtitle">${total} total</p></div>
+    </div>
+
+    <div class="filter-bar">
+      <select class="filter-select" onchange="supportAdminState.status=this.value;supportAdminState.page=1;renderAdminSupport()">
+        <option value="">All statuses</option>
+        <option value="open"        ${status==='open'        ? 'selected':''}>Open</option>
+        <option value="in_progress" ${status==='in_progress' ? 'selected':''}>In Progress</option>
+        <option value="closed"      ${status==='closed'      ? 'selected':''}>Closed</option>
+      </select>
+    </div>
+
+    <div style="display:grid;grid-template-columns:${sel ? '1fr 380px' : '1fr'};gap:1rem;align-items:start">
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>User</th><th>Type</th><th>Title</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody>
+              ${tickets.length === 0
+                ? '<tr><td colspan="5" class="text-center text-muted" style="padding:2rem">No tickets</td></tr>'
+                : tickets.map(t => `<tr onclick="selectTicket('${t.id}')" class="clickable${selected===t.id ? ' support-row-active':''}">
+                    <td>
+                      <div class="truncate" style="max-width:140px">${t.userEmail || '—'}</div>
+                      <div class="text-xs text-muted">${t.userPlan || 'free'}</div>
+                    </td>
+                    <td><span class="badge badge-gray" style="font-size:.65rem">${typeLabel[t.type] || t.type}</span></td>
+                    <td class="truncate" style="max-width:180px">${t.title}</td>
+                    <td><span class="badge ${statusBadge[t.status] || 'badge-gray'}">${statusLabel[t.status] || t.status}</span></td>
+                    <td class="text-muted">${new Date(t.created_at).toLocaleDateString()}</td>
+                  </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        ${renderPagination(page, limit, total, p => { supportAdminState.page = p; renderAdminSupport(); })}
+      </div>
+
+      ${sel ? `
+      <div class="card support-detail">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;margin-bottom:.75rem">
+          <h3 style="font-size:.9375rem;font-weight:700;color:var(--gray-900);margin:0;flex:1">${sel.title}</h3>
+          <button class="btn btn-sm btn-secondary" onclick="selectTicket(null)" style="flex-shrink:0">✕</button>
+        </div>
+        <div style="display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:.75rem">
+          <span class="badge ${statusBadge[sel.status] || 'badge-gray'}">${statusLabel[sel.status] || sel.status}</span>
+          <span class="badge badge-gray">${typeLabel[sel.type] || sel.type}</span>
+        </div>
+        <div style="font-size:.8rem;color:var(--gray-500);margin-bottom:.75rem;line-height:1.6">
+          <strong>User:</strong> ${sel.userEmail || '—'}<br>
+          <strong>Name:</strong> ${sel.userName  || '—'}<br>
+          <strong>Plan:</strong> ${sel.userPlan  || 'free'}<br>
+          <strong>Date:</strong> ${new Date(sel.created_at).toLocaleString()}
+        </div>
+        <div class="support-desc">${sel.description}</div>
+        <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
+          ${sel.status !== 'in_progress' ? `<button class="btn btn-sm btn-secondary" onclick="updateTicketStatus('${sel.id}','in_progress')">בטיפול</button>` : ''}
+          ${sel.status !== 'closed'      ? `<button class="btn btn-sm btn-danger"    onclick="updateTicketStatus('${sel.id}','closed')">סגור פנייה</button>` : ''}
+          ${sel.status === 'closed'      ? `<button class="btn btn-sm btn-primary"   onclick="updateTicketStatus('${sel.id}','open')">פתח מחדש</button>` : ''}
+        </div>
+      </div>` : ''}
+    </div>`);
+}
+
+function selectTicket(id) {
+  supportAdminState.selected = id === supportAdminState.selected ? null : id;
+  _drawSupportPage();
+}
+async function updateTicketStatus(id, status) {
+  try {
+    await api('PATCH', 'admin-support', { id, status });
+    const t = supportAdminState.tickets.find(x => x.id === id);
+    if (t) t.status = status;
+    toast('Updated ✓', 'success');
+    _drawSupportPage();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
 // ── Router ────────────────────────────────────────────────────────────────────
 async function render() {
   const routes = {
-    overview:    renderOverview,
-    users:       renderUsers,
-    'user-detail': renderUserDetail,
-    billing:     renderBilling,
-    system:      renderSystem,
-    audit:       renderAudit,
+    overview:       renderOverview,
+    users:          renderUsers,
+    'user-detail':  renderUserDetail,
+    billing:        renderBilling,
+    system:         renderSystem,
+    audit:          renderAudit,
+    'updates-mgmt': renderAdminUpdates,
+    'support-mgmt': renderAdminSupport,
   };
   const fn = routes[state.page] || renderOverview;
   await fn().catch(e => { if (e.message !== 'forbidden') console.error(e); });
@@ -506,13 +732,23 @@ async function boot() {
 }
 
 // ── Globals ───────────────────────────────────────────────────────────────────
-window.navigate      = navigate;
-window.handleLogout  = handleLogout;
-window.renderUsers   = renderUsers;
-window.renderAudit   = renderAudit;
-window.adminToggle   = adminToggle;
-window.adminCancelSub= adminCancelSub;
-window.usersState    = usersState;
-window.auditState    = auditState;
+window.navigate             = navigate;
+window.handleLogout         = handleLogout;
+window.renderUsers          = renderUsers;
+window.renderAudit          = renderAudit;
+window.adminToggle          = adminToggle;
+window.adminCancelSub       = adminCancelSub;
+window.usersState           = usersState;
+window.auditState           = auditState;
+window.renderAdminUpdates   = renderAdminUpdates;
+window.editUpdate           = editUpdate;
+window.cancelEditUpdate     = cancelEditUpdate;
+window.saveUpdate           = saveUpdate;
+window.togglePublishUpdate  = togglePublishUpdate;
+window.deleteUpdate         = deleteUpdate;
+window.renderAdminSupport   = renderAdminSupport;
+window.selectTicket         = selectTicket;
+window.updateTicketStatus   = updateTicketStatus;
+window.supportAdminState    = supportAdminState;
 
 boot();
