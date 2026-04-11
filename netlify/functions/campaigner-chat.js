@@ -55,6 +55,7 @@ const INTENT_PATTERNS = [
   { intent: 'copy',      patterns: /\b(כתוב|קופי|copy|מודעה|ad text|creative text|כותרת|headline|טקסט|מסר|נוסח)\b/i },
   { intent: 'creative',  patterns: /\b(קריאייטיב|creative brief|ויזואל|visual|עיצוב מודעה|תמונה למודעה|creative|brief|מה לשים בתמונה|תמונה לקמפיין|image prompt)\b/i },
   { intent: 'landing',   patterns: /\b(דף נחיתה|landing page|LP|לנדינג|עמוד נחיתה|לנד)\b/i },
+  { intent: 'visual',    patterns: /\b(generate html|צור html|html|visual asset|נכס ויזואלי|ad.?card|כרטיס מודעה|באנר מודעה|banner ad|צור באנר)\b/i },
 ];
 
 function detectIntent(message) {
@@ -970,9 +971,9 @@ async function generateCreativeResponse(context) {
   };
 }
 
-// ── Landing page generator (Claude) ──────────────────────────────────────────
+// ── Landing page / visual asset generator (HTML pipeline) ────────────────────
 async function generateLandingPageResponse(context) {
-  const { businessProfile, profileName, userId } = context;
+  const { businessProfile, profileName, userId, memoryRaw, recentAnalysis, strategyMemory, runningTests, message } = context;
 
   if (!businessProfile || !scoreCompletion(businessProfile)) {
     return {
@@ -982,42 +983,84 @@ async function generateLandingPageResponse(context) {
     };
   }
 
-  const aiResult = await orchestrate(
-    CAPABILITIES.LANDING_PAGE,
-    { businessProfile, adCopy: null, targetKeyword: null },
-    { userId },
-  );
+  // Detect asset type from the user's message
+  let assetType = 'landing_page_html';
+  if (/\b(בנר|banner|באנר)\b/i.test(message))                                 assetType = 'banner_html';
+  else if (/\b(ad.?card|מודעה ריבועית|כרטיס מודעה)\b/i.test(message))         assetType = 'ad_html';
+  else if (/\b(hero|כותרת ראשית|hero.?section|landing.?hero)\b/i.test(message)) assetType = 'landing_hero';
 
-  if (aiResult.ok && Array.isArray(aiResult.content?.sections) && aiResult.content.sections.length > 0) {
-    const lp = aiResult.content;
-    let reply = `📄 **מבנה דף נחיתה — ${lp.page_title || businessProfile.business_name || profileName}:**\n\n`;
-    if (lp.seo_title)       reply += `🔍 **SEO Title:** ${lp.seo_title}\n`;
-    if (lp.seo_description) reply += `📋 **Meta Description:** ${lp.seo_description}\n\n`;
-
-    lp.sections.forEach((s, i) => {
-      const typeLabel = {
-        hero: '🦸 Hero', problem: '😤 Problem', solution: '💡 Solution',
-        social_proof: '⭐ Social Proof', offer: '💰 Offer', faq: '❓ FAQ', cta: '🎯 CTA',
-      }[s.type] || `סקשן ${i + 1}`;
-      reply += `**${typeLabel}**\n`;
-      reply += `📌 _${s.headline}_\n`;
-      reply += `${s.body}\n`;
-      if (s.cta_text) reply += `🔘 **CTA:** ${s.cta_text}\n`;
-      if (s.notes)    reply += `💡 _${s.notes}_\n`;
-      reply += '\n---\n\n';
+  try {
+    // Step 1: Build marketing memory from all available context sources
+    const { buildMarketingMemory } = require('./_shared/marketing-memory');
+    const memory = buildMarketingMemory({
+      businessProfile,
+      apiCache:         recentAnalysis?.metrics ?? null,
+      analysisResults:  recentAnalysis          ?? null,
+      strategyMemory:   strategyMemory          ?? null,
+      userIntelligence: memoryRaw               ?? null,
+      abTests:          runningTests            ?? [],
     });
 
-    reply += `📌 **הצעד הבא:** שלח את המבנה לבונה דפים (Unbounce, Elementor, Webflow) ליצירת הדף.`;
+    // Step 2: Build landing structure (section list + CTA strategy + hierarchy)
+    const { buildLandingStructure } = require('./_shared/landing-structure-engine');
+    const goal        = memory.current?.primary_goal  || 'leads';
+    const funnelStage = memory.current?.funnel_stage  || 'consideration';
+    const structure   = buildLandingStructure(memory, assetType, goal, funnelStage);
+
+    // Step 3: Build HTML blueprint (resolved props + layout per section, no HTML yet)
+    const { buildHTMLBlueprint } = require('./_shared/html-blueprint-builder');
+    const blueprint = buildHTMLBlueprint(structure, null, memory);
+
+    // Step 4: Compose full HTML + CSS (self-contained, RTL, mobile-first)
+    const { composeHTML } = require('./_shared/html-composer');
+    const composeResult = composeHTML(blueprint);
+
+    // Step 5: Save to Supabase Storage + DB, get preview URL
+    const { saveAsset } = require('./_shared/asset-storage');
+    const saved = await saveAsset({
+      userId,
+      html:          composeResult.html,
+      composeResult,
+      title: businessProfile.business_name
+        ? `${businessProfile.business_name} — ${_assetLabel(assetType)}`
+        : null,
+    });
+
+    // Step 6: Build reply with preview link (no raw HTML returned to user)
+    const sectionCount = Array.isArray(structure.sections) ? structure.sections.length : 0;
+    const imageSlots   = saved.metadata?.image_slots ?? 0;
+    const expiry       = new Date(saved.expiresAt).toLocaleDateString('he-IL');
+
+    let reply = `📄 **${_assetLabel(assetType)} מוכן — ${businessProfile.business_name || profileName}**\n\n`;
+    reply += `🔗 **קישור לתצוגה מקדימה:**\n\`${saved.previewUrl}\`\n\n`;
+    reply += `📐 **מבנה:** ${sectionCount} סקשנים`;
+    if (imageSlots > 0) reply += ` · ${imageSlots} מקומות תמונה`;
+    reply += `\n⏳ **תוקף:** ${expiry}\n\n`;
+    reply += `_הדף כולל placeholder לתמונות — הוסף תמונות אמיתיות לפני פרסום._`;
+
+    if (composeResult.warnings?.length > 0) {
+      reply += `\n\n⚠️ _${composeResult.warnings.slice(0, 2).join(' · ')}_`;
+    }
+
     return {
       reply,
-      quickActions: ['צור קריאייטיב ויזואלי', 'כתוב קופי מודעה', 'נתח ביצועים'],
+      quickActions: ['הורד ZIP', 'צור קריאייטיב ויזואלי', 'כתוב קופי מודעה', 'נתח ביצועים'],
+      assetId:    saved.assetId,
+      previewUrl: saved.previewUrl,
+      expiresAt:  saved.expiresAt,
+    };
+
+  } catch (err) {
+    console.error('[campaigner-chat] generateLandingPageResponse error:', err.message);
+    return {
+      reply: `📄 אירעה שגיאה בבניית הדף. נסה שוב עוד רגע.\n\n_פרטי שגיאה: ${err.code || err.message || 'UNKNOWN'}_`,
+      quickActions: ['נסה שוב', 'ספר על העסק שלך'],
     };
   }
+}
 
-  return {
-    reply: `📄 לא הצלחתי לייצר דף נחיתה כרגע. ודא שמפתח Anthropic מוגדר ונסה שנית.`,
-    quickActions: ['כתוב קופי מודעה', 'נתח ביצועים'],
-  };
+function _assetLabel(assetType) {
+  return { landing_page_html: 'דף נחיתה', banner_html: 'באנר', ad_html: 'כרטיס מודעה', landing_hero: 'Hero Section' }[assetType] || 'דף נחיתה';
 }
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -1043,6 +1086,7 @@ async function generateResponse(intent, context) {
     case 'copy':          return await generateCopyResponse(context);
     case 'creative':      return await generateCreativeResponse(context);
     case 'landing':       return await generateLandingPageResponse(context);
+    case 'visual':        return await generateLandingPageResponse(context);
     default:              return generateOverviewResponse(context);
   }
 }
