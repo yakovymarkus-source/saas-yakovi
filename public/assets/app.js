@@ -33,6 +33,7 @@ let state = {
 const routes = {
   dashboard:    renderDashboard,
   campaigns:    renderCampaigns,
+  leads:        renderLeads,
   integrations: renderIntegrations,
   billing:      renderBilling,
   settings:     renderSettings,
@@ -200,6 +201,7 @@ function renderShell(content) {
   const navItems = [
     { id: 'dashboard',    icon: '📊', label: 'דשבורד' },
     { id: 'campaigns',    icon: '🎯', label: 'נכסים שיווקיים' },
+    { id: 'leads',        icon: '📥', label: 'לידים' },
     { id: 'integrations', icon: '🔌', label: 'אינטגרציות' },
     { id: 'billing',      icon: '💳', label: 'חיוב' },
     { id: 'settings',     icon: '⚙️', label: 'הגדרות' },
@@ -1372,6 +1374,379 @@ async function activateUserPayment(userId, plan) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// LEADS DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Local leads state (scoped to this page)
+const leadsState = {
+  leads: [], total: 0, summary: null, assets: [],
+  loading: false, error: null,
+  filters: { search: '', status: '', assetId: '', dateFrom: '', dateTo: '', sort: 'newest' },
+  pagination: { limit: 50, offset: 0 },
+  detailLead: null,
+};
+
+const STATUS_LABELS = { new: 'חדש', contacted: 'ביצירת קשר', qualified: 'מוסמך', closed: 'סגור', archived: 'בארכיון' };
+const STATUS_BADGE  = { new: 'badge-blue', contacted: 'badge-yellow', qualified: 'badge-indigo', closed: 'badge-green', archived: 'badge-gray' };
+
+async function renderLeads() {
+  renderShell(`<div id="leads-page">
+    <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+      <div>
+        <h1 class="page-title">📥 לידים</h1>
+        <p class="page-subtitle" style="color:var(--gray-500);font-size:.9rem;margin-top:.25rem">לידים שנאספו מדפי הנחיתה שלך</p>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="leadsExportCSV()" id="leads-export-btn">ייצוא CSV</button>
+    </div>
+    <div id="leads-summary-row" class="leads-summary-row"></div>
+    <div id="leads-filters" class="leads-filters"></div>
+    <div id="leads-table-wrap"></div>
+    <div id="leads-detail-modal"></div>
+  </div>`);
+
+  await leadsLoadAll();
+}
+
+async function leadsLoadAll() {
+  leadsState.loading = true;
+  leadsRenderTable('<div class="loading-screen" style="height:200px"><div class="spinner"></div></div>');
+
+  try {
+    const f = leadsState.filters;
+    const p = leadsState.pagination;
+
+    const params = new URLSearchParams();
+    if (f.status)   params.set('status',    f.status);
+    if (f.assetId)  params.set('asset_id',  f.assetId);
+    if (f.search)   params.set('search',    f.search);
+    if (f.dateFrom) params.set('date_from', f.dateFrom);
+    if (f.dateTo)   params.set('date_to',   f.dateTo);
+    params.set('sort',   f.sort);
+    params.set('limit',  p.limit);
+    params.set('offset', p.offset);
+
+    const [result, summary, assets] = await Promise.all([
+      api('GET', 'get-leads?' + params.toString()),
+      leadsState.summary ? Promise.resolve(leadsState.summary) : api('GET', 'get-leads?summary=1'),
+      leadsState.assets.length  ? Promise.resolve(leadsState.assets)  : api('GET', 'get-leads?assets=1'),
+    ]);
+
+    leadsState.leads   = result.leads  || [];
+    leadsState.total   = result.total  || 0;
+    leadsState.summary = summary;
+    leadsState.assets  = assets || [];
+    leadsState.error   = null;
+
+  } catch (err) {
+    leadsState.error = err.message || 'שגיאה בטעינת לידים';
+  } finally {
+    leadsState.loading = false;
+  }
+
+  leadsRenderSummary();
+  leadsRenderFilters();
+  leadsRenderTable();
+}
+
+function leadsRenderSummary() {
+  const el = document.getElementById('leads-summary-row');
+  if (!el) return;
+  const s = leadsState.summary;
+  if (!s) { el.innerHTML = ''; return; }
+
+  el.innerHTML = `
+    <div class="leads-kpi-grid">
+      <div class="leads-kpi"><div class="leads-kpi-val">${s.total}</div><div class="leads-kpi-lbl">סה"כ לידים</div></div>
+      <div class="leads-kpi leads-kpi-blue"><div class="leads-kpi-val">${s.new}</div><div class="leads-kpi-lbl">חדשים</div></div>
+      <div class="leads-kpi leads-kpi-yellow"><div class="leads-kpi-val">${s.contacted}</div><div class="leads-kpi-lbl">ביצירת קשר</div></div>
+      <div class="leads-kpi leads-kpi-green"><div class="leads-kpi-val">${s.closed}</div><div class="leads-kpi-lbl">סגורים</div></div>
+    </div>`;
+}
+
+function leadsRenderFilters() {
+  const el = document.getElementById('leads-filters');
+  if (!el) return;
+  const f = leadsState.filters;
+
+  const assetOptions = leadsState.assets.map(a =>
+    `<option value="${a.assetId}" ${f.assetId === a.assetId ? 'selected' : ''}>${escHtml(a.title || a.assetId.slice(0,8))}</option>`
+  ).join('');
+
+  el.innerHTML = `
+    <div class="leads-filters-bar">
+      <input type="search" class="leads-filter-input" placeholder="חיפוש שם / טלפון / מייל..."
+        value="${escHtml(f.search)}" oninput="leadsSetFilter('search', this.value)" style="flex:2;min-width:160px">
+      <select class="leads-filter-select" onchange="leadsSetFilter('status', this.value)">
+        <option value="">כל הסטטוסים</option>
+        <option value="new"       ${f.status==='new'       ?'selected':''}>חדש</option>
+        <option value="contacted" ${f.status==='contacted' ?'selected':''}>ביצירת קשר</option>
+        <option value="qualified" ${f.status==='qualified' ?'selected':''}>מוסמך</option>
+        <option value="closed"    ${f.status==='closed'    ?'selected':''}>סגור</option>
+        <option value="archived"  ${f.status==='archived'  ?'selected':''}>בארכיון</option>
+      </select>
+      ${leadsState.assets.length > 0 ? `
+      <select class="leads-filter-select" onchange="leadsSetFilter('assetId', this.value)">
+        <option value="">כל הדפים</option>
+        ${assetOptions}
+      </select>` : ''}
+      <input type="date" class="leads-filter-input" value="${f.dateFrom}"
+        onchange="leadsSetFilter('dateFrom', this.value)" style="max-width:150px">
+      <input type="date" class="leads-filter-input" value="${f.dateTo}"
+        onchange="leadsSetFilter('dateTo', this.value)" style="max-width:150px">
+      <select class="leads-filter-select" onchange="leadsSetFilter('sort', this.value)" style="max-width:130px">
+        <option value="newest" ${f.sort==='newest'?'selected':''}>חדש ראשון</option>
+        <option value="oldest" ${f.sort==='oldest'?'selected':''}>ישן ראשון</option>
+      </select>
+      <button class="btn btn-sm btn-secondary" onclick="leadsResetFilters()">איפוס</button>
+    </div>`;
+}
+
+function leadsRenderTable(overrideHtml) {
+  const el = document.getElementById('leads-table-wrap');
+  if (!el) return;
+
+  if (overrideHtml) { el.innerHTML = overrideHtml; return; }
+
+  if (leadsState.error) {
+    el.innerHTML = `<div class="empty-state">
+      <div class="empty-state-icon">⚠️</div>
+      <div class="empty-state-title">שגיאה בטעינה</div>
+      <div class="empty-state-desc">${escHtml(leadsState.error)}</div>
+      <button class="btn btn-primary btn-sm" onclick="leadsLoadAll()">נסה שוב</button>
+    </div>`; return;
+  }
+
+  if (leadsState.leads.length === 0) {
+    const hasFilters = Object.values(leadsState.filters).some(v => v && v !== 'newest');
+    el.innerHTML = `<div class="empty-state">
+      <div class="empty-state-icon">📭</div>
+      <div class="empty-state-title">${hasFilters ? 'אין תוצאות לפילטר הנוכחי' : 'עדיין אין לידים'}</div>
+      <div class="empty-state-desc">${hasFilters
+        ? 'נסה לשנות את הפילטרים או לאפס אותם.'
+        : 'לידים יופיעו כאן ברגע שגולשים ימלאו טפסים בדפי הנחיתה שלך.'}</div>
+      ${hasFilters ? '<button class="btn btn-secondary btn-sm" onclick="leadsResetFilters()">איפוס פילטרים</button>' : ''}
+    </div>`; return;
+  }
+
+  const rows = leadsState.leads.map(lead => {
+    const status = lead.status || 'new';
+    const date   = lead.created_at ? new Date(lead.created_at).toLocaleDateString('he-IL') : '—';
+    const source = escHtml(lead.asset_title || lead.asset_id?.slice(0, 8) || '—');
+    return `<tr class="leads-tr">
+      <td class="leads-td">${escHtml(lead.name || '—')}</td>
+      <td class="leads-td">
+        ${lead.phone ? `<span class="leads-copy" title="העתק" onclick="leadsCopy('${escHtml(lead.phone)}')">${escHtml(lead.phone)}</span>` : '—'}
+      </td>
+      <td class="leads-td">
+        ${lead.email ? `<span class="leads-copy" title="העתק" onclick="leadsCopy('${escHtml(lead.email)}')">${escHtml(lead.email)}</span>` : '—'}
+      </td>
+      <td class="leads-td leads-td-source">${source}</td>
+      <td class="leads-td">${date}</td>
+      <td class="leads-td">
+        <select class="leads-status-select badge ${STATUS_BADGE[status] || 'badge-gray'}"
+          onchange="leadsUpdateStatus('${lead.id}', this.value, this)">
+          ${['new','contacted','qualified','closed','archived'].map(s =>
+            `<option value="${s}" ${s===status?'selected':''}>${STATUS_LABELS[s]}</option>`
+          ).join('')}
+        </select>
+      </td>
+      <td class="leads-td leads-td-actions">
+        <button class="btn btn-sm btn-secondary" onclick="leadsShowDetail('${lead.id}')">פרטים</button>
+        ${lead.asset_id ? `<button class="btn btn-sm btn-secondary" onclick="window.open('/.netlify/functions/serve-asset?id=${escHtml(lead.asset_id)}','_blank')" title="פתח דף">🔗</button>` : ''}
+        <button class="btn btn-sm" style="color:var(--red)" onclick="leadsConfirmDelete('${lead.id}')">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const { offset, limit } = leadsState.pagination;
+  const total = leadsState.total;
+  const hasPrev = offset > 0;
+  const hasNext = offset + limit < total;
+
+  el.innerHTML = `
+    <div class="leads-table-wrap">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;border-bottom:1px solid var(--gray-100)">
+        <span style="font-size:.85rem;color:var(--gray-500)">${total} לידים סה"כ</span>
+        <div style="display:flex;gap:.5rem">
+          <button class="btn btn-sm btn-secondary" onclick="leadsPaginate(-1)" ${!hasPrev?'disabled':''}>→ הקודם</button>
+          <button class="btn btn-sm btn-secondary" onclick="leadsPaginate(1)"  ${!hasNext?'disabled':''}>הבא ←</button>
+        </div>
+      </div>
+      <div class="leads-table-scroll">
+        <table class="leads-table">
+          <thead>
+            <tr>
+              <th class="leads-th">שם</th>
+              <th class="leads-th">טלפון</th>
+              <th class="leads-th">מייל</th>
+              <th class="leads-th">דף מקור</th>
+              <th class="leads-th">תאריך</th>
+              <th class="leads-th">סטטוס</th>
+              <th class="leads-th">פעולות</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function leadsRenderDetail() {
+  const el = document.getElementById('leads-detail-modal');
+  if (!el) return;
+  const lead = leadsState.detailLead;
+  if (!lead) { el.innerHTML = ''; return; }
+
+  const meta = Object.entries(lead.metadata || {})
+    .filter(([k]) => !['source_url','user_agent','submitted_at'].includes(k))
+    .map(([k, v]) => `<tr><td style="color:var(--gray-500);padding:.25rem .5rem">${escHtml(k)}</td><td style="padding:.25rem .5rem">${escHtml(String(v||''))}</td></tr>`)
+    .join('');
+
+  el.innerHTML = `
+    <div class="modal-overlay" onclick="leadsCloseDetail()">
+      <div class="modal-box" onclick="event.stopPropagation()" style="max-width:540px;width:100%">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
+          <div class="modal-title" style="margin:0">פרטי ליד</div>
+          <button onclick="leadsCloseDetail()" style="font-size:1.25rem;color:var(--gray-400);background:none;border:none;cursor:pointer">✕</button>
+        </div>
+        <table style="width:100%;font-size:.9rem;border-collapse:collapse">
+          <tr><td class="leads-detail-label">שם</td><td>${escHtml(lead.name||'—')}</td></tr>
+          <tr><td class="leads-detail-label">טלפון</td><td>${lead.phone?`<span class="leads-copy" onclick="leadsCopy('${escHtml(lead.phone)}')">${escHtml(lead.phone)}</span>`:'—'}</td></tr>
+          <tr><td class="leads-detail-label">מייל</td><td>${lead.email?`<span class="leads-copy" onclick="leadsCopy('${escHtml(lead.email)}')">${escHtml(lead.email)}</span>`:'—'}</td></tr>
+          <tr><td class="leads-detail-label">סטטוס</td><td><span class="badge ${STATUS_BADGE[lead.status]||'badge-gray'}">${STATUS_LABELS[lead.status]||lead.status}</span></td></tr>
+          <tr><td class="leads-detail-label">דף מקור</td><td>${escHtml(lead.asset_title||lead.asset_id||'—')}</td></tr>
+          <tr><td class="leads-detail-label">תאריך</td><td>${lead.created_at?new Date(lead.created_at).toLocaleString('he-IL'):'—'}</td></tr>
+          ${lead.metadata?.source_url?`<tr><td class="leads-detail-label">מקור URL</td><td style="word-break:break-all;font-size:.8rem">${escHtml(lead.metadata.source_url)}</td></tr>`:''}
+          ${meta?`<tr><td colspan="2" style="padding-top:.75rem;font-weight:600;font-size:.8rem;color:var(--gray-600)">שדות נוספים</td></tr>${meta}`:''}
+        </table>
+        <div style="margin-top:1.25rem;display:flex;gap:.5rem;justify-content:flex-end">
+          ${lead.asset_id?`<button class="btn btn-sm btn-secondary" onclick="window.open('/.netlify/functions/serve-asset?id=${lead.asset_id}','_blank')">פתח דף נחיתה 🔗</button>`:''}
+          <button class="btn btn-sm btn-secondary" onclick="leadsCloseDetail()">סגור</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Leads action handlers ─────────────────────────────────────────────────────
+
+let leadsSearchTimer;
+function leadsSetFilter(key, value) {
+  leadsState.filters[key] = value;
+  leadsState.pagination.offset = 0;
+  clearTimeout(leadsSearchTimer);
+  if (key === 'search') {
+    leadsSearchTimer = setTimeout(() => leadsLoadAll(), 400);
+  } else {
+    leadsLoadAll();
+  }
+}
+
+function leadsResetFilters() {
+  leadsState.filters = { search: '', status: '', assetId: '', dateFrom: '', dateTo: '', sort: 'newest' };
+  leadsState.pagination.offset = 0;
+  leadsLoadAll();
+}
+
+function leadsPaginate(dir) {
+  const { limit, offset } = leadsState.pagination;
+  const newOffset = Math.max(0, offset + dir * limit);
+  if (newOffset === offset) return;
+  leadsState.pagination.offset = newOffset;
+  leadsLoadAll();
+}
+
+async function leadsUpdateStatus(leadId, newStatus, selectEl) {
+  try {
+    await api('PATCH', 'update-lead', { lead_id: leadId, status: newStatus });
+    // Update local state without full reload
+    const lead = leadsState.leads.find(l => l.id === leadId);
+    if (lead) lead.status = newStatus;
+    if (selectEl) {
+      selectEl.className = `leads-status-select badge ${STATUS_BADGE[newStatus] || 'badge-gray'}`;
+    }
+    if (leadsState.summary) {
+      leadsState.summary = null; // invalidate — reload on next full fetch
+    }
+    toast('סטטוס עודכן', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה בעדכון', 'error');
+  }
+}
+
+function leadsConfirmDelete(leadId) {
+  if (!confirm('האם למחוק את הליד לצמיתות?')) return;
+  leadsDeleteLead(leadId);
+}
+
+async function leadsDeleteLead(leadId) {
+  try {
+    await api('DELETE', 'delete-lead', { lead_id: leadId });
+    leadsState.leads = leadsState.leads.filter(l => l.id !== leadId);
+    leadsState.total = Math.max(0, leadsState.total - 1);
+    leadsState.summary = null;
+    leadsRenderTable();
+    toast('הליד נמחק', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה במחיקה', 'error');
+  }
+}
+
+async function leadsShowDetail(leadId) {
+  const cached = leadsState.leads.find(l => l.id === leadId);
+  leadsState.detailLead = cached || null;
+  leadsRenderDetail();
+  if (!cached) {
+    try {
+      const data = await api('GET', `get-leads?lead_id=${leadId}`);
+      leadsState.detailLead = data;
+      leadsRenderDetail();
+    } catch { /* show what we have */ }
+  }
+}
+
+function leadsCloseDetail() {
+  leadsState.detailLead = null;
+  leadsRenderDetail();
+}
+
+async function leadsExportCSV() {
+  try {
+    const f = leadsState.filters;
+    const params = new URLSearchParams();
+    if (f.status)   params.set('status',    f.status);
+    if (f.assetId)  params.set('asset_id',  f.assetId);
+    if (f.search)   params.set('search',    f.search);
+    if (f.dateFrom) params.set('date_from', f.dateFrom);
+    if (f.dateTo)   params.set('date_to',   f.dateTo);
+
+    const { data: { session } } = await sb.auth.getSession();
+    const res = await fetch(`${CONFIG.apiBase}/export-leads?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (!res.ok) { toast('שגיאה בייצוא', 'error'); return; }
+
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `leads-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('הקובץ הורד', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה בייצוא', 'error');
+  }
+}
+
+function leadsCopy(text) {
+  navigator.clipboard?.writeText(text).then(() => toast('הועתק!', 'success')).catch(() => {});
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 // ── Main render ───────────────────────────────────────────────────────────────
 async function render() {
   const fn = routes[state.currentPage] || renderDashboard;
@@ -1730,6 +2105,16 @@ window.saveProfile           = saveProfile;
 window.exportData            = exportData;
 window.deleteAccount         = deleteAccount;
 window.refreshLiveStats      = refreshLiveStats;
+window.leadsSetFilter        = leadsSetFilter;
+window.leadsResetFilters     = leadsResetFilters;
+window.leadsPaginate         = leadsPaginate;
+window.leadsUpdateStatus     = leadsUpdateStatus;
+window.leadsConfirmDelete    = leadsConfirmDelete;
+window.leadsShowDetail       = leadsShowDetail;
+window.leadsCloseDetail      = leadsCloseDetail;
+window.leadsExportCSV        = leadsExportCSV;
+window.leadsCopy             = leadsCopy;
+window.leadsLoadAll          = leadsLoadAll;
 window.toggleChat            = toggleChat;
 window.submitChatMessage     = submitChatMessage;
 window.clearChatHistory      = clearChatHistory;
