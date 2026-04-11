@@ -1064,6 +1064,14 @@ async function generateLandingPageResponse(context) {
       _pregenId: pregenId,   // passed through so saveAsset uses this UUID instead of generating a new one
     });
 
+    // Fire-and-forget: store last generated asset reference for feedback lookups
+    const { storeLastGeneratedAsset } = require('./_shared/feedback-loop');
+    storeLastGeneratedAsset(userId, {
+      asset_id:    saved.assetId,
+      template_id: blueprint.template_id || null,
+      asset_type:  assetType,
+    }).catch(() => {});
+
     // Step 7: Build reply with preview link (no raw HTML returned to user)
     const sectionCount = Array.isArray(structure.sections) ? structure.sections.length : 0;
     const imageSlots   = saved.metadata?.image_slots ?? 0;

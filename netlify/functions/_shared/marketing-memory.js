@@ -78,7 +78,8 @@ const PAGE_LENGTH_MAP = Object.freeze({
 
 // ab_test variable names that indicate a visual/creative test
 // Used to filter which failed tests contribute to forbidden_styles
-const VISUAL_VARIABLE_PATTERN = /visual|style|image|creative|color|layout|design|hero|banner|ad_style/i;
+const VISUAL_VARIABLE_PATTERN      = /visual|style|image|creative|color|layout|design|hero|banner|ad_style/i;
+const FEEDBACK_REJECTION_THRESHOLD = 2;  // rejections needed before template is forbidden
 
 /**
  * buildMarketingMemory(sources)
@@ -402,6 +403,51 @@ function buildMarketingMemory({
 
   const rejected_patterns = arr(rejectedFromTests);
 
+  // ── 10b. MERGE FEEDBACK-LEARNED PATTERNS ─────────────────────────────────
+  // Source: feedback-loop.js writes → user_intelligence
+  // Lower priority than A/B tests (which have real statistical backing),
+  // but higher priority than nothing — fills the gap before tests run.
+
+  const feedbackApproved  = getIntel('preference', 'approved_templates');   // { template_id: count }
+  const feedbackRejected  = getIntel('preference', 'rejected_templates');   // [{ template_id, reason, count }]
+  const feedbackStyles    = getIntel('preference', 'preferred_styles');     // { most_approved_type, ... }
+  const repRejection      = getIntel('insight',    'repeated_rejection');   // { template_id, count, reason }
+
+  // Merge feedback-approved templates into approved_patterns
+  if (feedbackApproved && typeof feedbackApproved === 'object') {
+    Object.entries(feedbackApproved)
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([templateId, count]) => {
+        if (count >= 1) {
+          approved_patterns.push({ variable: 'template_id', pattern: templateId, summary: `approved ${count}x by user` });
+        }
+      });
+  }
+
+  // Merge feedback-rejected templates into rejected_patterns + forbidden_styles
+  if (Array.isArray(feedbackRejected)) {
+    feedbackRejected.forEach((r) => {
+      if (r.template_id) {
+        rejected_patterns.push({ variable: 'template_id', pattern: r.template_id, reason: r.reason || 'user_rejected' });
+        // If rejected enough times, treat as forbidden
+        if ((r.count || 0) >= FEEDBACK_REJECTION_THRESHOLD) {
+          forbidden_styles.push({ variable: 'template_id', pattern: r.template_id, reason: `rejected ${r.count}x` });
+        }
+      }
+    });
+  }
+
+  // Surface repeated rejection as a forbidden style (highest confidence signal)
+  if (repRejection?.template_id && (repRejection.count || 0) >= FEEDBACK_REJECTION_THRESHOLD) {
+    if (!forbidden_styles.some(f => f.pattern === repRejection.template_id)) {
+      forbidden_styles.push({
+        variable: 'template_id',
+        pattern:  repRejection.template_id,
+        reason:   `repeated_rejection_${repRejection.count}x`,
+      });
+    }
+  }
+
   // ── 11. CTA PREFERENCES ──────────────────────────────────────────────────
   // Source: businessProfile.primary_goal (via GOAL_CTA_MAP) + concluded CTA tests
   // proven_cta_text: variant values from tests where the variant won a CTA test
@@ -442,10 +488,18 @@ function buildMarketingMemory({
 
   const milestoneRaw = getIntel('pattern', 'milestone_progress');
 
+  // Feedback-learned template preference overrides the category-derived default
+  // (only when there's clear signal — top approved template used 2+ times)
+  const feedbackTopTemplate = (feedbackApproved && typeof feedbackApproved === 'object')
+    ? Object.entries(feedbackApproved).sort((a, b) => b[1] - a[1]).find(([, c]) => c >= 2)?.[0] || null
+    : null;
+
   const layout_preferences = {
     form_above_fold:       formAboveFold,
     preferred_page_length: pageLengthInferred,
-    preferred_template:    templatePreference,
+    // feedbackTopTemplate takes precedence over category-derived default
+    preferred_template:    feedbackTopTemplate || templatePreference,
+    preferred_asset_type:  feedbackStyles?.most_approved_type || null,
     primary_goal:          str(bp.primary_goal) || null,
     // milestone_progress is stored as { current, total } — extract current stage only
     milestone_stage:       (milestoneRaw && typeof milestoneRaw === 'object')
