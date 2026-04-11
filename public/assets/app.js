@@ -27,20 +27,39 @@ let state = {
   currentPage:       'dashboard',
   currentCampaignId: null,
   accessToken:       null,
+  // Progressive unlock state
+  onboardingSteps:   null,   // loaded from onboarding_progress table
+  unlockedScreens:   new Set(['dashboard','business-profile']),
+  businessProfile:   null,   // business_profiles row
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
 const routes = {
-  dashboard:    renderDashboard,
-  campaigns:    renderCampaigns,
-  leads:        renderLeads,
-  integrations: renderIntegrations,
-  billing:      renderBilling,
-  settings:     renderSettings,
-  admin:        renderAdmin,
-  updates:      renderUpdates,
-  support:      renderSupport,
+  dashboard:        renderDashboard,
+  'business-profile': renderBusinessProfile,
+  'landing-pages':  renderLandingPages,
+  recommendations:  renderRecommendations,
+  campaigns:        renderCampaigns,
+  leads:            renderLeads,
+  integrations:     renderIntegrations,
+  billing:          renderBilling,
+  settings:         renderSettings,
+  admin:            renderAdmin,
+  updates:          renderUpdates,
+  support:          renderSupport,
 };
+
+// ── Progressive unlock helper ─────────────────────────────────────────────────
+function computeUnlockedScreens(steps) {
+  const screens = new Set(['dashboard', 'business-profile']);
+  if (!steps) return screens;
+  if (steps.profile_started)  screens.add('landing-pages');
+  if (steps.first_asset)      screens.add('recommendations');
+  if (steps.multiple_assets)  screens.add('copy');
+  if (steps.has_metrics)      screens.add('performance');
+  if (steps.has_ab_data)      { screens.add('ab-tests'); screens.add('economics'); }
+  return screens;
+}
 
 // ── Plan definitions (mirrors billing.js PLANS) ───────────────────────────────
 const PLAN_LIMITS = {
@@ -200,8 +219,16 @@ function renderAuth() {
 
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function renderShell(content) {
-  const navItems = [
-    { id: 'dashboard',    icon: '📊', label: 'דשבורד' },
+  const u = state.unlockedScreens;
+  // Progressive nav — only show what's unlocked for this user right now
+  const coreNav = [
+    { id: 'dashboard',        icon: '📊', label: 'דשבורד',          always: true },
+    { id: 'business-profile', icon: '🏢', label: 'פרופיל עסקי',     always: true },
+    { id: 'landing-pages',    icon: '🚀', label: 'דפי נחיתה',       unlock: 'landing-pages' },
+    { id: 'recommendations',  icon: '💡', label: 'המלצות',          unlock: 'recommendations' },
+  ].filter(n => n.always || u.has(n.unlock));
+
+  const legacyNav = [
     { id: 'campaigns',    icon: '🎯', label: 'נכסים שיווקיים' },
     { id: 'leads',        icon: '📥', label: 'לידים' },
     { id: 'integrations', icon: '🔌', label: 'אינטגרציות' },
@@ -211,6 +238,8 @@ function renderShell(content) {
     { id: 'support',      icon: '💬', label: 'תמיכה' },
     ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול' }] : []),
   ];
+
+  const navItems = [...coreNav, ...legacyNav];
   const initials  = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
   const sidebarPlan = state.subscription?.plan || 'free';
   document.getElementById('app').innerHTML = `
@@ -1786,12 +1815,28 @@ async function boot() {
     state.accessToken = session.access_token;
 
     try {
-      const [profile, sub] = await Promise.all([
+      const [profile, sub, onboardingRes] = await Promise.all([
         sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(r => r.data),
         sb.from('subscriptions').select('plan,status,payment_status').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
+        sb.from('onboarding_progress').select('steps,current_step').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
       ]);
       state.profile      = profile || {};
       state.subscription = sub    || { plan: 'free' };
+
+      // Load business profile and onboarding steps
+      const bpRes = await sb.from('business_profiles').select('*').eq('user_id', session.user.id).maybeSingle();
+      state.businessProfile = bpRes.data || null;
+
+      // Compute unlocked screens from onboarding steps
+      const steps = onboardingRes?.steps || {
+        profile_started:  !!(state.businessProfile?.offer || state.businessProfile?.business_name),
+        first_asset:      false,
+        multiple_assets:  false,
+        has_metrics:      false,
+        has_ab_data:      false,
+      };
+      state.onboardingSteps  = steps;
+      state.unlockedScreens  = computeUnlockedScreens(steps);
 
       const { data: camps } = await sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id);
       state.campaigns = camps || [];
@@ -2201,6 +2246,451 @@ async function submitSupportTicket(e) {
   }
 }
 
+// ── Business Profile ──────────────────────────────────────────────────────────
+async function renderBusinessProfile() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  let profile = null;
+  try {
+    const res = await api('GET', 'business-profile');
+    profile = res.profile || null;
+    state.businessProfile = profile;
+  } catch {}
+
+  const { scoreCompletion: _score, nextQ } = (() => {
+    if (!profile) return { nextQ: null };
+    const required = ['offer','price_amount','target_audience','problem_solved','desired_outcome','primary_goal'];
+    const missing  = required.filter(f => !profile[f]);
+    const pct      = Math.round(((required.length - missing.length) / required.length) * 70);
+    const questions = {
+      offer:           'מה בדיוק אתה מוכר? (משפט אחד)',
+      price_amount:    'מה המחיר של ההצעה שלך?',
+      target_audience: 'למי אתה מוכר? תאר את הלקוח האידיאלי',
+      problem_solved:  'מה הבעיה הספציפית שאתה פותר?',
+      desired_outcome: 'מה הלקוח מקבל בסוף?',
+      primary_goal:    'מה מטרת הקמפיין? (לידים / מכירות / פגישות)',
+    };
+    return { pct, nextQ: missing[0] ? questions[missing[0]] : null };
+  })();
+
+  // Empty state — first time user
+  if (!profile) {
+    renderShell(`
+      <div class="page-header">
+        <h1 class="page-title">פרופיל עסקי</h1>
+        <p class="page-subtitle">ספר לנו על העסק שלך כדי שנוכל לייצר תוכן מדויק</p>
+      </div>
+      <div class="card" style="max-width:560px;margin:2rem auto">
+        <h2 style="font-size:1.25rem;font-weight:700;margin-bottom:.5rem">שאלה אחת לפני שמתחילים 👋</h2>
+        <p class="text-muted" style="margin-bottom:1.5rem">זה הכל שצריך כדי לייצר דף נחיתה ראשון. תוכל להוסיף פרטים נוספים בהמשך.</p>
+        <form onsubmit="saveBizProfile(event)">
+          <div class="form-group">
+            <label class="form-label" style="font-size:1rem;font-weight:600">מה אתה מוכר?</label>
+            <textarea id="bp-offer" class="form-input" rows="3" maxlength="500"
+              placeholder="לדוגמה: קורס אונליין ל-6 שבועות לעצמאיים שרוצים להכפיל הכנסה דרך לינקדאין" required
+              style="resize:vertical"></textarea>
+          </div>
+          <div id="bp-error" class="form-error" style="display:none;margin-bottom:.75rem"></div>
+          <button type="submit" class="btn btn-gradient" style="width:auto">צור דף נחיתה ראשון →</button>
+        </form>
+      </div>`);
+    return;
+  }
+
+  // Has profile — show summary + enrichment nudges
+  const score = profile.profile_score || 0;
+  const scoreColor = score >= 70 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444';
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">פרופיל עסקי</h1>
+        <p class="page-subtitle">הבסיס לכל תוכן שהמערכת מייצרת עבורך</p>
+      </div>
+      <span class="badge" style="background:${scoreColor}20;color:${scoreColor};border:1px solid ${scoreColor}40">
+        שלמות ${score}%
+      </span>
+    </div>
+
+    ${nextQ ? `
+    <div class="card mb-4" style="border-right:4px solid #6366f1;background:#f8f7ff">
+      <div style="display:flex;align-items:center;gap:.75rem">
+        <span style="font-size:1.5rem">💡</span>
+        <div>
+          <div style="font-weight:600;margin-bottom:.25rem">השלמת פרטים = תוצאות מדויקות יותר</div>
+          <div class="text-muted">${nextQ}</div>
+        </div>
+        <button class="btn btn-sm btn-primary" style="margin-right:auto;flex-shrink:0"
+          onclick="document.getElementById('bp-edit-section').scrollIntoView({behavior:'smooth'})">
+          השלם עכשיו
+        </button>
+      </div>
+    </div>` : ''}
+
+    <div class="card mb-4">
+      <div class="card-title">📋 פרטי העסק הנוכחיים</div>
+      <div style="display:grid;gap:.75rem">
+        ${[
+          ['מה אתה מוכר',    profile.offer],
+          ['שם העסק',        profile.business_name],
+          ['קטגוריה',        profile.category],
+          ['קהל יעד',        profile.target_audience],
+          ['בעיה שפותרים',   profile.problem_solved],
+          ['מחיר',           profile.price_amount ? `₪${profile.price_amount}` : null],
+          ['מטרת קמפיין',    profile.primary_goal],
+        ].filter(([,v]) => v).map(([label, val]) => `
+          <div style="display:flex;gap:.5rem;padding:.5rem 0;border-bottom:1px solid var(--gray-100)">
+            <span class="text-muted" style="min-width:120px;flex-shrink:0">${label}</span>
+            <span style="font-weight:500">${val}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card" id="bp-edit-section">
+      <div class="card-title">✏️ עדכון פרופיל</div>
+      <form onsubmit="saveBizProfile(event)">
+        <div style="display:grid;gap:1rem">
+          <div class="form-group">
+            <label class="form-label">מה אתה מוכר</label>
+            <textarea id="bp-offer" class="form-input" rows="2" maxlength="500">${profile.offer || ''}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">שם העסק</label>
+            <input id="bp-business-name" type="text" class="form-input" maxlength="200" value="${profile.business_name || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">קהל יעד</label>
+            <input id="bp-audience" type="text" class="form-input" maxlength="500" value="${profile.target_audience || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">בעיה שפותרים</label>
+            <input id="bp-problem" type="text" class="form-input" maxlength="500" value="${profile.problem_solved || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">תוצאה שהלקוח מקבל</label>
+            <input id="bp-outcome" type="text" class="form-input" maxlength="500" value="${profile.desired_outcome || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">מחיר (מספר בלבד)</label>
+            <input id="bp-price" type="number" class="form-input" min="0" value="${profile.price_amount || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">מטרת קמפיין</label>
+            <select id="bp-goal" class="form-input">
+              <option value="">בחר...</option>
+              ${['leads','sales','appointments','awareness'].map(g =>
+                `<option value="${g}" ${profile.primary_goal===g?'selected':''}>${
+                  {leads:'לידים',sales:'מכירות',appointments:'פגישות',awareness:'מודעות'}[g]
+                }</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div id="bp-error" class="form-error" style="display:none;margin-top:.75rem;margin-bottom:.5rem"></div>
+        <button type="submit" class="btn btn-gradient mt-4" style="width:auto">שמור שינויים</button>
+      </form>
+    </div>`);
+}
+
+async function saveBizProfile(e) {
+  e.preventDefault();
+  const errEl = document.getElementById('bp-error');
+  errEl.style.display = 'none';
+  const btn = e.submitter;
+  btn.disabled = true; btn.textContent = 'שומר...';
+
+  const fields = {};
+  const offer   = document.getElementById('bp-offer')?.value?.trim();
+  const bname   = document.getElementById('bp-business-name')?.value?.trim();
+  const aud     = document.getElementById('bp-audience')?.value?.trim();
+  const prob    = document.getElementById('bp-problem')?.value?.trim();
+  const outcome = document.getElementById('bp-outcome')?.value?.trim();
+  const price   = document.getElementById('bp-price')?.value?.trim();
+  const goal    = document.getElementById('bp-goal')?.value;
+
+  if (offer)   fields.offer            = offer;
+  if (bname)   fields.business_name    = bname;
+  if (aud)     fields.target_audience  = aud;
+  if (prob)    fields.problem_solved   = prob;
+  if (outcome) fields.desired_outcome  = outcome;
+  if (price)   fields.price_amount     = parseFloat(price);
+  if (goal)    fields.primary_goal     = goal;
+
+  if (!fields.offer && !state.businessProfile) {
+    errEl.textContent = 'ספר לנו מה אתה מוכר כדי להתחיל';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'שמור';
+    return;
+  }
+
+  try {
+    const res = await api('POST', 'business-profile', { fields });
+    state.businessProfile = res.profile;
+
+    // Advance unlock — profile started
+    if (!state.onboardingSteps?.profile_started) {
+      state.onboardingSteps = { ...(state.onboardingSteps || {}), profile_started: true };
+      state.unlockedScreens = computeUnlockedScreens(state.onboardingSteps);
+    }
+
+    toast('הפרופיל נשמר בהצלחה', 'success');
+
+    // If first save, take user to landing pages
+    if (!state.unlockedScreens.has('landing-pages') === false) {
+      navigate('landing-pages');
+    } else {
+      renderBusinessProfile();
+    }
+  } catch (err) {
+    errEl.textContent = err.message || 'שגיאה בשמירה';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'שמור';
+  }
+}
+
+// ── Landing Pages ─────────────────────────────────────────────────────────────
+async function renderLandingPages() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  let assets = [];
+  try {
+    const { data } = await sb.from('generated_assets')
+      .select('id, asset_type, title, preview_url, status, created_at, parent_id')
+      .eq('user_id', state.user.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+    assets = data || [];
+
+    // Advance onboarding if user has assets
+    if (assets.length >= 1 && !state.onboardingSteps?.first_asset) {
+      state.onboardingSteps = { ...(state.onboardingSteps || {}), first_asset: true };
+      state.unlockedScreens = computeUnlockedScreens(state.onboardingSteps);
+      await sb.from('onboarding_progress').upsert({
+        user_id: state.user.id,
+        steps: state.onboardingSteps,
+        current_step: 'first_asset',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    }
+    if (assets.length >= 3 && !state.onboardingSteps?.multiple_assets) {
+      state.onboardingSteps = { ...(state.onboardingSteps || {}), multiple_assets: true };
+      state.unlockedScreens = computeUnlockedScreens(state.onboardingSteps);
+      await sb.from('onboarding_progress').upsert({
+        user_id: state.user.id,
+        steps: state.onboardingSteps,
+        current_step: 'multiple_assets',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    }
+  } catch {}
+
+  const statusLabel = { draft: 'טיוטה', published: 'פורסם', archived: 'בארכיון', failed: 'נכשל' };
+  const statusColor = { draft: '#f59e0b', published: '#22c55e', archived: '#94a3b8', failed: '#ef4444' };
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">דפי נחיתה</h1>
+        <p class="page-subtitle">${assets.length} דפים נוצרו עד כה</p>
+      </div>
+      <button class="btn btn-gradient" style="width:auto" onclick="openLandingPageCreator()">+ צור דף חדש</button>
+    </div>
+
+    ${assets.length === 0 ? `
+    <div class="card" style="text-align:center;padding:3rem 2rem">
+      <div style="font-size:3rem;margin-bottom:1rem">🚀</div>
+      <h3 style="font-size:1.25rem;font-weight:700;margin-bottom:.5rem">עדיין אין דפי נחיתה</h3>
+      <p class="text-muted" style="margin-bottom:1.5rem">בא נייצר את הדף הראשון שלך — לוקח פחות מ-2 דקות</p>
+      <button class="btn btn-gradient" style="width:auto" onclick="openLandingPageCreator()">
+        צור דף נחיתה ראשון →
+      </button>
+    </div>` : `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem">
+      ${assets.map(a => {
+        const label = statusLabel[a.status] || a.status;
+        const color = statusColor[a.status] || '#94a3b8';
+        const date  = new Date(a.created_at).toLocaleDateString('he-IL');
+        const title = a.title || a.asset_type || 'דף נחיתה';
+        return `
+        <div class="card" style="cursor:default;position:relative">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.75rem">
+            <span style="font-weight:600;font-size:.95rem;flex:1;padding-left:.5rem">${title}</span>
+            <span style="font-size:.75rem;padding:.2rem .6rem;border-radius:9999px;background:${color}20;color:${color};border:1px solid ${color}40;flex-shrink:0">${label}</span>
+          </div>
+          <div class="text-muted" style="font-size:.8rem;margin-bottom:1rem">${date}${a.parent_id ? ' · וריאציה' : ''}</div>
+          <div style="display:flex;gap:.5rem">
+            ${a.preview_url ? `<a href="${a.preview_url}" target="_blank" class="btn btn-sm btn-secondary" style="text-decoration:none">צפה בדף</a>` : ''}
+            <button class="btn btn-sm btn-secondary" onclick="createVariation('${a.id}','${title.replace(/'/g,"\\'")}')">
+              + וריאציה
+            </button>
+            ${a.status === 'published' ? `
+            <button class="btn btn-sm" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a"
+              onclick="archiveAsset('${a.id}')">ארכב</button>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`}
+  `);
+}
+
+function openLandingPageCreator() {
+  // Open the chat widget focused on landing page creation
+  if (typeof toggleChat === 'function') {
+    if (!chatState.open) toggleChat();
+    // Pre-fill prompt if profile has offer
+    if (state.businessProfile?.offer) {
+      const inp = document.getElementById('chat-input');
+      if (inp && !inp.value) {
+        inp.value = `צור לי דף נחיתה עבור: ${state.businessProfile.offer}`;
+        inp.focus();
+      }
+    }
+  }
+  toast('הקלד בצ\'אט מה תרצה שייצרו לך — הכל מתחיל משם', 'info');
+}
+
+function createVariation(assetId, assetTitle) {
+  if (typeof toggleChat === 'function') {
+    if (!chatState.open) toggleChat();
+    const inp = document.getElementById('chat-input');
+    if (inp) {
+      inp.value = `צור 3 וריאציות לדף: ${assetTitle}`;
+      inp.focus();
+    }
+  }
+}
+
+async function archiveAsset(assetId) {
+  try {
+    await sb.from('generated_assets').update({ status: 'archived' }).eq('id', assetId).eq('user_id', state.user.id);
+    toast('הדף הועבר לארכיון', 'success');
+    renderLandingPages();
+  } catch (err) {
+    toast(err.message || 'שגיאה בארכוב', 'error');
+  }
+}
+
+// ── Recommendations ───────────────────────────────────────────────────────────
+async function renderRecommendations() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  const steps   = state.onboardingSteps || {};
+  const profile = state.businessProfile;
+  const score   = profile?.profile_score || 0;
+
+  // Build action cards based on current stage
+  const cards = [];
+
+  if (!steps.profile_started) {
+    cards.push({
+      icon: '🏢', priority: 'high',
+      title: 'מלא פרופיל עסקי',
+      desc:  'צעד ראשון ומחייב — ספר לנו מה אתה מוכר כדי שנוכל לייצר תוכן רלוונטי',
+      cta:   'מלא עכשיו',
+      action: () => navigate('business-profile'),
+    });
+  }
+
+  if (steps.profile_started && !steps.first_asset) {
+    cards.push({
+      icon: '🚀', priority: 'high',
+      title: 'צור דף נחיתה ראשון',
+      desc:  `${profile?.offer ? `עבור "${profile.offer}" — ` : ''}תוכן מותאם אישית מוכן להיות מוצג ללקוחות שלך`,
+      cta:   'צור דף →',
+      action: () => { navigate('landing-pages'); setTimeout(openLandingPageCreator, 300); },
+    });
+  }
+
+  if (steps.first_asset && !steps.multiple_assets) {
+    cards.push({
+      icon: '🔀', priority: 'high',
+      title: 'צור וריאציה לדף הקיים',
+      desc:  'גרסה שנייה עם גישה שונה — aggressive / minimal / emotional — כדי לדעת מה עובד יותר',
+      cta:   'צור וריאציה',
+      action: () => navigate('landing-pages'),
+    });
+    cards.push({
+      icon: '📢', priority: 'medium',
+      title: 'צור מודעה מהדף',
+      desc:  'הפוך את הדף לתסריט מודעת פייסבוק/אינסטגרם בלחיצה אחת',
+      cta:   'צור מודעה',
+      action: () => {
+        if (!chatState.open) toggleChat();
+        const inp = document.getElementById('chat-input');
+        if (inp) { inp.value = 'צור לי תסריט מודעה מהדף נחיתה האחרון שיצרנו'; inp.focus(); }
+      },
+    });
+  }
+
+  if (steps.multiple_assets && !steps.has_metrics) {
+    cards.push({
+      icon: '📊', priority: 'medium',
+      title: 'הוסף נתוני ביצועים',
+      desc:  'יש לך מספר דפים — הגיע הזמן לדעת איזה מהם עובד. הוסף CTR/המרות כדי לקבל המלצות מדויקות',
+      cta:   'הוסף נתונים',
+      action: () => toast('מסך ביצועים יפתח בקרוב — בינתיים שתף נתונים בצ\'אט', 'info'),
+    });
+  }
+
+  // Profile enrichment nudge
+  if (steps.profile_started && score < 60) {
+    cards.push({
+      icon: '💡', priority: 'low',
+      title: 'השלם פרטי פרופיל לתוצאות מדויקות יותר',
+      desc:  `הפרופיל שלך ${score}% שלם. ככל שתוסיף יותר פרטים, כך התוכן שנייצר יהיה ממוקד ומשכנע יותר`,
+      cta:   'השלם פרופיל',
+      action: () => navigate('business-profile'),
+    });
+  }
+
+  if (!cards.length) {
+    cards.push({
+      icon: '✅', priority: 'low',
+      title: 'הכל עדכני!',
+      desc:  'אין פעולות ממתינות כרגע. כשיהיו נתונים חדשים — המלצות יופיעו כאן',
+      cta:   null,
+      action: null,
+    });
+  }
+
+  const priorityBorder = { high: '#6366f1', medium: '#f59e0b', low: '#22c55e' };
+  const priorityLabel  = { high: 'דחוף', medium: 'מומלץ', low: 'אופציונלי' };
+
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">המלצות</h1>
+      <p class="page-subtitle">הצעדים הבאים שיקדמו את העסק שלך</p>
+    </div>
+
+    <div style="display:grid;gap:1rem;max-width:720px">
+      ${cards.map(c => `
+      <div class="card" style="border-right:4px solid ${priorityBorder[c.priority]};cursor:${c.action ? 'pointer' : 'default'}"
+        ${c.action ? `onclick="window._recAction_${c.title.replace(/\s+/g,'_')}()"` : ''}>
+        <div style="display:flex;align-items:center;gap:1rem">
+          <span style="font-size:2rem;flex-shrink:0">${c.icon}</span>
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem">
+              <span style="font-weight:700">${c.title}</span>
+              <span style="font-size:.7rem;padding:.15rem .5rem;border-radius:9999px;
+                background:${priorityBorder[c.priority]}20;color:${priorityBorder[c.priority]}">
+                ${priorityLabel[c.priority]}
+              </span>
+            </div>
+            <p class="text-muted" style="font-size:.875rem;margin:0">${c.desc}</p>
+          </div>
+          ${c.cta ? `<button class="btn btn-sm btn-primary" style="flex-shrink:0">${c.cta}</button>` : ''}
+        </div>
+      </div>`).join('')}
+    </div>
+  `);
+
+  // Bind action handlers
+  cards.forEach(c => {
+    if (c.action) {
+      window[`_recAction_${c.title.replace(/\s+/g,'_')}`] = c.action;
+    }
+  });
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
@@ -2233,5 +2723,9 @@ window.submitChatMessage     = submitChatMessage;
 window.clearChatHistory      = clearChatHistory;
 window.handleQuickAction     = handleQuickAction;
 window.submitSupportTicket   = submitSupportTicket;
+window.saveBizProfile        = saveBizProfile;
+window.openLandingPageCreator = openLandingPageCreator;
+window.createVariation       = createVariation;
+window.archiveAsset          = archiveAsset;
 
 boot();

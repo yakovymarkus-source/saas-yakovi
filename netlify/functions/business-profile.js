@@ -24,6 +24,7 @@ const {
   scoreCompletion,
   buildNextProfileQuestion,
 } = require('./_shared/business-profile');
+const { advanceOnboarding, buildUnlockedScreens } = require('./_shared/product-context');
 
 // ── Allowed fields whitelist (mirrors business-profile.js ALLOWED set) ────────
 const UPDATABLE_FIELDS = new Set([
@@ -108,7 +109,19 @@ exports.handler = async (event) => {
         completed:      updated.completed,
       }));
 
-      return ok(buildResponse(updated), ctx.requestId);
+      // Advance onboarding state machine (fire-and-forget)
+      const { getAdminClient } = require('./_shared/supabase');
+      const sb = getAdminClient();
+      advanceOnboarding(user.id, sb, 'profile_started').catch(() => {});
+      if (updated.completed) {
+        advanceOnboarding(user.id, sb, 'profile_complete').catch(() => {});
+      }
+
+      const { deriveStage } = require('./_shared/product-context');
+      const resp = buildResponse(updated);
+      resp.stage = updated.completed ? 'has_profile' : 'profile_started';
+
+      return ok(resp, ctx.requestId);
     }
 
     throw new AppError({ code: 'METHOD_NOT_ALLOWED', userMessage: 'Method not allowed', devMessage: 'Use GET or POST', status: 405 });
