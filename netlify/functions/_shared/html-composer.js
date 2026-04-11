@@ -377,8 +377,8 @@ function renderLeadForm(props, layout) {
     container('narrow', `<div class="form-wrap" id="lead-form">
   ${headline}
   ${subtext}
-  <form class="form" action="/" method="POST" data-netlify="true" netlify-honeypot="bot-field" name="lead-capture">
-    <input type="hidden" name="form-name" value="lead-capture">
+  <form class="form" action="/.netlify/functions/submit-lead" method="POST">
+    <input type="hidden" name="asset_id" value="{{asset_id}}">
     <p class="form-honeypot" aria-hidden="true"><label>אל תמלא שדה זה: <input name="bot-field"></label></p>
     ${fieldHtml}
     <button type="submit" class="btn btn-primary btn-full">${esc(submitText)}</button>

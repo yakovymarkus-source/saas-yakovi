@@ -131,7 +131,7 @@ async function removeFromStorage(supabase, paths) {
  *   expiresAt  {string}  — ISO date string
  *   storagePath{string}  — internal Storage path prefix
  */
-async function saveAsset({ userId, html, composeResult = {}, title = null, ttlDays = DEFAULT_TTL_DAYS }) {
+async function saveAsset({ userId, html, composeResult = {}, title = null, ttlDays = DEFAULT_TTL_DAYS, _pregenId = null }) {
   if (!userId)             throw new AppError({ code: 'MISSING_PARAM', userMessage: 'חסר userId', devMessage: 'saveAsset: userId is required', status: 400 });
   if (typeof html !== 'string' || html.length === 0)
     throw new AppError({ code: 'MISSING_PARAM', userMessage: 'חסר HTML', devMessage: 'saveAsset: html must be a non-empty string', status: 400 });
@@ -139,7 +139,8 @@ async function saveAsset({ userId, html, composeResult = {}, title = null, ttlDa
     throw new AppError({ code: 'ASSET_TOO_LARGE', userMessage: 'הנכס גדול מדי', devMessage: `saveAsset: html exceeds ${MAX_HTML_BYTES} bytes`, status: 413 });
 
   const supabase = getAdminClient();
-  const assetId  = newAssetId();
+  // Use caller-supplied UUID when available (allows asset_id to be injected into HTML before saving)
+  const assetId  = (_pregenId && UUID_RE.test(_pregenId)) ? _pregenId : newAssetId();
   const basePath = storagePath(userId, assetId);
   const expiry   = expiresAt(ttlDays);
 

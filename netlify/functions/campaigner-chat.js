@@ -1012,6 +1012,7 @@ async function generateLandingPageResponse(context) {
     const blueprint = buildHTMLBlueprint(structure, null, memory);
 
     // Step 4: Compose full HTML + CSS (self-contained, RTL, mobile-first)
+    // asset_id is not yet known — placeholder will be injected in Step 6 after saveAsset()
     const { composeHTML } = require('./_shared/html-composer');
     const composeResult = composeHTML(blueprint);
 
@@ -1046,14 +1047,21 @@ async function generateLandingPageResponse(context) {
     ];
 
     // Step 6: Save to Supabase Storage + DB, get preview URL
+    // We need the assetId before saving so forms contain the real value.
+    // Strategy: pre-generate the UUID, inject it into HTML, then save with that same ID.
+    const crypto = require('crypto');
+    const pregenId = crypto.randomUUID();
+    const htmlWithAssetId = composeResult.html.replace(/\{\{asset_id\}\}/g, pregenId);
+
     const { saveAsset } = require('./_shared/asset-storage');
     const saved = await saveAsset({
       userId,
-      html:          composeResult.html,
-      composeResult,
+      html:          htmlWithAssetId,
+      composeResult: { ...composeResult, html: htmlWithAssetId },
       title: businessProfile.business_name
         ? `${businessProfile.business_name} — ${_assetLabel(assetType)}`
         : null,
+      _pregenId: pregenId,   // passed through so saveAsset uses this UUID instead of generating a new one
     });
 
     // Step 7: Build reply with preview link (no raw HTML returned to user)
