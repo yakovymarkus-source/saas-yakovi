@@ -1018,11 +1018,13 @@ async function generateLandingPageResponse(context) {
     // Step 5: Validate — block critical failures, surface warnings
     const { validateGeneric } = require('./_shared/validators/anti-generic-validator');
     const { validateHTML }    = require('./_shared/validators/html-validator');
+    const { validateVisual }  = require('./_shared/validators/visual-validator');
 
     const genericResult = validateGeneric({ blueprint, composeResult, memory });
     const htmlResult    = validateHTML(composeResult.html, { assetType });
+    const visualResult  = validateVisual({ blueprint, html: composeResult.html, assetType });
 
-    // Block if either validator finds critical issues
+    // Block if content or structural validators find critical/major issues
     if (!genericResult.valid || !htmlResult.valid) {
       const criticalIssues = [
         ...genericResult.issues.filter(i => i.severity === 'critical' || i.severity === 'major'),
@@ -1036,10 +1038,11 @@ async function generateLandingPageResponse(context) {
       };
     }
 
-    // Collect non-blocking warnings to surface in reply
+    // Collect non-blocking warnings (content + HTML + visual)
     const allWarnings = [
       ...genericResult.issues.filter(i => i.severity === 'minor' || i.severity === 'warning'),
       ...htmlResult.issues.filter(i => i.severity === 'minor' || i.severity === 'warning'),
+      ...visualResult.issues.filter(i => i.severity === 'major' || i.severity === 'minor'),
     ];
 
     // Step 6: Save to Supabase Storage + DB, get preview URL
@@ -1058,10 +1061,14 @@ async function generateLandingPageResponse(context) {
     const imageSlots   = saved.metadata?.image_slots ?? 0;
     const expiry       = new Date(saved.expiresAt).toLocaleDateString('he-IL');
 
+    const visualGradeEmoji = { A: '🟢', B: '🟡', C: '🟠', D: '🔴', F: '🔴' }[visualResult.grade] || '⚪';
+
     let reply = `📄 **${_assetLabel(assetType)} מוכן — ${businessProfile.business_name || profileName}**\n\n`;
     reply += `🔗 **קישור לתצוגה מקדימה:**\n\`${saved.previewUrl}\`\n\n`;
     reply += `📐 **מבנה:** ${sectionCount} סקשנים`;
     if (imageSlots > 0) reply += ` · ${imageSlots} מקומות תמונה`;
+    reply += `\n${visualGradeEmoji} **ציון ויזואלי:** ${visualResult.combined_score}/100 (דרגה ${visualResult.grade})`;
+    reply += ` · בהירות: ${visualResult.clarity_score} · היררכיה: ${visualResult.hierarchy_score}`;
     reply += `\n⏳ **תוקף:** ${expiry}\n\n`;
     reply += `_הדף כולל placeholder לתמונות — הוסף תמונות אמיתיות לפני פרסום._`;
 
