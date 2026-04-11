@@ -4,7 +4,7 @@
  * marketing-memory.js — Marketing Memory Object Builder
  *
  * Aggregates all marketing data sources into a single normalized object.
- * Used by the creative engine as its sole source of context.
+ * Used by the creative engine and HTML composer as the sole source of context.
  *
  * Priority order (highest → lowest reliability):
  *   1. businessProfile  — direct user input, strongest signal
@@ -18,7 +18,67 @@
  *   - Never hallucinate. Missing data → null.
  *   - Higher-priority sources override lower-priority on the same field.
  *   - abTests only contribute if status === 'concluded' AND winner is set.
+ *   - Inferred/derived fields are clearly marked with comments.
+ *   - Categorical mappings (e.g. category → style) trace back to a real DB field.
  */
+
+// ── Static mappings — module-level constants ──────────────────────────────────
+// These map known categorical field values to design/layout descriptors.
+// They are deterministic: same input always produces same output.
+// NOT hallucination — each entry requires a real bp.category or bp.pricing_model value.
+
+// bp.category → visual style direction
+const CATEGORY_STYLE_MAP = Object.freeze({
+  online_education: 'clean-professional',
+  ecommerce:        'product-focused',
+  services:         'trust-led',
+  coaching:         'personal-brand',
+  saas:             'minimal-tech',
+  health:           'clean-clinical',
+  finance:          'institutional-trust',
+  real_estate:      'premium-visual',
+  food:             'warm-sensory',
+  beauty:           'aesthetic-premium',
+});
+
+// bp.pricing_model → visual energy / pacing style
+const PRICING_ENERGY_MAP = Object.freeze({
+  premium:      'elevated-restrained',
+  subscription: 'modern-approachable',
+  one_time:     'direct-conversion',
+  freemium:     'light-accessible',
+  custom:       'professional-bespoke',
+});
+
+// bp.primary_goal → CTA behavioral intent
+const GOAL_CTA_MAP = Object.freeze({
+  lead_generation: { intent: 'capture-contact', urgency: 'moderate', style: 'benefit-led'     },
+  direct_sale:     { intent: 'purchase',        urgency: 'high',     style: 'price-anchored'  },
+  awareness:       { intent: 'learn-more',      urgency: 'low',      style: 'curiosity-led'   },
+  consultation:    { intent: 'book-call',       urgency: 'moderate', style: 'low-commitment'  },
+  download:        { intent: 'get-resource',    urgency: 'low',      style: 'value-led'       },
+  registration:    { intent: 'sign-up',         urgency: 'moderate', style: 'benefit-led'     },
+});
+
+// bp.category → inferred page length preference
+// 'long': high-consideration categories (education, high-ticket services)
+// 'short': low-friction categories (simple offer, warm traffic)
+const PAGE_LENGTH_MAP = Object.freeze({
+  online_education: 'long',
+  coaching:         'long',
+  finance:          'long',
+  saas:             'long',
+  services:         'long',
+  health:           'long',
+  real_estate:      'long',
+  ecommerce:        'short',
+  food:             'short',
+  beauty:           'short',
+});
+
+// ab_test variable names that indicate a visual/creative test
+// Used to filter which failed tests contribute to forbidden_styles
+const VISUAL_VARIABLE_PATTERN = /visual|style|image|creative|color|layout|design|hero|banner|ad_style/i;
 
 /**
  * buildMarketingMemory(sources)
@@ -278,6 +338,121 @@ function buildMarketingMemory({
     main_issue:   mainIssue,
   };
 
+  // ── 7. VISUAL STYLE DNA ───────────────────────────────────────────────────
+  // Source: businessProfile (category, pricing_model, tone_keywords/brand_tone)
+  // category_style and pricing_energy are INFERRED from categorical mappings —
+  // deterministic derivations, not hallucinations.
+
+  const categoryStyle = bp.category ? (CATEGORY_STYLE_MAP[bp.category] || null) : null;
+  const pricingStyle  = bp.pricing_model ? (PRICING_ENERGY_MAP[bp.pricing_model] || null) : null;
+  const toneRaw       = str(bp.tone_keywords) || str(bp.brand_tone) || null;
+
+  const visual_style_dna = {
+    tone_keywords:     toneRaw,                        // direct from BP
+    category_style:    categoryStyle,                  // inferred from bp.category
+    pricing_energy:    pricingStyle,                   // inferred from bp.pricing_model
+    business_category: str(bp.category)      || null,  // direct from BP
+    pricing_model:     str(bp.pricing_model) || null,  // direct from BP
+  };
+
+  // ── 8. FORBIDDEN STYLES ──────────────────────────────────────────────────
+  // Source: concluded ab_tests where control beat variant AND the test was visual.
+  // Only visual-type tests contribute — text/copy tests are not visual restrictions.
+
+  const forbiddenFromTests = losingTests
+    .filter((t) => VISUAL_VARIABLE_PATTERN.test(str(t.variable_name) || ''))
+    .map((t) => ({
+      variable: str(t.variable_name),
+      pattern:  str(t.variant_value),
+      reason:   str(t.result_summary) || 'failed_in_test',
+    }))
+    .filter((f) => f.variable || f.pattern);
+
+  const forbidden_styles = arr(forbiddenFromTests);
+
+  // ── 9. APPROVED PATTERNS ─────────────────────────────────────────────────
+  // Source: concluded ab_tests where variant beat control.
+  // Includes both visual tests AND copy/hook tests — both signal what resonates.
+
+  const approvedFromTests = winningTests
+    .filter((t) =>
+      VISUAL_VARIABLE_PATTERN.test(str(t.variable_name) || '') ||
+      /hook|headline|copy/i.test(str(t.variable_name) || '')
+    )
+    .map((t) => ({
+      variable: str(t.variable_name),
+      pattern:  str(t.variant_value),
+      summary:  str(t.result_summary),
+    }))
+    .filter((p) => p.variable || p.pattern);
+
+  const approved_patterns = arr(approvedFromTests);
+
+  // ── 10. REJECTED PATTERNS ────────────────────────────────────────────────
+  // Source: all concluded tests where control won — any variable type.
+  // Broader than forbidden_styles: covers copy, hooks, and structure too.
+
+  const rejectedFromTests = losingTests
+    .map((t) => ({
+      variable: str(t.variable_name),
+      pattern:  str(t.variant_value),
+      reason:   str(t.result_summary) || 'outperformed_by_control',
+    }))
+    .filter((r) => r.variable || r.pattern);
+
+  const rejected_patterns = arr(rejectedFromTests);
+
+  // ── 11. CTA PREFERENCES ──────────────────────────────────────────────────
+  // Source: businessProfile.primary_goal (via GOAL_CTA_MAP) + concluded CTA tests
+  // proven_cta_text: variant values from tests where the variant won a CTA test
+
+  const goalMeta  = bp.primary_goal ? (GOAL_CTA_MAP[bp.primary_goal] || null) : null;
+  const ctaTests  = concludedTests.filter(
+    (t) => /cta|button|call.?to.?action|submit/i.test(str(t.variable_name) || '')
+  );
+  const provenCta = arr(
+    ctaTests
+      .filter((t) => t.winner === 'variant')
+      .map((t) => str(t.variant_value))
+      .filter(Boolean)
+  );
+
+  const cta_preferences = {
+    primary_goal:    str(bp.primary_goal) || null,
+    intent:          goalMeta?.intent     || null,
+    urgency_level:   goalMeta?.urgency    || null,
+    style:           goalMeta?.style      || null,
+    proven_cta_text: provenCta,
+  };
+
+  // ── 12. LAYOUT PREFERENCES ───────────────────────────────────────────────
+  // Source: businessProfile (primary_goal → form_above_fold, category → page_length)
+  // preferred_template is derived from page_length — deterministic, not AI guess.
+  // milestone_stage from userIntelligence: stored as { current, total } object.
+
+  const formAboveFold      = bp.primary_goal != null
+    ? (bp.primary_goal === 'lead_generation')
+    : null;
+  const pageLengthInferred = bp.category ? (PAGE_LENGTH_MAP[bp.category] || null) : null;
+  const templatePreference = pageLengthInferred === 'short'
+    ? 'lp-short-offer-rtl'
+    : pageLengthInferred === 'long'
+      ? 'lp-conversion-rtl'
+      : null;
+
+  const milestoneRaw = getIntel('pattern', 'milestone_progress');
+
+  const layout_preferences = {
+    form_above_fold:       formAboveFold,
+    preferred_page_length: pageLengthInferred,
+    preferred_template:    templatePreference,
+    primary_goal:          str(bp.primary_goal) || null,
+    // milestone_progress is stored as { current, total } — extract current stage only
+    milestone_stage:       (milestoneRaw && typeof milestoneRaw === 'object')
+      ? (str(milestoneRaw.current) || null)
+      : null,
+  };
+
   // ── Assemble and return ────────────────────────────────────────────────────
 
   return {
@@ -287,6 +462,12 @@ function buildMarketingMemory({
     performance,
     learnings,
     current,
+    visual_style_dna,
+    forbidden_styles,
+    approved_patterns,
+    rejected_patterns,
+    cta_preferences,
+    layout_preferences,
   };
 }
 
