@@ -989,6 +989,9 @@ async function generateLandingPageResponse(context) {
   else if (/\b(ad.?card|מודעה ריבועית|כרטיס מודעה)\b/i.test(message))         assetType = 'ad_html';
   else if (/\b(hero|כותרת ראשית|hero.?section|landing.?hero)\b/i.test(message)) assetType = 'landing_hero';
 
+  // Detect iteration request — user wants multiple variants instead of a single asset
+  const isVariationRequest = /\b(וריאציות|variations|variants|גרסאות שונות|כמה גרסאות|3 גרסאות|שלוש גרסאות|כמה וריאציות|3 וריאציות)\b/i.test(message);
+
   try {
     // Step 1: Build marketing memory from all available context sources
     const { buildMarketingMemory } = require('./_shared/marketing-memory');
@@ -1006,6 +1009,12 @@ async function generateLandingPageResponse(context) {
     const goal        = memory.current?.primary_goal  || 'leads';
     const funnelStage = memory.current?.funnel_stage  || 'consideration';
     const structure   = buildLandingStructure(memory, assetType, goal, funnelStage);
+
+    // Step 2b: Variation mode — generate 3 distinct variants instead of a single asset
+    if (isVariationRequest) {
+      const { selectVariationModes } = require('./_shared/iteration-engine');
+      return await _generateVariants(selectVariationModes(3), memory, structure, assetType, context);
+    }
 
     // Step 3: Build HTML blueprint (resolved props + layout per section, no HTML yet)
     const { buildHTMLBlueprint } = require('./_shared/html-blueprint-builder');
@@ -1109,6 +1118,104 @@ async function generateLandingPageResponse(context) {
       quickActions: ['נסה שוב', 'ספר על העסק שלך'],
     };
   }
+}
+
+// ── Variation generator — runs the pipeline once per mode ────────────────────
+async function _generateVariants(modes, baseMemory, baseStructure, assetType, context) {
+  const { applyVariationMode }      = require('./_shared/iteration-engine');
+  const { buildHTMLBlueprint }      = require('./_shared/html-blueprint-builder');
+  const { composeHTML }             = require('./_shared/html-composer');
+  const { validateGeneric }         = require('./_shared/validators/anti-generic-validator');
+  const { validateHTML }            = require('./_shared/validators/html-validator');
+  const { validateVisual }          = require('./_shared/validators/visual-validator');
+  const { saveAsset }               = require('./_shared/asset-storage');
+  const { storeLastGeneratedAsset } = require('./_shared/feedback-loop');
+  const crypto = require('crypto');
+
+  const { businessProfile, profileName, userId } = context;
+  const GRADE_EMOJI = { A: '🟢', B: '🟡', C: '🟠', D: '🔴', F: '🔴' };
+  const results = [];
+
+  for (const mode of modes) {
+    try {
+      const { structure: varStructure, memory: varMemory, label, description } =
+        applyVariationMode(mode, baseStructure, baseMemory);
+
+      const blueprint     = buildHTMLBlueprint(varStructure, null, varMemory);
+      const composeResult = composeHTML(blueprint);
+
+      const genericResult = validateGeneric({ blueprint, composeResult, memory: varMemory });
+      const htmlResult    = validateHTML(composeResult.html, { assetType });
+      const visualResult  = validateVisual({ blueprint, html: composeResult.html, assetType });
+
+      if (!genericResult.valid || !htmlResult.valid) {
+        results.push({ mode, label, description, error: true });
+        continue;
+      }
+
+      const pregenId   = crypto.randomUUID();
+      const htmlWithId = composeResult.html.replace(/\{\{asset_id\}\}/g, pregenId);
+
+      const saved = await saveAsset({
+        userId,
+        html:          htmlWithId,
+        composeResult: { ...composeResult, html: htmlWithId },
+        title: businessProfile.business_name
+          ? `${businessProfile.business_name} — ${label}`
+          : label,
+        _pregenId: pregenId,
+      });
+
+      storeLastGeneratedAsset(userId, {
+        asset_id:    saved.assetId,
+        template_id: blueprint.template_id || null,
+        asset_type:  assetType,
+      }).catch(() => {});
+
+      results.push({
+        mode, label, description, error: false,
+        previewUrl:   saved.previewUrl,
+        expiresAt:    saved.expiresAt,
+        assetId:      saved.assetId,
+        sectionCount: Array.isArray(varStructure.sections) ? varStructure.sections.length : 0,
+        grade:        visualResult.grade,
+        score:        visualResult.combined_score,
+      });
+
+    } catch (err) {
+      console.warn(`[campaigner-chat] variant "${mode}" failed:`, err.message);
+      results.push({ mode, label: mode, description: '', error: true });
+    }
+  }
+
+  // Build reply
+  const firstOk  = results.find(r => !r.error);
+  const expiryStr = firstOk ? new Date(firstOk.expiresAt).toLocaleDateString('he-IL') : null;
+  const successN  = results.filter(r => !r.error).length;
+
+  let reply = `📄 **${successN} וריאציות — ${businessProfile.business_name || profileName}**\n\n`;
+
+  results.forEach((r, i) => {
+    reply += `---\n\n**${i + 1}. ${r.label}**\n`;
+    if (r.description) reply += `_${r.description}_\n`;
+    if (r.error) {
+      reply += `⚠️ _וריאציה זו לא נוצרה — ייתכן שחסר מידע עסקי._\n\n`;
+    } else {
+      reply += `🔗 \`${r.previewUrl}\`\n`;
+      reply += `📐 ${r.sectionCount} סקשנים · ${GRADE_EMOJI[r.grade] || '⚪'} ציון: ${r.score}/100 (${r.grade})\n\n`;
+    }
+  });
+
+  if (expiryStr) reply += `\n⏳ **תוקף:** ${expiryStr}\n`;
+  reply += `\n💡 _הרץ A/B test בין הוריאציות כדי לגלות מה עובד הכי טוב לקהל שלך._`;
+
+  return {
+    reply,
+    quickActions: ['נתח ביצועים', 'כתוב קופי מודעה', 'צור קריאייטיב ויזואלי'],
+    variants: results.filter(r => !r.error).map(r => ({
+      mode: r.mode, label: r.label, assetId: r.assetId, previewUrl: r.previewUrl,
+    })),
+  };
 }
 
 function _assetLabel(assetType) {
