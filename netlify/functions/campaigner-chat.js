@@ -1015,7 +1015,34 @@ async function generateLandingPageResponse(context) {
     const { composeHTML } = require('./_shared/html-composer');
     const composeResult = composeHTML(blueprint);
 
-    // Step 5: Save to Supabase Storage + DB, get preview URL
+    // Step 5: Validate — block critical failures, surface warnings
+    const { validateGeneric } = require('./_shared/validators/anti-generic-validator');
+    const { validateHTML }    = require('./_shared/validators/html-validator');
+
+    const genericResult = validateGeneric({ blueprint, composeResult, memory });
+    const htmlResult    = validateHTML(composeResult.html, { assetType });
+
+    // Block if either validator finds critical issues
+    if (!genericResult.valid || !htmlResult.valid) {
+      const criticalIssues = [
+        ...genericResult.issues.filter(i => i.severity === 'critical' || i.severity === 'major'),
+        ...htmlResult.issues.filter(i => i.severity === 'critical' || i.severity === 'major'),
+      ].slice(0, 3);
+      const issueLines = criticalIssues.map(i => `• ${i.message}`).join('\n');
+      return {
+        reply: `📄 הדף לא נשמר — נמצאו בעיות איכות שחוסמות פרסום:\n\n${issueLines}\n\n` +
+               `_הוסף מידע עסקי מפורט יותר ונסה שנית._`,
+        quickActions: ['ספר על העסק שלך', 'נתח ביצועים'],
+      };
+    }
+
+    // Collect non-blocking warnings to surface in reply
+    const allWarnings = [
+      ...genericResult.issues.filter(i => i.severity === 'minor' || i.severity === 'warning'),
+      ...htmlResult.issues.filter(i => i.severity === 'minor' || i.severity === 'warning'),
+    ];
+
+    // Step 6: Save to Supabase Storage + DB, get preview URL
     const { saveAsset } = require('./_shared/asset-storage');
     const saved = await saveAsset({
       userId,
@@ -1026,7 +1053,7 @@ async function generateLandingPageResponse(context) {
         : null,
     });
 
-    // Step 6: Build reply with preview link (no raw HTML returned to user)
+    // Step 7: Build reply with preview link (no raw HTML returned to user)
     const sectionCount = Array.isArray(structure.sections) ? structure.sections.length : 0;
     const imageSlots   = saved.metadata?.image_slots ?? 0;
     const expiry       = new Date(saved.expiresAt).toLocaleDateString('he-IL');
@@ -1038,7 +1065,9 @@ async function generateLandingPageResponse(context) {
     reply += `\n⏳ **תוקף:** ${expiry}\n\n`;
     reply += `_הדף כולל placeholder לתמונות — הוסף תמונות אמיתיות לפני פרסום._`;
 
-    if (composeResult.warnings?.length > 0) {
+    if (allWarnings.length > 0) {
+      reply += `\n\n⚠️ _${allWarnings.slice(0, 2).map(w => w.message).join(' · ')}_`;
+    } else if (composeResult.warnings?.length > 0) {
       reply += `\n\n⚠️ _${composeResult.warnings.slice(0, 2).join(' · ')}_`;
     }
 
