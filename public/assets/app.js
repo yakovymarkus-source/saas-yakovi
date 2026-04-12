@@ -1835,17 +1835,56 @@ function resolveInitialPage() {
   return 'dashboard';
 }
 
+const BOOT_CACHE_KEY = 'cb_boot_v1';
+
+function saveBootCache(data) {
+  try { localStorage.setItem(BOOT_CACHE_KEY, JSON.stringify({ ...data, _ts: Date.now() })); } catch {}
+}
+function loadBootCache() {
+  try {
+    const raw = localStorage.getItem(BOOT_CACHE_KEY);
+    if (!raw) return null;
+    const c = JSON.parse(raw);
+    // Cache valid for 30 minutes
+    if (Date.now() - (c._ts || 0) > 30 * 60 * 1000) return null;
+    return c;
+  } catch { return null; }
+}
+function clearBootCache() {
+  try { localStorage.removeItem(BOOT_CACHE_KEY); } catch {}
+}
+
 async function boot() {
   const initialPage = resolveInitialPage();
 
   sb.auth.onAuthStateChange(async (event, session) => {
-    if (!session) { renderAuth(); return; }
+    if (!session) {
+      clearBootCache();
+      renderAuth();
+      return;
+    }
 
     state.user        = session.user;
     state.accessToken = session.access_token;
 
+    // ── Step 1: instant render from localStorage cache ────────────────────────
+    const cached = loadBootCache();
+    if (cached && cached.userId === session.user.id) {
+      state.profile         = cached.profile         || {};
+      state.subscription    = cached.subscription    || { plan: 'free' };
+      state.businessProfile = cached.businessProfile || null;
+      state.campaigns       = cached.campaigns       || [];
+      state.onboardingSteps = cached.onboardingSteps || {};
+      state.unlockedScreens = computeUnlockedScreens(state.onboardingSteps);
+      if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
+        state.currentPage = initialPage;
+      }
+      render();                // ← page appears instantly
+      initCampaignerChat();
+    }
+
+    // ── Step 2: fetch fresh data in background ────────────────────────────────
     try {
-      // Single parallel round-trip for all boot data
       const [profile, sub, onboardingRes, bpRes, campsRes] = await Promise.all([
         sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(r => r.data),
         sb.from('subscriptions').select('plan,status,payment_status').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
@@ -1854,31 +1893,61 @@ async function boot() {
         sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id).then(r => r.data),
       ]);
 
-      state.profile         = profile || {};
-      state.subscription    = sub     || { plan: 'free' };
-      state.businessProfile = bpRes   || null;
+      state.profile         = profile  || {};
+      state.subscription    = sub      || { plan: 'free' };
+      state.businessProfile = bpRes    || null;
       state.campaigns       = campsRes || [];
 
-      // Compute unlocked screens from onboarding steps
       const steps = onboardingRes?.steps || {
-        profile_started:  !!(state.businessProfile?.offer || state.businessProfile?.business_name),
-        first_asset:      false,
-        multiple_assets:  false,
-        has_metrics:      false,
-        has_ab_data:      false,
+        profile_started: !!(bpRes?.offer || bpRes?.business_name),
+        first_asset:     false,
+        multiple_assets: false,
+        has_metrics:     false,
+        has_ab_data:     false,
       };
-      state.onboardingSteps  = steps;
-      state.unlockedScreens  = computeUnlockedScreens(steps);
-    } catch {
-      state.profile      = {};
-      state.subscription = { plan: 'free' };
-      state.campaigns    = [];
-    } finally {
-      if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
-        state.currentPage = initialPage;
+      state.onboardingSteps = steps;
+      state.unlockedScreens = computeUnlockedScreens(steps);
+
+      // Save fresh data to cache for next visit
+      saveBootCache({
+        userId: session.user.id,
+        profile, subscription: sub || { plan: 'free' },
+        businessProfile: bpRes, campaigns: campsRes || [],
+        onboardingSteps: steps,
+      });
+
+      // Re-render only if we didn't show cached version (first-ever load)
+      if (!cached || cached.userId !== session.user.id) {
+        if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
+          state.currentPage = initialPage;
+        }
+        render();
+        initCampaignerChat();
+      } else {
+        // Silently update nav in case subscription/onboarding changed
+        const navEl = document.querySelector('.sidebar-nav');
+        if (navEl) {
+          const u = state.unlockedScreens;
+          document.querySelectorAll('.nav-item[data-page]').forEach(el => {
+            const page = el.dataset.page;
+            const corePages = ['landing-pages','recommendations','copy','performance','ab-tests','economics'];
+            if (corePages.includes(page)) {
+              el.style.display = u.has(page) ? '' : 'none';
+            }
+          });
+        }
       }
-      render();
-      initCampaignerChat();   // mount chat widget once user is authenticated
+    } catch {
+      if (!cached) {
+        state.profile      = {};
+        state.subscription = { plan: 'free' };
+        state.campaigns    = [];
+        if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
+          state.currentPage = initialPage;
+        }
+        render();
+        initCampaignerChat();
+      }
     }
   });
 
