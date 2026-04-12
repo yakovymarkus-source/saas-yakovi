@@ -251,7 +251,7 @@ input, select, textarea { font-family: inherit; }
   display: flex; align-items: center; justify-content: center; font-size: 0.875rem;
 }
 .sidebar-logo span { color: var(--brand-light); }
-.sidebar-nav { flex: 1; padding: 0.75rem 0.625rem; overflow-y: auto; }
+.sidebar-nav { flex: 1; min-height: 0; padding: 0.75rem 0.625rem; overflow-y: auto; }
 .nav-item {
   display: flex; align-items: center; gap: 0.75rem;
   padding: 0.625rem 0.875rem; border-radius: var(--r-sm);
