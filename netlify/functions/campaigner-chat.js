@@ -1081,6 +1081,17 @@ async function generateLandingPageResponse(context) {
       asset_type:  assetType,
     }).catch(() => {});
 
+    // Fire-and-forget: advance onboarding progress so progressive unlock triggers
+    const { advanceOnboarding } = require('./_shared/product-context');
+    const _sb = getAdminClient();
+    advanceOnboarding(userId, _sb, 'profile_started').catch(() => {});
+    advanceOnboarding(userId, _sb, 'first_asset').catch(() => {});
+    // Count assets to check if multiple_assets threshold reached
+    _sb.from('generated_assets').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .then(({ count }) => { if ((count || 0) >= 3) advanceOnboarding(userId, _sb, 'multiple_assets').catch(() => {}); })
+      .catch(() => {});
+
     // Step 7: Build reply with preview link (no raw HTML returned to user)
     const sectionCount = Array.isArray(structure.sections) ? structure.sections.length : 0;
     const imageSlots   = saved.metadata?.image_slots ?? 0;
@@ -1171,6 +1182,15 @@ async function _generateVariants(modes, baseMemory, baseStructure, assetType, co
         template_id: blueprint.template_id || null,
         asset_type:  assetType,
       }).catch(() => {});
+
+      // Fire-and-forget: advance onboarding for variation creation
+      const { advanceOnboarding: _adv } = require('./_shared/product-context');
+      const _sb2 = getAdminClient();
+      _adv(userId, _sb2, 'first_asset').catch(() => {});
+      _sb2.from('generated_assets').select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .then(({ count }) => { if ((count || 0) >= 3) _adv(userId, _sb2, 'multiple_assets').catch(() => {}); })
+        .catch(() => {});
 
       results.push({
         mode, label, description, error: false,

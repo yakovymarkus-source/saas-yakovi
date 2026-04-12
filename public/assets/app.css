@@ -799,3 +799,79 @@ input, select, textarea { font-family: inherit; }
   border-radius: var(--r-sm); padding: 1rem 1.25rem; font-weight: 600;
   margin-bottom: 1rem;
 }
+
+/* ── Performance Screen ────────────────────────────────────────────────────── */
+.perf-card { transition: box-shadow .15s; }
+.perf-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+.perf-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: .5rem;
+  margin-top: .5rem;
+}
+.perf-metric {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-100);
+  border-radius: var(--r-sm);
+  padding: .6rem .5rem;
+  text-align: center;
+}
+.perf-metric-val   { font-size: 1.1rem; font-weight: 800; line-height: 1.2; }
+.perf-metric-label { font-size: .7rem; color: var(--gray-400); margin-top: .15rem; font-weight: 500; }
+
+/* ── Unit Economics Screen ─────────────────────────────────────────────────── */
+.econ-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: .75rem;
+  margin-top: .5rem;
+}
+.econ-card {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-100);
+  border-radius: var(--r-sm);
+  padding: .85rem .75rem;
+  text-align: center;
+}
+.econ-label { font-size: .72rem; color: var(--gray-400); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; margin-bottom: .35rem; }
+.econ-value { font-size: 1.4rem; font-weight: 800; line-height: 1.1; }
+.econ-sub   { font-size: .72rem; color: var(--gray-400); margin-top: .25rem; }
+
+/* ── Copy Generator Screen ─────────────────────────────────────────────────── */
+.copy-type-card {
+  background: white;
+  border: 1.5px solid var(--gray-200);
+  border-radius: var(--r-md);
+  padding: 1.25rem 1rem;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color .15s, box-shadow .15s, transform .1s;
+}
+.copy-type-card:hover {
+  border-color: var(--brand);
+  box-shadow: 0 4px 16px rgba(99,102,241,.15);
+  transform: translateY(-2px);
+}
+.copy-type-icon  { font-size: 2rem; margin-bottom: .5rem; }
+.copy-type-label { font-size: .9rem; font-weight: 700; color: var(--gray-800); margin-bottom: .35rem; }
+.copy-type-cta   { font-size: .78rem; color: var(--brand); font-weight: 600; }
+
+/* ── A/B Tests Screen ──────────────────────────────────────────────────────── */
+.ab-test-card {
+  background: white;
+  border: 1.5px solid var(--gray-200);
+  border-radius: var(--r-md);
+  padding: 1rem 1.25rem;
+}
+.ab-status-running   { background: #fef9c3; color: #a16207; }
+.ab-status-completed { background: #dcfce7; color: #15803d; }
+.ab-status-paused    { background: var(--gray-100); color: var(--gray-500); }
+
+/* ── Onboarding widget (dashboard) ────────────────────────────────────────── */
+.onboarding-step-box {
+  padding: .75rem;
+  border-radius: .5rem;
+  cursor: pointer;
+  transition: box-shadow .15s;
+}
+.onboarding-step-box:hover { box-shadow: 0 2px 8px rgba(0,0,0,.08); }

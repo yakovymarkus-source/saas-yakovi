@@ -39,6 +39,10 @@ const routes = {
   'business-profile': renderBusinessProfile,
   'landing-pages':  renderLandingPages,
   recommendations:  renderRecommendations,
+  performance:      renderPerformance,
+  economics:        renderEconomics,
+  copy:             renderCopyGenerator,
+  'ab-tests':       renderAbTests,
   campaigns:        renderCampaigns,
   leads:            renderLeads,
   integrations:     renderIntegrations,
@@ -222,10 +226,14 @@ function renderShell(content) {
   const u = state.unlockedScreens;
   // Progressive nav — only show what's unlocked for this user right now
   const coreNav = [
-    { id: 'dashboard',        icon: '📊', label: 'דשבורד',          always: true },
-    { id: 'business-profile', icon: '🏢', label: 'פרופיל עסקי',     always: true },
-    { id: 'landing-pages',    icon: '🚀', label: 'דפי נחיתה',       unlock: 'landing-pages' },
-    { id: 'recommendations',  icon: '💡', label: 'המלצות',          unlock: 'recommendations' },
+    { id: 'dashboard',        icon: '📊', label: 'דשבורד',             always: true },
+    { id: 'business-profile', icon: '🏢', label: 'פרופיל עסקי',        always: true },
+    { id: 'landing-pages',    icon: '🚀', label: 'דפי נחיתה',          unlock: 'landing-pages' },
+    { id: 'recommendations',  icon: '💡', label: 'המלצות',             unlock: 'recommendations' },
+    { id: 'copy',             icon: '✍️', label: 'קופי',               unlock: 'copy' },
+    { id: 'performance',      icon: '📈', label: 'ביצועים',            unlock: 'performance' },
+    { id: 'ab-tests',         icon: '🧪', label: 'A/B Tests',          unlock: 'ab-tests' },
+    { id: 'economics',        icon: '💰', label: 'כלכלת יחידה',        unlock: 'economics' },
   ].filter(n => n.always || u.has(n.unlock));
 
   const legacyNav = [
@@ -331,33 +339,41 @@ function renderDonutSVG(used, max) {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 async function renderDashboard() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
-  let analysis = [];
-  try {
-    const { data } = await sb.from('analysis_results')
-      .select('*')
-      .eq('user_id', state.user.id)
-      .order('created_at', { ascending: false })
-      .limit(5);
-    analysis = data || [];
-  } catch {}
 
-  // Load integrations list if not already loaded
-  if (!state.integrations.length) {
-    try {
-      const res = await api('GET', 'integration-connect');
-      state.integrations = Array.isArray(res) ? res : [];
-    } catch {}
+  // Load all data in parallel
+  const [assetsRes, metricsRes, intRes] = await Promise.allSettled([
+    sb.from('generated_assets').select('id,asset_type,status,created_at')
+      .eq('user_id', state.user.id).order('created_at', { ascending: false }).limit(100),
+    sb.from('asset_metrics').select('clicks,conversions,revenue')
+      .eq('user_id', state.user.id),
+    state.integrations.length ? Promise.resolve({ value: state.integrations })
+      : api('GET', 'integration-connect').then(r => Array.isArray(r) ? r : []).catch(() => []),
+  ]);
+
+  const allAssets    = assetsRes.status === 'fulfilled' ? (assetsRes.value.data || []) : [];
+  const allMetrics   = metricsRes.status === 'fulfilled' ? (metricsRes.value.data || []) : [];
+  if (!state.integrations.length && intRes.status === 'fulfilled') {
+    state.integrations = intRes.value?.value || intRes.value || [];
   }
 
-  const plan          = state.subscription?.plan          || 'free';
+  const plan          = state.subscription?.plan || 'free';
   const paymentStatus = state.subscription?.payment_status || 'none';
-  const planBadge = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
-  const connectedCount = state.integrations.filter(i => i.connection_status !== 'revoked').length;
-  const limits     = getPlanLimits(plan);
-  const assetsUsed = analysis.length;                       // last 5 results as proxy
-  const assetsMax  = limits.assetsLimit || 5;
-  const assetsPct  = Math.min(100, Math.round((assetsUsed / assetsMax) * 100));
-  const isFree     = plan === 'free' && paymentStatus !== 'pending';
+  const isFree        = plan === 'free' && paymentStatus !== 'pending';
+  const planBadge     = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
+  const connectedCount = (state.integrations || []).filter(i => i.connection_status !== 'revoked').length;
+
+  // Asset KPIs
+  const now30     = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const recent    = allAssets.filter(a => new Date(a.created_at) > now30);
+  const published = allAssets.filter(a => a.status === 'published');
+  const totalClicks  = allMetrics.reduce((s, m) => s + (m.clicks || 0), 0);
+  const totalConv    = allMetrics.reduce((s, m) => s + (m.conversions || 0), 0);
+  const totalRev     = allMetrics.reduce((s, m) => s + (m.revenue || 0), 0);
+  const limits       = getPlanLimits(plan);
+  const assetsMax    = limits.assetsLimit || 5;
+  const assetsPct    = Math.min(100, Math.round((allAssets.length / assetsMax) * 100));
+
+  const steps = state.onboardingSteps || {};
 
   renderShell(`
     ${isFree ? `
@@ -375,39 +391,42 @@ async function renderDashboard() {
 
     <div class="page-header flex items-center justify-between">
       <div>
-        <h1 class="page-title">שלום, ${state.profile?.name || 'משתמש'}! 👋</h1>
-        <p class="page-subtitle">הנה סקירת הביצועים שלך</p>
+        <h1 class="page-title">שלום, ${state.businessProfile?.business_name || state.profile?.name || 'משתמש'}! 👋</h1>
+        <p class="page-subtitle">${_dashGreeting(steps)}</p>
       </div>
       <span class="badge ${planBadge[plan] || 'badge-gray'}">${getPlanLabel(plan)}</span>
     </div>
 
-    ${!state.profile?.onboarding_completed ? renderOnboarding() : ''}
+    ${_renderOnboardingWidget(steps)}
 
     <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">נכסים פעילים</div>
-        <div class="stat-value">${state.campaigns.length}</div>
+      <div class="stat-card" onclick="navigate('landing-pages')" style="cursor:pointer">
+        <div class="stat-label">דפים שנוצרו</div>
+        <div class="stat-value">${allAssets.length}</div>
+        <div class="text-xs text-muted">${recent.length} ב-30 יום האחרונים</div>
       </div>
       <div class="stat-card" style="cursor:default">
-        <div class="stat-label">נכסים שיווקיים (30 יום)</div>
+        <div class="stat-label">דפים פעילים / מכסה</div>
         <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.5rem">
-          ${renderDonutSVG(assetsUsed, assetsMax)}
+          ${renderDonutSVG(allAssets.length, assetsMax)}
           <div>
-            <div class="stat-value" style="font-size:1.25rem">${assetsUsed}${assetsMax !== Infinity ? ' / ' + assetsMax : ''}</div>
-            <div class="text-xs text-muted" style="margin-top:0.1rem">ב-30 יום האחרונים</div>
+            <div class="stat-value" style="font-size:1.25rem">${published.length}${assetsMax !== Infinity ? ' / ' + assetsMax : ''}</div>
+            <div class="text-xs text-muted" style="margin-top:0.1rem">פורסמו</div>
             ${assetsMax !== Infinity ? `<div class="usage-bar-track" style="width:72px;margin-top:0.35rem">
               <div class="usage-bar-fill ${assetsPct >= 90 ? 'danger' : assetsPct >= 70 ? 'warning' : 'normal'}" style="width:${assetsPct}%"></div>
             </div>` : ''}
           </div>
         </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">ציון ממוצע</div>
-        <div class="stat-value">${analysis.length ? Math.round(analysis.reduce((s, a) => s + (a.scores?.overall || 0), 0) / analysis.length) : '—'}</div>
+      <div class="stat-card" onclick="${steps.has_metrics ? "navigate('performance')" : ''}" style="cursor:${steps.has_metrics ? 'pointer' : 'default'}">
+        <div class="stat-label">סה"כ קליקים</div>
+        <div class="stat-value">${totalClicks > 0 ? totalClicks.toLocaleString() : '—'}</div>
+        <div class="text-xs text-muted">${totalConv > 0 ? totalConv + ' המרות' : 'הוסף מדדים במסך ביצועים'}</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">אינטגרציות פעילות</div>
-        <div class="stat-value">${connectedCount}</div>
+      <div class="stat-card" onclick="${steps.has_metrics ? "navigate('performance')" : ''}" style="cursor:${steps.has_metrics ? 'pointer' : 'default'}">
+        <div class="stat-label">הכנסה מדווחת</div>
+        <div class="stat-value">${totalRev > 0 ? '₪' + totalRev.toLocaleString() : '—'}</div>
+        <div class="text-xs text-muted">${connectedCount > 0 ? connectedCount + ' אינטגרציות פעילות' : 'אין אינטגרציות'}</div>
       </div>
     </div>
 
@@ -420,66 +439,77 @@ async function renderDashboard() {
       <div id="live-stats-container">${renderLiveStatsContent()}</div>
     </div>` : ''}
 
-    ${analysis.length > 0 ? `
+    ${allAssets.length > 0 ? `
     <div class="card">
-      <div class="card-title">ניתוחים אחרונים</div>
+      <div class="card-title flex items-center justify-between">
+        <span>🚀 דפים אחרונים</span>
+        <button class="btn btn-sm btn-secondary" onclick="navigate('landing-pages')">כל הדפים</button>
+      </div>
       <div class="campaign-list">
-        ${analysis.map(a => {
-          const camp = state.campaigns.find(c => c.id === a.campaign_id);
+        ${allAssets.slice(0, 5).map(a => {
+          const statusColor = { published: '#22c55e', draft: '#f59e0b', archived: '#94a3b8', failed: '#ef4444' }[a.status] || '#94a3b8';
+          const statusLabel = { published: 'פורסם', draft: 'טיוטה', archived: 'ארכיון', failed: 'נכשל' }[a.status] || a.status;
           return `
-          <div class="campaign-item" onclick="showCampaignDetail('${a.campaign_id}')" style="cursor:pointer">
+          <div class="campaign-item">
             <div>
-              <div class="campaign-name">${camp?.name || a.campaign_id}</div>
+              <div class="campaign-name">${a.asset_type || 'דף נחיתה'}</div>
               <div class="campaign-meta">${new Date(a.created_at).toLocaleDateString('he-IL')}</div>
             </div>
-            <div class="flex items-center gap-2">
-              ${renderScoreBadge(a.scores?.overall || 0)}
-            </div>
+            <span style="font-size:.75rem;padding:.2rem .6rem;border-radius:9999px;background:${statusColor}20;color:${statusColor}">${statusLabel}</span>
           </div>`;
         }).join('')}
       </div>
-    </div>` : `
-    <div class="card">
-      <div class="empty-state">
-        <div class="empty-state-icon">🚀</div>
-        <h3 class="empty-state-title">מוכנים להשיק נכס שיווקי מנצח?</h3>
-        <p class="empty-state-desc">בנו אסטרטגיה, מסרים, תסריטים ולוגיקת דף נחיתה<br>חברו את חשבונות הפרסום שלכם להתחלה</p>
-        ${getPlanLimits(plan).campaignLimit === 0
-          ? `<button class="btn btn-gradient" style="width:auto;padding:0.75rem 2.25rem;font-size:1rem" onclick="navigate('billing')">שדרגו ליצירת נכסים שיווקיים →</button>`
-          : `<button class="btn btn-gradient" style="width:auto;padding:0.75rem 2.25rem;font-size:1rem" onclick="navigate('campaigns')">צרו נכס שיווקי ראשון →</button>`}
-      </div>
-      <div class="features-grid" style="margin-top:0.5rem">
-        <div class="feature-item">
-          <div class="feature-icon">📝</div>
-          <div class="feature-name">תסריטי מודעות</div>
-          <div class="feature-desc">כתיבה אוטומטית לפייסבוק, אינסטגרם ויוטיוב</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-icon">🎯</div>
-          <div class="feature-name">דפי נחיתה</div>
-          <div class="feature-desc">אסטרטגיית above-the-fold ומיפוי המרה</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-icon">🔍</div>
-          <div class="feature-name">חקר שוק</div>
-          <div class="feature-desc">ניתוח מתחרים וזיהוי הזדמנויות</div>
-        </div>
-        <div class="feature-item">
-          <div class="feature-icon">📊</div>
-          <div class="feature-name">ניתוח ביצועים</div>
-          <div class="feature-desc">CTR, ROAS, CPA — בעברית ובזמן אמת</div>
-        </div>
-      </div>
-    </div>`}
+    </div>` : ''}
   `);
 
-  // Fetch live stats in background after render
   if (connectedCount > 0 && !state.liveStatsLoading) {
     loadLiveStats().then(() => {
       const container = document.getElementById('live-stats-container');
       if (container) container.innerHTML = renderLiveStatsContent();
     });
   }
+}
+
+function _dashGreeting(steps) {
+  if (!steps.profile_started) return 'נתחיל עם פרופיל עסקי קצר';
+  if (!steps.first_asset)     return 'מוכן ליצור דף נחיתה ראשון?';
+  if (!steps.multiple_assets) return 'כל הכבוד! ניצור עוד וריאציות?';
+  if (!steps.has_metrics)     return 'הוסף מדדים כדי לראות ביצועים אמיתיים';
+  return 'הנה סקירת הביצועים שלך';
+}
+
+function _renderOnboardingWidget(steps) {
+  if (steps.has_metrics) return ''; // fully onboarded — hide widget
+
+  const stageItems = [
+    { key: 'profile_started',  label: 'פרופיל עסקי',    page: 'business-profile', done: steps.profile_started },
+    { key: 'first_asset',      label: 'דף נחיתה ראשון', page: 'landing-pages',    done: steps.first_asset,    blocked: !steps.profile_started },
+    { key: 'multiple_assets',  label: '3 דפים / וריאציות', page: 'landing-pages', done: steps.multiple_assets, blocked: !steps.first_asset },
+    { key: 'has_metrics',      label: 'הוספת מדדי ביצועים', page: 'performance',  done: steps.has_metrics,    blocked: !steps.multiple_assets },
+  ];
+  const completedCount = stageItems.filter(s => s.done).length;
+  const pct = Math.round((completedCount / stageItems.length) * 100);
+
+  return `
+  <div class="card mb-4" style="border:2px solid #e0e7ff;background:#f8f7ff">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+      <div>
+        <div style="font-weight:700;font-size:1rem">🎯 תחילת דרך</div>
+        <div class="text-muted" style="font-size:.85rem">${completedCount} מתוך ${stageItems.length} שלבים הושלמו</div>
+      </div>
+      <div style="font-size:1.25rem;font-weight:800;color:#6366f1">${pct}%</div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.75rem">
+      ${stageItems.map(s => `
+      <div onclick="${!s.done && !s.blocked ? "navigate('" + s.page + "')" : ''}"
+        style="padding:.75rem;border-radius:.5rem;cursor:${s.done || s.blocked ? 'default' : 'pointer'};
+          background:${s.done ? '#f0fdf4' : s.blocked ? '#f8fafc' : '#fff'};
+          border:1px solid ${s.done ? '#86efac' : s.blocked ? '#e2e8f0' : '#c7d2fe'}">
+        <div style="font-size:1.1rem;margin-bottom:.25rem">${s.done ? '✅' : s.blocked ? '🔒' : '⏳'}</div>
+        <div style="font-size:.8rem;font-weight:${s.done ? '500' : '600'};color:${s.done ? '#15803d' : s.blocked ? '#94a3b8' : '#1e293b'}">${s.label}</div>
+      </div>`).join('')}
+    </div>
+  </div>`;
 }
 
 function renderLiveStatsContent() {
@@ -2691,6 +2721,571 @@ async function renderRecommendations() {
   });
 }
 
+// ── Performance Screen ────────────────────────────────────────────────────────
+async function renderPerformance() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  let assets = [];
+  try {
+    const res = await api('GET', 'asset-metrics');
+    assets = Array.isArray(res) ? res : [];
+  } catch {}
+
+  const hasAny = assets.some(a => a.metrics);
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <h1 class="page-title">ביצועים</h1>
+      <p class="page-subtitle">מדדי CTR, המרות והכנסה לכל דף נחיתה</p>
+    </div>
+
+    ${!hasAny ? `
+    <div class="card" style="text-align:center;padding:3rem 2rem;margin-bottom:1.5rem">
+      <div style="font-size:3rem;margin-bottom:1rem">📊</div>
+      <h3 style="font-weight:700;margin-bottom:.5rem">אין נתוני ביצועים עדיין</h3>
+      <p class="text-muted">הוסף נתוני CTR/המרות לכל דף כדי לראות מה עובד</p>
+    </div>` : ''}
+
+    <div style="display:grid;gap:1rem">
+      ${assets.map(a => {
+        const m = a.metrics;
+        const title = a.title || a.asset_type || 'דף נחיתה';
+        const date  = new Date(a.created_at).toLocaleDateString('he-IL');
+        const ctrColor   = m?.ctr   > 3 ? '#22c55e' : m?.ctr   > 1 ? '#f59e0b' : '#ef4444';
+        const convColor  = m?.convRate > 5 ? '#22c55e' : m?.convRate > 2 ? '#f59e0b' : '#ef4444';
+        return `
+        <div class="card perf-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.75rem;margin-bottom:1rem">
+            <div>
+              <div style="font-weight:700">${title}</div>
+              <div class="text-muted" style="font-size:.8rem">${date}</div>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="openAddMetrics('${a.id}','${title.replace(/'/g,"\\'")}')">
+              + הוסף נתונים
+            </button>
+          </div>
+          ${m ? `
+          <div class="perf-metrics-row">
+            <div class="perf-metric">
+              <div class="perf-metric-val" style="color:${m.impressions>0?'#1e293b':'#94a3b8'}">${m.impressions > 0 ? m.impressions.toLocaleString() : '—'}</div>
+              <div class="perf-metric-label">חשיפות</div>
+            </div>
+            <div class="perf-metric">
+              <div class="perf-metric-val" style="color:${m.clicks>0?'#6366f1':'#94a3b8'}">${m.clicks > 0 ? m.clicks.toLocaleString() : '—'}</div>
+              <div class="perf-metric-label">קליקים</div>
+            </div>
+            <div class="perf-metric">
+              <div class="perf-metric-val" style="color:${m.ctr!=null?ctrColor:'#94a3b8'}">${m.ctr != null ? m.ctr + '%' : '—'}</div>
+              <div class="perf-metric-label">CTR</div>
+            </div>
+            <div class="perf-metric">
+              <div class="perf-metric-val" style="color:${m.conversions>0?'#22c55e':'#94a3b8'}">${m.conversions > 0 ? m.conversions : '—'}</div>
+              <div class="perf-metric-label">המרות</div>
+            </div>
+            <div class="perf-metric">
+              <div class="perf-metric-val" style="color:${m.convRate!=null?convColor:'#94a3b8'}">${m.convRate != null ? m.convRate + '%' : '—'}</div>
+              <div class="perf-metric-label">Conv%</div>
+            </div>
+            <div class="perf-metric">
+              <div class="perf-metric-val" style="color:${m.revenue>0?'#16a34a':'#94a3b8'}">${m.revenue > 0 ? '₪' + m.revenue.toLocaleString() : '—'}</div>
+              <div class="perf-metric-label">הכנסה</div>
+            </div>
+          </div>` : `
+          <div style="padding:.75rem;background:#f8fafc;border-radius:.5rem;color:#94a3b8;font-size:.875rem;text-align:center">
+            אין נתונים עדיין — לחץ "הוסף נתונים"
+          </div>`}
+        </div>`;
+      }).join('')}
+    </div>
+
+    <!-- Modal for adding metrics -->
+    <div id="metrics-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+      <div class="card" style="width:min(480px,90vw);max-height:80vh;overflow-y:auto">
+        <div class="card-title flex items-center justify-between">
+          <span id="metrics-modal-title">הוסף נתונים</span>
+          <button onclick="closeMetricsModal()" style="background:none;border:none;font-size:1.25rem;cursor:pointer">✕</button>
+        </div>
+        <form onsubmit="submitMetrics(event)">
+          <input type="hidden" id="metrics-asset-id">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+            <div class="form-group">
+              <label class="form-label">חשיפות</label>
+              <input id="m-impressions" type="number" min="0" class="form-input" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">קליקים</label>
+              <input id="m-clicks" type="number" min="0" class="form-input" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">המרות</label>
+              <input id="m-conversions" type="number" min="0" class="form-input" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">הכנסה (₪)</label>
+              <input id="m-revenue" type="number" min="0" step="0.01" class="form-input" placeholder="0">
+            </div>
+          </div>
+          <div id="metrics-error" class="form-error" style="display:none;margin-bottom:.75rem"></div>
+          <div style="display:flex;gap:.75rem;justify-content:flex-end">
+            <button type="button" onclick="closeMetricsModal()" class="btn btn-secondary" style="width:auto">ביטול</button>
+            <button type="submit" id="metrics-submit" class="btn btn-primary" style="width:auto">שמור</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `);
+}
+
+function openAddMetrics(assetId, title) {
+  const modal = document.getElementById('metrics-modal');
+  if (!modal) return;
+  document.getElementById('metrics-asset-id').value = assetId;
+  document.getElementById('metrics-modal-title').textContent = 'הוסף נתונים — ' + title;
+  ['m-impressions','m-clicks','m-conversions','m-revenue'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('metrics-error').style.display = 'none';
+  modal.style.display = 'flex';
+}
+
+function closeMetricsModal() {
+  const modal = document.getElementById('metrics-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitMetrics(e) {
+  e.preventDefault();
+  const btn    = document.getElementById('metrics-submit');
+  const errEl  = document.getElementById('metrics-error');
+  errEl.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'שומר...';
+
+  try {
+    await api('POST', 'asset-metrics', {
+      asset_id:    document.getElementById('metrics-asset-id').value,
+      impressions: parseInt(document.getElementById('m-impressions').value) || 0,
+      clicks:      parseInt(document.getElementById('m-clicks').value)      || 0,
+      conversions: parseInt(document.getElementById('m-conversions').value) || 0,
+      revenue:     parseFloat(document.getElementById('m-revenue').value)   || 0,
+    });
+
+    // Advance onboarding for metrics
+    if (!state.onboardingSteps?.has_metrics) {
+      state.onboardingSteps = { ...(state.onboardingSteps || {}), has_metrics: true };
+      state.unlockedScreens = computeUnlockedScreens(state.onboardingSteps);
+      await sb.from('onboarding_progress').upsert({
+        user_id: state.user.id,
+        steps: state.onboardingSteps,
+        current_step: 'has_metrics',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    }
+
+    closeMetricsModal();
+    toast('נתונים נשמרו', 'success');
+    renderPerformance();
+  } catch (err) {
+    errEl.textContent = err.message || 'שגיאה בשמירה';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'שמור';
+  }
+}
+
+// ── Unit Economics Screen ─────────────────────────────────────────────────────
+async function renderEconomics() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  let econ = null;
+  let closeRate = 1.0;
+  try {
+    econ = await api('GET', `get-economics?close_rate=${closeRate}`);
+  } catch {}
+
+  if (!econ?.hasProfile) {
+    renderShell(`
+      <div class="page-header"><h1 class="page-title">כלכלת יחידה</h1></div>
+      <div class="card" style="text-align:center;padding:3rem">
+        <div style="font-size:3rem;margin-bottom:1rem">💰</div>
+        <h3 style="font-weight:700;margin-bottom:.5rem">מלא פרופיל עסקי קודם</h3>
+        <p class="text-muted" style="margin-bottom:1.5rem">כדי לחשב CAC, LTV, ROAS צריך מחיר ותקציב</p>
+        <button class="btn btn-gradient" style="width:auto" onclick="navigate('business-profile')">מלא פרופיל →</button>
+      </div>`);
+    return;
+  }
+
+  const u  = econ.unitEconomics || {};
+  const p  = econ.profile       || {};
+  const ag = econ.aggregateMetrics || {};
+  const sim = econ.simulation;
+
+  const metricCard = (label, value, sub, color = '#1e293b') => `
+    <div class="econ-card">
+      <div class="econ-label">${label}</div>
+      <div class="econ-value" style="color:${color}">${value ?? '—'}</div>
+      ${sub ? `<div class="econ-sub">${sub}</div>` : ''}
+    </div>`;
+
+  const statusColor = { profitable: '#22c55e', marginal: '#f59e0b', losing: '#ef4444' }[u.cplStatus] || '#94a3b8';
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">כלכלת יחידה</h1>
+        <p class="page-subtitle">${p.business_name || ''} · מחיר: ${p.price_amount ? '₪'+p.price_amount : 'לא הוגדר'}</p>
+      </div>
+      ${!econ.hasLiveData ? `<span class="badge badge-yellow">סימולציה — אין נתוני ביצועים</span>` : '<span class="badge badge-green">נתונים אמיתיים</span>'}
+    </div>
+
+    ${!econ.hasLiveData && sim ? `
+    <div class="card mb-4" style="border-right:4px solid #f59e0b;background:#fffbeb">
+      <div style="font-weight:600;margin-bottom:.5rem">🔮 סימולציה לפני השקה (7 ימים, ₪${sim.totalSpend} תקציב)</div>
+      <div class="econ-grid">
+        ${metricCard('קליקים צפויים', sim.clicks?.toLocaleString(), null, '#6366f1')}
+        ${metricCard('לידים צפויים', sim.leads, null, '#8b5cf6')}
+        ${metricCard('מכירות צפויות', sim.sales, null, '#22c55e')}
+        ${metricCard('הכנסה צפויה', sim.estimatedRevenue ? '₪'+sim.estimatedRevenue : null, null, '#16a34a')}
+        ${metricCard('ROAS צפוי', sim.estimatedROAS, null, sim.estimatedROAS >= 2 ? '#22c55e' : sim.estimatedROAS >= 1 ? '#f59e0b' : '#ef4444')}
+        ${metricCard('רמת סיכון', sim.riskLevel === 'low' ? '🟢 נמוך' : sim.riskLevel === 'medium' ? '🟡 בינוני' : '🔴 גבוה', null)}
+      </div>
+    </div>` : ''}
+
+    <div class="card mb-4">
+      <div class="card-title">📊 מדדי ליבה</div>
+      <div class="econ-grid">
+        ${metricCard('CPL', u.cpl ? '₪'+u.cpl : null, 'עלות לליד', statusColor)}
+        ${metricCard('CAC', u.cac ? '₪'+u.cac : null, 'עלות לרכישה', u.cac && p.price_amount && u.cac < p.price_amount ? '#22c55e' : '#ef4444')}
+        ${metricCard('LTV', u.ltv ? '₪'+u.ltv : null, 'ערך לקוח', '#6366f1')}
+        ${metricCard('ROAS', u.roas, u.roasLabel, u.roas >= 2 ? '#22c55e' : u.roas >= 1 ? '#f59e0b' : '#ef4444')}
+        ${metricCard('Break-even CPL', u.breakEvenCPL ? '₪'+u.breakEvenCPL : null, 'מקסימום CPL רווחי', '#8b5cf6')}
+        ${metricCard('CPL מומלץ', u.sustainableCPL ? '₪'+u.sustainableCPL : null, 'עם 40% מרג׳ין', '#22c55e')}
+      </div>
+      ${u.cplStatus ? `
+      <div style="margin-top:1rem;padding:.75rem 1rem;border-radius:.5rem;background:${statusColor}15;border:1px solid ${statusColor}30">
+        <span style="font-weight:600;color:${statusColor}">${u.cplStatusLabel}</span>
+        ${u.paybackMonths ? ` · החזר השקעה תוך ${u.paybackMonths} חודשים` : ''}
+        ${u.margin != null ? ` · מרג׳ין: ${Math.round(u.margin*100)}%` : ''}
+      </div>` : ''}
+    </div>
+
+    ${ag.clicks > 0 ? `
+    <div class="card mb-4">
+      <div class="card-title">📈 נתוני ביצועים מצטברים</div>
+      <div class="econ-grid">
+        ${metricCard('חשיפות', ag.impressions?.toLocaleString(), null)}
+        ${metricCard('קליקים', ag.clicks?.toLocaleString(), null, '#6366f1')}
+        ${metricCard('CTR', ag.ctr ? (ag.ctr*100).toFixed(2)+'%' : null, null)}
+        ${metricCard('המרות', ag.conversions, null, '#22c55e')}
+        ${metricCard('הכנסה', ag.revenue ? '₪'+ag.revenue.toLocaleString() : null, null, '#16a34a')}
+        ${metricCard('דפים', ag.assetCount, 'עם נתונים')}
+      </div>
+    </div>` : ''}
+
+    <div class="card">
+      <div class="card-title">⚙️ הגדרות חישוב</div>
+      <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Close Rate (% לידים שהפכו ללקוחות)</label>
+          <input id="econ-close-rate" type="number" min="1" max="100" class="form-input" style="width:120px"
+            value="${Math.round(closeRate*100)}" placeholder="100">
+        </div>
+        <button class="btn btn-secondary" style="width:auto;margin-top:1.5rem"
+          onclick="recalcEconomics()">חשב מחדש</button>
+      </div>
+    </div>
+  `);
+}
+
+async function recalcEconomics() {
+  const closeInput = document.getElementById('econ-close-rate');
+  const rate = Math.min(100, Math.max(1, parseInt(closeInput?.value) || 100)) / 100;
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  try {
+    const econ = await api('GET', `get-economics?close_rate=${rate}`);
+    // re-render with new data by storing and re-calling
+    renderEconomics();
+  } catch {
+    renderEconomics();
+  }
+}
+
+// ── Copy Generator Screen ─────────────────────────────────────────────────────
+async function renderCopyGenerator() {
+  renderShell('<div class="loading-screen" style="height:40vh"><div class="spinner"></div></div>');
+
+  const profile = state.businessProfile;
+  const copyTypes = [
+    { id: 'facebook_ad',   icon: '📘', label: 'מודעת פייסבוק/אינסטגרם', prompt: 'כתוב לי תסריט מודעת פייסבוק/אינסטגרם' },
+    { id: 'google_ad',     icon: '🟢', label: 'מודעת גוגל',              prompt: 'כתוב לי מודעת רשת חיפוש לגוגל' },
+    { id: 'email',         icon: '📧', label: 'אימייל שיווקי',           prompt: 'כתוב לי אימייל שיווקי' },
+    { id: 'sms',           icon: '📱', label: 'SMS/ווצאפ',               prompt: 'כתוב לי הודעת SMS שיווקית' },
+    { id: 'headline',      icon: '🎯', label: 'כותרות A/B',              prompt: 'כתוב לי 5 וריאציות כותרת לדף נחיתה' },
+    { id: 'landing_page',  icon: '🚀', label: 'דף נחיתה',               prompt: 'בנה לי דף נחיתה' },
+  ];
+
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">קופי</h1>
+      <p class="page-subtitle">בחר סוג תוכן וה-AI יכתוב לך מיידית</p>
+    </div>
+
+    ${profile ? `
+    <div class="card mb-4" style="background:#f8f7ff;border:1px solid #e0e7ff;padding:.75rem 1rem">
+      <div style="display:flex;align-items:center;gap:.5rem;font-size:.875rem">
+        <span>🏢</span>
+        <span style="font-weight:600">${profile.business_name || 'העסק שלך'}</span>
+        ${profile.offer ? `<span class="text-muted">· ${profile.offer.slice(0,60)}${profile.offer.length>60?'...':''}</span>` : ''}
+        <button class="btn btn-sm btn-secondary" style="margin-right:auto" onclick="navigate('business-profile')">ערוך</button>
+      </div>
+    </div>` : `
+    <div class="card mb-4" style="border-right:3px solid #f59e0b;background:#fffbeb;padding:.75rem 1rem">
+      <span style="font-size:.875rem">💡 <strong>טיפ:</strong> מלא פרופיל עסקי לתוצאות מדויקות יותר</span>
+      <button class="btn btn-sm btn-primary" style="margin-right:.75rem" onclick="navigate('business-profile')">מלא עכשיו</button>
+    </div>`}
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;margin-bottom:2rem">
+      ${copyTypes.map(t => `
+      <div class="copy-type-card" onclick="startCopyGeneration('${t.id}','${t.prompt}','${t.label}')">
+        <div class="copy-type-icon">${t.icon}</div>
+        <div class="copy-type-label">${t.label}</div>
+        <div class="copy-type-cta">יצור עכשיו →</div>
+      </div>`).join('')}
+    </div>
+
+    <div class="card" id="copy-recent">
+      <div class="card-title">🗂️ תוצרים אחרונים</div>
+      <div id="copy-recent-list">
+        <div class="text-muted text-sm" style="padding:.5rem">טוען...</div>
+      </div>
+    </div>
+  `);
+
+  // Load recent copy assets in background
+  sb.from('generated_assets')
+    .select('id,asset_type,title,preview_url,created_at,status')
+    .eq('user_id', state.user.id)
+    .in('asset_type', ['facebook_ad','google_ad','email','sms','headline','ad_copy','script'])
+    .order('created_at', { ascending: false })
+    .limit(10)
+    .then(({ data }) => {
+      const el = document.getElementById('copy-recent-list');
+      if (!el) return;
+      if (!data?.length) { el.innerHTML = '<div class="text-muted text-sm" style="padding:.5rem">אין תוצרים עדיין — צור את הראשון!</div>'; return; }
+      el.innerHTML = data.map(a => `
+        <div class="campaign-item">
+          <div>
+            <div class="campaign-name">${a.title || a.asset_type}</div>
+            <div class="campaign-meta">${new Date(a.created_at).toLocaleDateString('he-IL')}</div>
+          </div>
+          ${a.preview_url ? `<a href="${a.preview_url}" target="_blank" class="btn btn-sm btn-secondary" style="text-decoration:none">צפה</a>` : ''}
+        </div>`).join('');
+    }).catch(() => {});
+}
+
+function startCopyGeneration(typeId, prompt, label) {
+  if (!chatState.open) toggleChat();
+  const profileContext = state.businessProfile?.offer
+    ? ` עבור: ${state.businessProfile.offer}` : '';
+  const inp = document.getElementById('chat-input');
+  if (inp) {
+    inp.value = prompt + profileContext;
+    inp.focus();
+    inp.dispatchEvent(new Event('input'));
+  }
+  toast(`יוצר ${label}...`, 'info');
+}
+
+// ── A/B Tests Screen ──────────────────────────────────────────────────────────
+async function renderAbTests() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  let tests = [];
+  let assets = [];
+  try {
+    const [testsRes, assetsRes] = await Promise.all([
+      sb.from('ab_tests').select('*').eq('user_id', state.user.id).order('created_at', { ascending: false }),
+      sb.from('generated_assets').select('id,title,asset_type,created_at').eq('user_id', state.user.id)
+        .eq('status', 'published').order('created_at', { ascending: false }).limit(20),
+    ]);
+    tests  = testsRes.data  || [];
+    assets = assetsRes.data || [];
+  } catch {}
+
+  const statusLabel = { running: '🟡 פעיל', completed: '✅ הסתיים', paused: '⏸️ מושהה' };
+  const urgLabel    = (v) => v >= 8 ? '🔴 גבוהה' : v >= 5 ? '🟡 בינונית' : '🟢 נמוכה';
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">A/B Tests</h1>
+        <p class="page-subtitle">${tests.length} טסטים סה"כ</p>
+      </div>
+      ${assets.length > 0 ? `<button class="btn btn-gradient" style="width:auto" onclick="openNewAbTest()">+ טסט חדש</button>` : ''}
+    </div>
+
+    ${tests.length === 0 ? `
+    <div class="card" style="text-align:center;padding:3rem 2rem">
+      <div style="font-size:3rem;margin-bottom:1rem">🧪</div>
+      <h3 style="font-weight:700;margin-bottom:.5rem">אין טסטים עדיין</h3>
+      <p class="text-muted" style="margin-bottom:1.5rem">הגדר A/B test כדי לדעת איזה כותרת / עיצוב / CTA עובד יותר</p>
+      ${assets.length > 0
+        ? `<button class="btn btn-gradient" style="width:auto" onclick="openNewAbTest()">צור טסט ראשון →</button>`
+        : `<p class="text-muted">פרסם דפי נחיתה קודם כדי להתחיל טסטים</p>`}
+    </div>` : `
+    <div style="display:grid;gap:1rem">
+      ${tests.map(t => `
+      <div class="card">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+          <div style="flex:1">
+            <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.25rem">
+              <span style="font-weight:700">${t.hypothesis || 'ללא כותרת'}</span>
+              <span style="font-size:.75rem">${statusLabel[t.status] || t.status}</span>
+            </div>
+            <div class="text-muted" style="font-size:.8rem;margin-bottom:.5rem">
+              משתנה: <strong>${t.variable_tested || '—'}</strong> ·
+              ${new Date(t.created_at).toLocaleDateString('he-IL')}
+              ${t.end_date ? ' → ' + new Date(t.end_date).toLocaleDateString('he-IL') : ''}
+            </div>
+            ${t.result ? `<div style="padding:.5rem .75rem;background:#f0fdf4;border-radius:.375rem;font-size:.875rem;color:#15803d">🏆 ${t.result}</div>` : ''}
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:.5rem">
+            <span style="font-size:.75rem;color:#6366f1">דחיפות: ${urgLabel(t.urgency || 0)}</span>
+            ${t.status === 'running' ? `
+            <button class="btn btn-sm" style="background:#fef9c3;color:#92400e;border:1px solid #fde68a"
+              onclick="concludeAbTest('${t.id}')">סיים טסט</button>` : ''}
+          </div>
+        </div>
+      </div>`).join('')}
+    </div>`}
+
+    <!-- New AB Test Modal -->
+    <div id="ab-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center">
+      <div class="card" style="width:min(540px,92vw);max-height:85vh;overflow-y:auto">
+        <div class="card-title flex items-center justify-between">
+          <span>🧪 טסט חדש</span>
+          <button onclick="closeAbModal()" style="background:none;border:none;font-size:1.25rem;cursor:pointer">✕</button>
+        </div>
+        <form onsubmit="submitAbTest(event)">
+          <div style="display:grid;gap:1rem">
+            <div class="form-group">
+              <label class="form-label">היפותזה — מה אתה בודק?</label>
+              <input id="ab-hypothesis" class="form-input" required maxlength="500"
+                placeholder='לדוגמה: "כותרת שמדגישה תוצאה תמיר יותר מכותרת שמדגישה מחיר"'>
+            </div>
+            <div class="form-group">
+              <label class="form-label">משתנה נבדק</label>
+              <select id="ab-variable" class="form-input" required>
+                <option value="">בחר...</option>
+                ${['headline','cta','image','color','price_display','layout','copy_length'].map(v =>
+                  `<option value="${v}">${{headline:'כותרת',cta:'CTA',image:'תמונה',color:'צבע',price_display:'תצוגת מחיר',layout:'מבנה',copy_length:'אורך טקסט'}[v]||v}</option>`
+                ).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Asset לבדיקה</label>
+              <select id="ab-campaign" class="form-input">
+                <option value="">ללא קישור לasset ספציפי</option>
+                ${assets.map(a => `<option value="${a.id}">${a.title || a.asset_type} (${new Date(a.created_at).toLocaleDateString('he-IL')})</option>`).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">מה קבוע (לא משתנה)</label>
+              <input id="ab-constant" class="form-input" maxlength="300"
+                placeholder="מה לא תשנה במהלך הטסט">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+              <div class="form-group">
+                <label class="form-label">תאריך סיום</label>
+                <input id="ab-end-date" type="date" class="form-input">
+              </div>
+              <div class="form-group">
+                <label class="form-label">דחיפות (1–10)</label>
+                <input id="ab-urgency" type="number" min="1" max="10" class="form-input" value="5">
+              </div>
+            </div>
+          </div>
+          <div id="ab-error" class="form-error" style="display:none;margin-top:.75rem;margin-bottom:.5rem"></div>
+          <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:1rem">
+            <button type="button" onclick="closeAbModal()" class="btn btn-secondary" style="width:auto">ביטול</button>
+            <button type="submit" id="ab-submit" class="btn btn-gradient" style="width:auto">צור טסט</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  `);
+}
+
+function openNewAbTest() {
+  const modal = document.getElementById('ab-modal');
+  if (modal) modal.style.display = 'flex';
+}
+function closeAbModal() {
+  const modal = document.getElementById('ab-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitAbTest(e) {
+  e.preventDefault();
+  const btn   = document.getElementById('ab-submit');
+  const errEl = document.getElementById('ab-error');
+  errEl.style.display = 'none';
+  btn.disabled = true; btn.textContent = 'יוצר...';
+
+  try {
+    const hypothesis   = document.getElementById('ab-hypothesis').value.trim();
+    const variable     = document.getElementById('ab-variable').value;
+    const campaignId   = document.getElementById('ab-campaign').value || null;
+    const constantPart = document.getElementById('ab-constant').value.trim();
+    const endDate      = document.getElementById('ab-end-date').value || null;
+    const urgency      = parseInt(document.getElementById('ab-urgency').value) || 5;
+
+    await sb.from('ab_tests').insert({
+      user_id:          state.user.id,
+      hypothesis,
+      variable_tested:  variable,
+      campaign_id:      campaignId,
+      constant_element: constantPart || null,
+      end_date:         endDate || null,
+      urgency,
+      effort:           5,
+      confidence:       0.5,
+      status:           'running',
+    });
+
+    // Advance onboarding
+    if (!state.onboardingSteps?.has_ab_data) {
+      state.onboardingSteps = { ...(state.onboardingSteps || {}), has_ab_data: true };
+      state.unlockedScreens = computeUnlockedScreens(state.onboardingSteps);
+      await sb.from('onboarding_progress').upsert({
+        user_id: state.user.id,
+        steps: state.onboardingSteps,
+        current_step: 'has_ab_data',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+    }
+
+    closeAbModal();
+    toast('טסט נוצר בהצלחה', 'success');
+    renderAbTests();
+  } catch (err) {
+    errEl.textContent = err.message || 'שגיאה ביצירת טסט';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'צור טסט';
+  }
+}
+
+async function concludeAbTest(testId) {
+  const result = prompt('מה הייתה התוצאה? (כתוב את ה-winner וסיכום קצר)');
+  if (!result) return;
+  try {
+    await sb.from('ab_tests').update({ status: 'completed', result, updated_at: new Date().toISOString() })
+      .eq('id', testId).eq('user_id', state.user.id);
+    toast('טסט הסתיים ✅', 'success');
+    renderAbTests();
+  } catch (err) {
+    toast(err.message || 'שגיאה', 'error');
+  }
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
@@ -2727,5 +3322,14 @@ window.saveBizProfile        = saveBizProfile;
 window.openLandingPageCreator = openLandingPageCreator;
 window.createVariation       = createVariation;
 window.archiveAsset          = archiveAsset;
+window.openAddMetrics        = openAddMetrics;
+window.closeMetricsModal     = closeMetricsModal;
+window.submitMetrics         = submitMetrics;
+window.recalcEconomics       = recalcEconomics;
+window.startCopyGeneration   = startCopyGeneration;
+window.openNewAbTest         = openNewAbTest;
+window.closeAbModal          = closeAbModal;
+window.submitAbTest          = submitAbTest;
+window.concludeAbTest        = concludeAbTest;
 
 boot();
