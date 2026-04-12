@@ -56,6 +56,9 @@ function shell(content) {
   const nav = [
     { id: 'overview',      icon: '📊', label: 'Overview' },
     { id: 'users',         icon: '👥', label: 'Users' },
+    { id: 'assets-mgmt',   icon: '🚀', label: 'Assets' },
+    { id: 'onboarding-mgmt', icon: '🎯', label: 'Onboarding' },
+    { id: 'metrics-mgmt',  icon: '📈', label: 'Metrics' },
     { id: 'billing',       icon: '💰', label: 'Billing' },
     { id: 'system',        icon: '🖥️',  label: 'System' },
     { id: 'audit',         icon: '📋', label: 'Audit Log' },
@@ -696,14 +699,17 @@ async function updateTicketStatus(id, status) {
 // ── Router ────────────────────────────────────────────────────────────────────
 async function render() {
   const routes = {
-    overview:       renderOverview,
-    users:          renderUsers,
-    'user-detail':  renderUserDetail,
-    billing:        renderBilling,
-    system:         renderSystem,
-    audit:          renderAudit,
-    'updates-mgmt': renderAdminUpdates,
-    'support-mgmt': renderAdminSupport,
+    overview:          renderOverview,
+    users:             renderUsers,
+    'user-detail':     renderUserDetail,
+    'assets-mgmt':     renderAdminAssets,
+    'onboarding-mgmt': renderAdminOnboarding,
+    'metrics-mgmt':    renderAdminMetrics,
+    billing:           renderBilling,
+    system:            renderSystem,
+    audit:             renderAudit,
+    'updates-mgmt':    renderAdminUpdates,
+    'support-mgmt':    renderAdminSupport,
   };
   const fn = routes[state.page] || renderOverview;
   await fn().catch(e => { if (e.message !== 'forbidden') console.error(e); });
@@ -750,5 +756,182 @@ window.renderAdminSupport   = renderAdminSupport;
 window.selectTicket         = selectTicket;
 window.updateTicketStatus   = updateTicketStatus;
 window.supportAdminState    = supportAdminState;
+
+// ── Admin Assets ──────────────────────────────────────────────────────────────
+let assetsAdminState = { page: 1, status: '', items: [], total: 0, limit: 25 };
+
+async function renderAdminAssets() {
+  shell('<div style="padding:2rem;color:#94a3b8">טוען assets...</div>');
+  const s = assetsAdminState;
+  try {
+    const params = { view: 'assets', page: s.page, limit: s.limit };
+    if (s.status) params.status = s.status;
+    const res = await api('GET', 'admin-assets', null, params);
+    s.items = res.assets || [];
+    s.total = res.total  || 0;
+  } catch (e) { toast(e.message, 'error'); }
+  _drawAssetsPage();
+}
+
+function _drawAssetsPage() {
+  const s = assetsAdminState;
+  const statusOpts = ['', 'published', 'draft', 'archived', 'failed'];
+  const statusLabel = { published: '🟢 פורסם', draft: '🟡 טיוטה', archived: '⚫ ארכיון', failed: '🔴 נכשל', '': 'הכל' };
+
+  shell(`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:.75rem">
+      <h1 style="font-size:1.5rem;font-weight:800">🚀 Assets</h1>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        ${statusOpts.map(st => `
+          <button onclick="assetsFilterStatus('${st}')"
+            style="padding:.35rem .75rem;border-radius:9999px;border:1px solid ${s.status===st?'#6366f1':'#e2e8f0'};
+              background:${s.status===st?'#6366f1':'white'};color:${s.status===st?'white':'#374151'};
+              cursor:pointer;font-size:.8rem">
+            ${statusLabel[st]}
+          </button>`).join('')}
+      </div>
+    </div>
+
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:.75rem;overflow:hidden">
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="background:#f8fafc;border-bottom:1px solid #e2e8f0">
+            ${['משתמש','סוג','כותרת','סטטוס','תאריך',''].map(h =>
+              `<th style="padding:.6rem 1rem;text-align:right;font-size:.78rem;font-weight:600;color:#6b7280">${h}</th>`
+            ).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${s.items.length === 0 ? `<tr><td colspan="6" style="padding:2rem;text-align:center;color:#9ca3af">אין תוצאות</td></tr>` :
+          s.items.map(a => {
+            const sc = { published:'#22c55e', draft:'#f59e0b', archived:'#94a3b8', failed:'#ef4444' }[a.status] || '#94a3b8';
+            return `<tr style="border-bottom:1px solid #f1f5f9">
+              <td style="padding:.6rem 1rem;font-size:.82rem">${a.userEmail || a.user_id.slice(0,8)+'…'}</td>
+              <td style="padding:.6rem 1rem;font-size:.82rem">${a.asset_type || '—'}</td>
+              <td style="padding:.6rem 1rem;font-size:.82rem;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.title || '—'}</td>
+              <td style="padding:.6rem 1rem">
+                <span style="font-size:.72rem;padding:.2rem .6rem;border-radius:9999px;background:${sc}20;color:${sc}">${a.status}</span>
+              </td>
+              <td style="padding:.6rem 1rem;font-size:.78rem;color:#6b7280">${new Date(a.created_at).toLocaleDateString('he-IL')}</td>
+              <td style="padding:.6rem 1rem">
+                ${a.preview_url ? `<a href="${a.preview_url}" target="_blank" style="font-size:.78rem;color:#6366f1">צפה</a>` : ''}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:1rem;font-size:.85rem;color:#6b7280">
+      <span>סה"כ ${s.total} assets · עמוד ${s.page} מתוך ${Math.ceil(s.total / s.limit) || 1}</span>
+      <div style="display:flex;gap:.5rem">
+        <button onclick="assetsPage(${s.page - 1})" ${s.page <= 1 ? 'disabled' : ''} style="padding:.35rem .75rem;border:1px solid #e2e8f0;border-radius:.375rem;cursor:pointer;background:white">← הקודם</button>
+        <button onclick="assetsPage(${s.page + 1})" ${s.page >= Math.ceil(s.total/s.limit) ? 'disabled' : ''} style="padding:.35rem .75rem;border:1px solid #e2e8f0;border-radius:.375rem;cursor:pointer;background:white">הבא →</button>
+      </div>
+    </div>
+  `);
+}
+function assetsFilterStatus(st) { assetsAdminState.status = st; assetsAdminState.page = 1; renderAdminAssets(); }
+function assetsPage(p) { if (p < 1) return; assetsAdminState.page = p; renderAdminAssets(); }
+
+// ── Admin Onboarding ──────────────────────────────────────────────────────────
+async function renderAdminOnboarding() {
+  shell('<div style="padding:2rem;color:#94a3b8">טוען onboarding...</div>');
+  let rows = [];
+  try {
+    rows = await api('GET', 'admin-assets', null, { view: 'onboarding', limit: 100 });
+  } catch (e) { toast(e.message, 'error'); }
+
+  const stepKeys = ['profile_started','profile_complete','first_asset','multiple_assets','has_metrics','has_ab_data'];
+  const stepIcon = (val) => val ? '✅' : '⬜';
+
+  shell(`
+    <h1 style="font-size:1.5rem;font-weight:800;margin-bottom:1.5rem">🎯 Onboarding Progress</h1>
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:.75rem;overflow:auto">
+      <table style="width:100%;border-collapse:collapse;min-width:700px">
+        <thead>
+          <tr style="background:#f8fafc;border-bottom:1px solid #e2e8f0">
+            <th style="padding:.6rem 1rem;text-align:right;font-size:.78rem;font-weight:600;color:#6b7280">משתמש</th>
+            ${stepKeys.map(k => `<th style="padding:.6rem .5rem;text-align:center;font-size:.7rem;font-weight:600;color:#6b7280">${k.replace('_','<br>')}</th>`).join('')}
+            <th style="padding:.6rem 1rem;text-align:center;font-size:.78rem;font-weight:600;color:#6b7280">שלב</th>
+            <th style="padding:.6rem 1rem;text-align:center;font-size:.78rem;font-weight:600;color:#6b7280">עדכון</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.length === 0 ? `<tr><td colspan="${stepKeys.length+3}" style="padding:2rem;text-align:center;color:#9ca3af">אין נתונים</td></tr>` :
+          rows.map(r => `
+            <tr style="border-bottom:1px solid #f1f5f9">
+              <td style="padding:.6rem 1rem;font-size:.82rem">${r.userEmail || r.user_id.slice(0,8)+'…'}</td>
+              ${stepKeys.map(k => `<td style="padding:.5rem;text-align:center;font-size:1rem">${stepIcon(r.steps?.[k])}</td>`).join('')}
+              <td style="padding:.6rem 1rem;text-align:center;font-size:.78rem;color:#6366f1;font-weight:600">${r.current_step || '—'}</td>
+              <td style="padding:.6rem 1rem;text-align:center;font-size:.75rem;color:#9ca3af">${new Date(r.updated_at).toLocaleDateString('he-IL')}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:.75rem;font-size:.82rem;color:#9ca3af">סה"כ ${rows.length} משתמשים עם onboarding data</div>
+  `);
+}
+
+// ── Admin Metrics Summary ─────────────────────────────────────────────────────
+async function renderAdminMetrics() {
+  shell('<div style="padding:2rem;color:#94a3b8">טוען metrics...</div>');
+  let rows = [];
+  try {
+    rows = await api('GET', 'admin-assets', null, { view: 'metrics' });
+  } catch (e) { toast(e.message, 'error'); }
+
+  const totalClicks = rows.reduce((s, r) => s + r.clicks, 0);
+  const totalConv   = rows.reduce((s, r) => s + r.conversions, 0);
+  const totalRev    = rows.reduce((s, r) => s + Number(r.revenue), 0);
+
+  shell(`
+    <h1 style="font-size:1.5rem;font-weight:800;margin-bottom:1rem">📈 Metrics Summary</h1>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem">
+      ${[
+        ['סה"כ קליקים', totalClicks.toLocaleString(), '#6366f1'],
+        ['סה"כ המרות',  totalConv.toLocaleString(),   '#22c55e'],
+        ['סה"כ הכנסה',  '₪'+totalRev.toLocaleString(), '#16a34a'],
+      ].map(([label, val, color]) => `
+        <div style="background:white;border:1px solid #e2e8f0;border-radius:.75rem;padding:1rem;text-align:center">
+          <div style="font-size:1.5rem;font-weight:800;color:${color}">${val}</div>
+          <div style="font-size:.8rem;color:#6b7280;margin-top:.25rem">${label}</div>
+        </div>`).join('')}
+    </div>
+
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:.75rem;overflow:hidden">
+      <table style="width:100%;border-collapse:collapse">
+        <thead>
+          <tr style="background:#f8fafc;border-bottom:1px solid #e2e8f0">
+            ${['משתמש','קליקים','המרות','הכנסה','Conv%','רשומות'].map(h =>
+              `<th style="padding:.6rem 1rem;text-align:right;font-size:.78rem;font-weight:600;color:#6b7280">${h}</th>`
+            ).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.length === 0 ? `<tr><td colspan="6" style="padding:2rem;text-align:center;color:#9ca3af">אין נתונים</td></tr>` :
+          rows.map(r => {
+            const conv = r.clicks > 0 ? (r.conversions/r.clicks*100).toFixed(1)+'%' : '—';
+            return `<tr style="border-bottom:1px solid #f1f5f9">
+              <td style="padding:.6rem 1rem;font-size:.82rem">${r.userEmail || r.user_id.slice(0,8)+'…'}</td>
+              <td style="padding:.6rem 1rem;font-size:.82rem;color:#6366f1;font-weight:600">${r.clicks.toLocaleString()}</td>
+              <td style="padding:.6rem 1rem;font-size:.82rem;color:#22c55e;font-weight:600">${r.conversions}</td>
+              <td style="padding:.6rem 1rem;font-size:.82rem;color:#16a34a;font-weight:600">₪${Number(r.revenue).toLocaleString()}</td>
+              <td style="padding:.6rem 1rem;font-size:.82rem">${conv}</td>
+              <td style="padding:.6rem 1rem;font-size:.78rem;color:#9ca3af">${r.entries}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `);
+}
+
+window.renderAdminAssets    = renderAdminAssets;
+window.assetsFilterStatus   = assetsFilterStatus;
+window.assetsPage           = assetsPage;
+window.renderAdminOnboarding = renderAdminOnboarding;
+window.renderAdminMetrics   = renderAdminMetrics;
 
 boot();
