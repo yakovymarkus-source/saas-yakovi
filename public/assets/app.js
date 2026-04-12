@@ -1845,17 +1845,19 @@ async function boot() {
     state.accessToken = session.access_token;
 
     try {
-      const [profile, sub, onboardingRes] = await Promise.all([
+      // Single parallel round-trip for all boot data
+      const [profile, sub, onboardingRes, bpRes, campsRes] = await Promise.all([
         sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(r => r.data),
         sb.from('subscriptions').select('plan,status,payment_status').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
         sb.from('onboarding_progress').select('steps,current_step').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
+        sb.from('business_profiles').select('*').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
+        sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id).then(r => r.data),
       ]);
-      state.profile      = profile || {};
-      state.subscription = sub    || { plan: 'free' };
 
-      // Load business profile and onboarding steps
-      const bpRes = await sb.from('business_profiles').select('*').eq('user_id', session.user.id).maybeSingle();
-      state.businessProfile = bpRes.data || null;
+      state.profile         = profile || {};
+      state.subscription    = sub     || { plan: 'free' };
+      state.businessProfile = bpRes   || null;
+      state.campaigns       = campsRes || [];
 
       // Compute unlocked screens from onboarding steps
       const steps = onboardingRes?.steps || {
@@ -1867,9 +1869,6 @@ async function boot() {
       };
       state.onboardingSteps  = steps;
       state.unlockedScreens  = computeUnlockedScreens(steps);
-
-      const { data: camps } = await sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id);
-      state.campaigns = camps || [];
     } catch {
       state.profile      = {};
       state.subscription = { plan: 'free' };
