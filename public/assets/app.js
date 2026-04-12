@@ -2733,9 +2733,14 @@ async function renderPerformance() {
   const hasAny = assets.some(a => a.metrics);
 
   renderShell(`
-    <div class="page-header flex items-center justify-between">
-      <h1 class="page-title">ביצועים</h1>
-      <p class="page-subtitle">מדדי CTR, המרות והכנסה לכל דף נחיתה</p>
+    <div class="page-header flex items-center justify-between" style="flex-wrap:wrap;gap:1rem">
+      <div>
+        <h1 class="page-title">ביצועים</h1>
+        <p class="page-subtitle">מדדי CTR, המרות והכנסה לכל דף נחיתה</p>
+      </div>
+      <button class="btn btn-secondary" style="width:auto;display:flex;align-items:center;gap:.5rem" onclick="syncPerformance()" id="sync-perf-btn">
+        <span>↻</span> סנכרן מ-Ads
+      </button>
     </div>
 
     ${!hasAny ? `
@@ -2888,6 +2893,38 @@ async function submitMetrics(e) {
     errEl.textContent = err.message || 'שגיאה בשמירה';
     errEl.style.display = 'block';
     btn.disabled = false; btn.textContent = 'שמור';
+  }
+}
+
+async function syncPerformance() {
+  const btn = document.getElementById('sync-perf-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner" style="width:1rem;height:1rem;border-width:2px"></span> מסנכרן...'; }
+
+  try {
+    const res = await api('POST', 'sync-performance', { provider: 'all', datePreset: 'last_30d' });
+    const succeeded = (res.synced || []).filter(s => !s.skipped);
+    const skipped   = (res.synced || []).filter(s => s.skipped);
+
+    if (succeeded.length > 0) {
+      const providers = succeeded.map(s => s.provider === 'google_ads' ? 'Google Ads' : 'Meta').join(', ');
+      toast(`סונכרן מ-${providers}`, 'success');
+      // advance onboarding locally
+      if (!state.onboardingSteps?.has_metrics) {
+        state.onboardingSteps = { ...(state.onboardingSteps || {}), has_metrics: true };
+        state.unlockedScreens = computeUnlockedScreens(state.onboardingSteps);
+      }
+      renderPerformance();
+    } else if (skipped.length > 0) {
+      const reasons = skipped.map(s => {
+        if (s.reason === 'not_connected') return `${s.provider === 'google_ads' ? 'Google Ads' : 'Meta'} לא מחובר`;
+        return s.error || 'שגיאה';
+      }).join(', ');
+      toast(reasons, 'warning');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<span>↻</span> סנכרן מ-Ads'; }
+    }
+  } catch (err) {
+    toast(err.message || 'שגיאת סנכרון', 'error');
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span>↻</span> סנכרן מ-Ads'; }
   }
 }
 
@@ -3325,6 +3362,7 @@ window.archiveAsset          = archiveAsset;
 window.openAddMetrics        = openAddMetrics;
 window.closeMetricsModal     = closeMetricsModal;
 window.submitMetrics         = submitMetrics;
+window.syncPerformance       = syncPerformance;
 window.recalcEconomics       = recalcEconomics;
 window.startCopyGeneration   = startCopyGeneration;
 window.openNewAbTest         = openNewAbTest;

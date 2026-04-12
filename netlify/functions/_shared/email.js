@@ -168,6 +168,47 @@ ${WRAPPER_CLOSE}`,
   });
 }
 
+// 6. ליד חדש — התראה לבעל העסק
+async function sendNewLeadAdmin({ to, leadName, leadPhone, leadEmail, businessName, assetTitle }) {
+  const contactLines = [
+    leadName  ? `<p><strong>שם:</strong> ${leadName}</p>`   : '',
+    leadPhone ? `<p><strong>טלפון:</strong> <a href="tel:${leadPhone}" style="color:#111">${leadPhone}</a></p>` : '',
+    leadEmail ? `<p><strong>מייל:</strong> <a href="mailto:${leadEmail}" style="color:#111">${leadEmail}</a></p>` : '',
+  ].filter(Boolean).join('');
+
+  return sendEmail({
+    to,
+    subject: `ליד חדש הגיע — ${leadName || leadPhone || leadEmail}`,
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">🎯 ליד חדש!</h2>
+<p>מישהו השאיר פרטים דרך <strong>${assetTitle || 'דף הנחיתה'}</strong>${businessName ? ` של ${businessName}` : ''}.</p>
+<div style="background:#f8fafc;border-right:4px solid #111;padding:16px 20px;border-radius:0 8px 8px 0;margin:20px 0;">
+${contactLines}
+</div>
+${btn(APP_URL(), 'צפה בכל הלידים')}
+<p style="font-size:13px;color:#666;">ממליצים ליצור קשר תוך שעה — הסיכויי ההמרה גבוהים משמעותית.</p>
+${WRAPPER_CLOSE}`,
+  });
+}
+
+// 7. תגובה אוטומטית ללד — אישור קבלה
+async function sendLeadAutoReply({ to, leadName, businessName, assetTitle }) {
+  const greeting = leadName ? `היי ${leadName},` : 'שלום,';
+  const biz = businessName || 'העסק';
+
+  return sendEmail({
+    to,
+    subject: `קיבלנו את הפרטים שלך — נחזור אליך בקרוב`,
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">תודה! 🙌</h2>
+<p>${greeting}</p>
+<p>הפרטים שלך הגיעו אלינו בהצלחה דרך <strong>${assetTitle || 'דף הנחיתה'}</strong>.</p>
+<p>הצוות של <strong>${biz}</strong> יצור איתך קשר בהקדם האפשרי.</p>
+<p style="margin-top:24px;font-size:13px;color:#666;">קיבלת מייל זה כי מילאת טופס פנייה. לא ביקשת? פשוט התעלם.</p>
+${WRAPPER_CLOSE}`,
+  });
+}
+
 module.exports = {
   sendEmail,
   sendWelcome,
@@ -178,4 +219,6 @@ module.exports = {
   sendActivationEmail,
   sendAdminPaymentAlert,
   sendSyncCompleted,
+  sendNewLeadAdmin,
+  sendLeadAutoReply,
 };

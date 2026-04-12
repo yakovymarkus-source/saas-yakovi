@@ -35,8 +35,9 @@
  *   See bottom of this file.
  */
 
-const { getAdminClient }        = require('./_shared/supabase');
-const { createRequestContext }  = require('./_shared/observability');
+const { getAdminClient }              = require('./_shared/supabase');
+const { createRequestContext }        = require('./_shared/observability');
+const { sendNewLeadAdmin, sendLeadAutoReply } = require('./_shared/email');
 
 // ── UUID validation ───────────────────────────────────────────────────────────
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -182,7 +183,7 @@ exports.handler = async (event) => {
   // ── Resolve user_id from asset_id ─────────────────────────────────────────
   const { data: asset, error: assetError } = await supabase
     .from('generated_assets')
-    .select('user_id, status')
+    .select('user_id, status, title')
     .eq('id', assetId)
     .eq('status', 'active')
     .maybeSingle();
@@ -235,6 +236,39 @@ exports.handler = async (event) => {
   }
 
   console.log(`[submit-lead] lead saved: ${lead.id} → user ${userId} via asset ${assetId}`);
+
+  // ── Fire-and-forget emails ────────────────────────────────────────────────
+  // Fetch owner email + business name in parallel (best-effort, never block response)
+  Promise.all([
+    supabase.from('profiles').select('email, name').eq('id', userId).maybeSingle(),
+    supabase.from('business_profiles').select('business_name').eq('user_id', userId).maybeSingle(),
+  ]).then(([profileRes, bizRes]) => {
+    const ownerEmail   = profileRes.data?.email   || null;
+    const businessName = bizRes.data?.business_name || null;
+    const assetTitle   = asset.title || 'דף נחיתה';
+
+    // Notify the landing page owner
+    if (ownerEmail) {
+      sendNewLeadAdmin({
+        to: ownerEmail,
+        leadName:  name,
+        leadPhone: phone,
+        leadEmail: email,
+        businessName,
+        assetTitle,
+      }).catch(e => console.warn('[submit-lead] admin email failed:', e.message));
+    }
+
+    // Auto-reply to the lead (only if they provided an email)
+    if (email) {
+      sendLeadAutoReply({
+        to:         email,
+        leadName:   name,
+        businessName,
+        assetTitle,
+      }).catch(e => console.warn('[submit-lead] auto-reply failed:', e.message));
+    }
+  }).catch(e => console.warn('[submit-lead] email lookup failed:', e.message));
 
   // ── Return success ─────────────────────────────────────────────────────────
   // If request came from a browser form (not fetch/JSON), redirect to thank-you
