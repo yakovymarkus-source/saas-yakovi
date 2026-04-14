@@ -59,7 +59,7 @@ const routes = {
 function computeUnlockedScreens(steps) {
   const screens = new Set(['dashboard', 'business-profile', 'landing-pages']);
   if (!steps) return screens;
-  if (steps.first_asset)      screens.add('recommendations');
+  if (steps.first_asset)      { screens.add('recommendations'); screens.add('leads'); }
   if (steps.multiple_assets)  screens.add('copy');
   if (steps.has_metrics)      screens.add('performance');
   if (steps.has_ab_data)      { screens.add('ab-tests'); screens.add('economics'); }
@@ -81,6 +81,8 @@ function navigate(page, params = {}) {
   if (page === 'updates') state.updatesCount = 0;
   state.currentPage = page;
   Object.assign(state, params);
+  // Update URL hash so page survives refresh
+  window.location.hash = page;
   render();
 }
 
@@ -256,7 +258,7 @@ function renderShell(content) {
       header: 'נכסים שיווקיים',
       items: [
         { id: 'campaigns', icon: '🎯', label: 'נכסים שיווקיים', always: true },
-        { id: 'leads',     icon: '📥', label: 'לידים',          always: true },
+        { id: 'leads',     icon: '📥', label: 'לידים',          unlock: 'leads' },
       ],
     },
     {
@@ -992,8 +994,8 @@ async function renderIntegrations() {
               ${integ.last_sync_at ? `<div class="text-xs text-muted">סנכרון: ${new Date(integ.last_sync_at).toLocaleString('he-IL')}</div>` : ''}
               ${integ.last_error   ? `<div class="text-xs" style="color:#ef4444;margin-top:0.25rem">שגיאה: ${integ.last_error}</div>` : ''}
               ${(integ.connection_status === 'error' || integ.connection_status === 'expired')
-                ? `<button class="btn btn-sm btn-primary mt-2" onclick="connectIntegration('${def.provider}')">חבר מחדש</button>` : ''}
-            ` : `<button class="btn btn-primary" onclick="connectIntegration('${def.provider}')">חבר</button>`}
+                ? `<button class="btn btn-sm btn-primary mt-2" id="connect-btn-${def.provider}" onclick="connectIntegration('${def.provider}')">חבר מחדש</button>` : ''}
+            ` : `<button class="btn btn-primary" id="connect-btn-${def.provider}" onclick="connectIntegration('${def.provider}')">חבר</button>`}
           </div>`;
       }).join('')}
     </div>
@@ -1010,15 +1012,24 @@ async function renderIntegrations() {
 }
 
 async function connectIntegration(provider) {
+  // Show immediate feedback — Netlify cold start can take 10-30s
+  const btn = document.getElementById(`connect-btn-${provider}`);
+  if (btn) { btn.disabled = true; btn.textContent = 'מתחבר...'; }
+  toast('מתחבר — אנא המתן מספר שניות...', 'info');
+
   const { data: { session } } = await sb.auth.getSession();
   const userId = session?.user?.id;
-  if (!userId) { toast('עליך להיות מחובר', 'error'); return; }
+  if (!userId) {
+    if (btn) { btn.disabled = false; btn.textContent = 'חבר'; }
+    toast('עליך להיות מחובר', 'error'); return;
+  }
 
   let nonce;
   try {
     const res = await api('POST', 'oauth-nonce', { provider });
     nonce = res.nonce;
   } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'חבר'; }
     toast('שגיאה ביצירת חיבור: ' + (err.message || 'נסה שוב'), 'error');
     return;
   }
@@ -1874,6 +1885,9 @@ function resolveInitialPage() {
   const params = new URLSearchParams(window.location.search);
   if (params.has('success') || params.has('canceled') || params.has('session_id')) return 'billing';
   if (params.has('connected') || (params.has('error') && window.location.search)) return 'integrations';
+  // Restore page from URL hash on refresh
+  const hash = window.location.hash.slice(1);
+  if (hash && routes[hash]) return hash;
   return 'dashboard';
 }
 
@@ -2075,7 +2089,7 @@ function initCampaignerChat() {
       <div class="chat-welcome">
         <div class="chat-welcome-icon">🧠</div>
         <h3>Campaigner AI</h3>
-        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות נכסים שיווקיים מנצחים מאפס: מחקר שוק, תסריטי מודעות, תכנון דפי נחיתה וניתוח ביצועי קמפיינים. במה נתחיל היום?</p>
+        <p>שלום! אני הייעוץ האסטרטגי שלך. שאל אותי על ביצועי קמפיינים, תקציב, CTR, ROI, חקר שוק וכל שאלה שיווקית. לבניית נכסים (דפי נחיתה, קריאייטיב, קופי) — עבור ל<strong>מחולל התכנים</strong> בתפריט.</p>
         <div class="chat-knowledge-badge">
           <span class="chat-knowledge-dot"></span>
           מנוע ידע שיווקי פעיל
@@ -2275,7 +2289,7 @@ function clearChatHistory() {
       <div class="chat-welcome">
         <div class="chat-welcome-icon">🧠</div>
         <h3>Campaigner AI</h3>
-        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות נכסים שיווקיים מנצחים מאפס: מחקר שוק, תסריטי מודעות, תכנון דפי נחיתה וניתוח ביצועי קמפיינים. במה נתחיל היום?</p>
+        <p>שלום! אני הייעוץ האסטרטגי שלך. שאל אותי על ביצועי קמפיינים, תקציב, CTR, ROI, חקר שוק וכל שאלה שיווקית. לבניית נכסים (דפי נחיתה, קריאייטיב, קופי) — עבור ל<strong>מחולל התכנים</strong> בתפריט.</p>
         <div class="chat-knowledge-badge">
           <span class="chat-knowledge-dot"></span>
           מנוע ידע שיווקי פעיל

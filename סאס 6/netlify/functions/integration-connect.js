@@ -28,7 +28,7 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'GET') {
       const { data, error } = await sb
         .from('user_integrations')
-        .select('provider, account_id, property_id, metadata, created_at, updated_at')
+        .select('provider, account_id, account_name, property_id, metadata, connection_status, last_sync_at, last_error, created_at, updated_at')
         .eq('user_id', user.id);
 
       if (error) throw new AppError({ code: 'DB_READ_FAILED', userMessage: 'טעינת האינטגרציות נכשלה', devMessage: error.message, status: 500 });

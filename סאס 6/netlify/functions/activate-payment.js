@@ -39,18 +39,25 @@ exports.handler = async (event) => {
 
     await writeAudit({ userId: admin.id, action: 'payment.activate', targetType: 'user', targetId: userId, metadata: { plan }, ip: context.ip, requestId: context.requestId });
 
-    // Fetch user profile for email
+    // Fetch user profile for email; fall back to auth.users if profile.email is null
     const { data: profile } = await sb.from('profiles')
       .select('name, email')
       .eq('id', userId)
       .maybeSingle();
 
-    if (profile?.email) {
-      await sendActivationEmail({
-        to:        profile.email,
-        name:      profile.name,
-        planLabel: PLANS[plan]?.label || plan,
-      }).catch(e => console.warn('[activate-payment] email failed:', e.message));
+    let emailTo = profile?.email;
+    if (!emailTo) {
+      const { data: authUser } = await sb.auth.admin.getUserById(userId);
+      emailTo = authUser?.user?.email || null;
+    }
+
+    if (emailTo) {
+      const emailErr = await sendActivationEmail({ to: emailTo })
+        .then(() => null)
+        .catch(e => e);
+      if (emailErr) console.error('[activate-payment] email failed:', emailErr.message);
+    } else {
+      console.warn('[activate-payment] no email address found for user', userId);
     }
 
     await writeRequestLog(buildLogPayload(context, 'info', 'payment_activated', {
