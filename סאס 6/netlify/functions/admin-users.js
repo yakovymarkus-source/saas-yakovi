@@ -57,7 +57,7 @@ exports.handler = async (event) => {
         .select('owner_user_id')
         .in('owner_user_id', userIds),
 
-      sb.rpc('admin_last_active', { p_user_ids: userIds }).catch(() => ({ data: [] })),
+      Promise.resolve(sb.rpc('admin_last_active', { p_user_ids: userIds })).catch(() => ({ data: [] })),
     ]);
 
     // Build lookup maps

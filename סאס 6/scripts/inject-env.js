@@ -8,10 +8,30 @@
 
 'use strict';
 
-const fs   = require('node:fs');
-const path = require('node:path');
+const fs     = require('node:fs');
+const path   = require('node:path');
+const crypto = require('node:crypto');
+
+// ── Build hash — short SHA based on content of all JS/CSS assets ──────────────
+function buildHash() {
+  const assetDir   = path.resolve(__dirname, '..', 'public');
+  const assetFiles = [
+    'assets/app.js', 'assets/app.css', 'assets/chat.css',
+    'admin/app.js',  'admin/app.css',
+  ];
+  const h = crypto.createHash('sha256');
+  for (const f of assetFiles) {
+    const full = path.join(assetDir, f);
+    if (fs.existsSync(full)) h.update(fs.readFileSync(full));
+  }
+  return h.digest('hex').slice(0, 10);
+}
+
+const BUILD_HASH = buildHash();
+process.stdout.write(`[inject-env] Build hash: ${BUILD_HASH}\n`);
 
 const VARS = {
+  BUILD_HASH: BUILD_HASH,
   SUPABASE_URL:          process.env.SUPABASE_URL          || '',
   SUPABASE_ANON_KEY:     process.env.SUPABASE_ANON_KEY     || '',
   GOOGLE_OAUTH_CLIENT_ID:process.env.GOOGLE_OAUTH_CLIENT_ID|| '',
@@ -28,8 +48,8 @@ const HTML_FILES = [
   path.resolve(__dirname, '..', 'public', 'admin', 'index.html'),
 ];
 
-// Admin page only needs these two vars
-const ADMIN_VARS = new Set(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
+// Admin page only needs these vars (BUILD_HASH always included for both)
+const ADMIN_VARS = new Set(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'BUILD_HASH']);
 
 let allMissing = new Set();
 
@@ -41,7 +61,7 @@ for (const HTML_FILE of HTML_FILES) {
     if (isAdmin && !ADMIN_VARS.has(key)) continue;
     const safe = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     html = html.replaceAll(`%%${key}%%`, safe);
-    if (!value) allMissing.add(key);
+    if (!value && key !== 'BUILD_HASH') allMissing.add(key);
   }
 
   fs.writeFileSync(HTML_FILE, html, 'utf8');

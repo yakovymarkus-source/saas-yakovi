@@ -35,12 +35,15 @@ const { CAPABILITIES } = require('./providers/contract');
 // ── Prompt builders — one per capability ──────────────────────────────────────
 
 const PROMPT_BUILDERS = {
+  // ── Text / analysis — OpenAI ─────────────────────────────────────────────────
   [CAPABILITIES.AD_COPY]:           require('./prompt-builders/ad-copy').buildAdCopyPrompt,
   [CAPABILITIES.ANALYSIS_SUMMARY]:  require('./prompt-builders/analysis').buildAnalysisPrompt,
   [CAPABILITIES.ISSUE_EXPLANATION]: require('./prompt-builders/issue-explanation').buildIssueExplanationPrompt,
-  [CAPABILITIES.LANDING_PAGE]:      require('./prompt-builders/landing-page').buildLandingPagePrompt,
   [CAPABILITIES.ITERATION_ADVICE]:  require('./prompt-builders/iteration-advice').buildIterationAdvicePrompt,
-  // CAMPAIGN_STRATEGY and IMAGE_GENERATION: add prompt builders when needed
+  // ── Visual / structured — Claude (Anthropic) ─────────────────────────────────
+  [CAPABILITIES.LANDING_PAGE]:      require('./prompt-builders/landing-page').buildLandingPagePrompt,
+  [CAPABILITIES.AD_CREATIVE]:       require('./prompt-builders/ad-creative').buildAdCreativePrompt,
+  // CAMPAIGN_STRATEGY, IMAGE_GENERATION: add prompt builders when needed
 };
 
 // ── Transient errors that warrant a single retry ──────────────────────────────

@@ -53,6 +53,9 @@ const INTENT_PATTERNS = [
   { intent: 'economics', patterns: /\b(כלכלה|CAC|LTV|CPL|cac|ltv|cpl|עלות ליד|break.?even|רווחיות|כמה להמיר|payback|economics|feasib)\b/i },
   { intent: 'test',      patterns: /\b(בדיקה|a\/b|ab test|וריאציה|ניסוי|מה לבדוק|hypothesis|variant|control)\b/i },
   { intent: 'copy',      patterns: /\b(כתוב|קופי|copy|מודעה|ad text|creative text|כותרת|headline|טקסט|מסר|נוסח)\b/i },
+  { intent: 'creative',  patterns: /\b(קריאייטיב|creative brief|ויזואל|visual|עיצוב מודעה|תמונה למודעה|creative|brief|מה לשים בתמונה|תמונה לקמפיין|image prompt)\b/i },
+  { intent: 'landing',   patterns: /\b(דף נחיתה|landing page|LP|לנדינג|עמוד נחיתה|לנד)\b/i },
+  { intent: 'visual',    patterns: /\b(generate html|צור html|html|visual asset|נכס ויזואלי|ad.?card|כרטיס מודעה|באנר מודעה|banner ad|צור באנר)\b/i },
 ];
 
 function detectIntent(message) {
@@ -77,7 +80,7 @@ async function buildContext(userId) {
       .eq('user_id', userId)
       .gte('stale_until', now),
     sb.from('analysis_results')
-      .select('scores, metrics, confidence, created_at')
+      .select('scores, metrics, bottlenecks, confidence, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -123,6 +126,7 @@ async function buildContext(userId) {
     recentAnalysis:  analysisRes.data,
     profileName:     profileRes.data?.name || 'משתמש',
     adaptive:        deriveAdaptiveContext(memoryRaw),
+    memoryRaw,                               // raw loadUserMemory() map — needed by buildMarketingMemory
     globalRaw,
     strategyMemory:  strategyMemory || null,  // Phase 4F
     businessProfile: businessProfile || null, // Phase 4G
@@ -885,14 +889,365 @@ async function generateCopyResponse(context) {
   };
 }
 
+// ── Creative brief generator (Claude) ────────────────────────────────────────
+async function generateCreativeResponse(context) {
+  const { businessProfile, recentAnalysis, strategyMemory, memoryRaw, runningTests, profileName, userId } = context;
+
+  if (!businessProfile || !scoreCompletion(businessProfile)) {
+    return {
+      reply: `🎨 כדי לייצר קריאייטיב ויזואלי אני צריך קודם להכיר את העסק שלך.\n\n` +
+             `ספר לי: **מה אתה מוכר, למי, ומה התוצאה שהלקוח מקבל?**`,
+      quickActions: ['ספר על העסק שלך', 'כתוב קופי למודעה', 'נתח ביצועים'],
+    };
+  }
+
+  // ── Step 1: build marketing memory from all available context sources ───────
+  // recentAnalysis.metrics contains merged computed metrics (ctr, roas, cpc, etc.)
+  // memoryRaw is the raw loadUserMemory() nested map — correct shape for buildMarketingMemory
+  const { buildMarketingMemory } = require('./_shared/marketing-memory');
+  const memory = buildMarketingMemory({
+    businessProfile:  businessProfile,
+    apiCache:         recentAnalysis?.metrics       || null,
+    analysisResults:  recentAnalysis                || null,
+    strategyMemory:   strategyMemory                || null,
+    userIntelligence: memoryRaw                     || null,
+    abTests:          runningTests                  || [],
+  });
+
+  // ── Step 2: build asset-type-specific context pack ───────────────────────────
+  // ad_visual: cold traffic feed — pain > differentiator > message priority
+  const { buildCreativeContext } = require('./_shared/creative-context-pack');
+  const contextPack = buildCreativeContext(memory, 'ad_visual');
+
+  // ── Step 3: build template copy variants to anchor the creative brief ────────
+  const bottleneck = strategyMemory?.persistent_bottlenecks?.[0] || null;
+  const { generateAdCopy } = require('./_shared/ad-copy-generator');
+  const adCopyVariants = generateAdCopy({ businessProfile, bottleneck, platform: 'meta' });
+
+  // ── Step 4: orchestrate — passes memory + contextPack into upgraded prompt ───
+  const aiResult = await orchestrate(
+    CAPABILITIES.AD_CREATIVE,
+    { memory, contextPack, adCopyVariants, platform: 'meta' },
+    { userId },
+  );
+
+  if (aiResult.ok && Array.isArray(aiResult.content?.creatives) && aiResult.content.creatives.length > 0) {
+    const creatives  = aiResult.content.creatives;
+    const decision   = aiResult.content.decision || null;
+
+    let reply = `🎨 **${creatives.length} קונספטים קריאייטיב — ${businessProfile.business_name || profileName}:**\n\n`;
+
+    // Surface the strategic decision so the user sees the creative reasoning
+    if (decision?.primary_emotional_trigger) {
+      reply += `_עוגן רגשי: **${decision.primary_emotional_trigger}**_\n\n`;
+    }
+
+    creatives.forEach((c, i) => {
+      const label = c.variant_name || String.fromCharCode(65 + i);
+      reply += `**${i + 1}. ${label}** — _${c.emotional_angle || ''}_\n`;
+      if (c.visual_strategy)   reply += `🎯 **אסטרטגיה:** ${c.visual_strategy}\n`;
+      if (c.core_scene)        reply += `🖼️ **סצנה:** ${c.core_scene}\n`;
+      if (c.tension_or_contrast) reply += `⚡ **מתח ויזואלי:** ${c.tension_or_contrast}\n`;
+      if (c.text_overlay)      reply += `📝 **טקסט על תמונה:** ${c.text_overlay}\n`;
+      if (c.color_palette)     reply += `🎨 **צבעים:** ${Array.isArray(c.color_palette) ? c.color_palette.join(' · ') : c.color_palette}\n`;
+      if (c.external_image_prompt) reply += `🤖 **Image prompt:**\n> ${c.external_image_prompt}\n`;
+      if (c.designer_notes)    reply += `💡 _${c.designer_notes}_\n`;
+      reply += '\n---\n\n';
+    });
+
+    reply += `📌 **הצעד הבא:** שלח את ה-image prompt לכלי יצירת תמונות (DALL-E, Midjourney, Firefly).`;
+    return {
+      reply,
+      quickActions: ['צור קופי מודעה', 'צור דף נחיתה', 'נתח ביצועים'],
+    };
+  }
+
+  // Fallback
+  return {
+    reply: `🎨 **קריאייטיב ויזואלי — ${businessProfile.business_name || profileName}:**\n\n` +
+           `לא הצלחתי ליצור בריף ויזואלי כרגע. ודא שמפתח Anthropic מוגדר ונסה שנית.\n\n` +
+           `בינתיים, צור קופי טקסט ושתף אותו עם הדיזיינר שלך.`,
+    quickActions: ['כתוב קופי למודעה', 'צור דף נחיתה'],
+  };
+}
+
+// ── Landing page / visual asset generator (HTML pipeline) ────────────────────
+async function generateLandingPageResponse(context) {
+  const { businessProfile, profileName, userId, memoryRaw, recentAnalysis, strategyMemory, runningTests, message } = context;
+
+  if (!businessProfile || !scoreCompletion(businessProfile)) {
+    return {
+      reply: `📄 כדי לבנות דף נחיתה אני צריך קודם להכיר את העסק שלך.\n\n` +
+             `ספר לי: **מה אתה מוכר, מה המחיר, ומה התוצאה שהלקוח מקבל?**`,
+      quickActions: ['ספר על העסק שלך', 'נתח ביצועים'],
+    };
+  }
+
+  // Detect asset type from the user's message
+  let assetType = 'landing_page_html';
+  if (/\b(בנר|banner|באנר)\b/i.test(message))                                 assetType = 'banner_html';
+  else if (/\b(ad.?card|מודעה ריבועית|כרטיס מודעה)\b/i.test(message))         assetType = 'ad_html';
+  else if (/\b(hero|כותרת ראשית|hero.?section|landing.?hero)\b/i.test(message)) assetType = 'landing_hero';
+
+  // Detect iteration request — user wants multiple variants instead of a single asset
+  const isVariationRequest = /\b(וריאציות|variations|variants|גרסאות שונות|כמה גרסאות|3 גרסאות|שלוש גרסאות|כמה וריאציות|3 וריאציות)\b/i.test(message);
+
+  try {
+    // Step 1: Build marketing memory from all available context sources
+    const { buildMarketingMemory } = require('./_shared/marketing-memory');
+    const memory = buildMarketingMemory({
+      businessProfile,
+      apiCache:         recentAnalysis?.metrics ?? null,
+      analysisResults:  recentAnalysis          ?? null,
+      strategyMemory:   strategyMemory          ?? null,
+      userIntelligence: memoryRaw               ?? null,
+      abTests:          runningTests            ?? [],
+    });
+
+    // Step 2: Build landing structure (section list + CTA strategy + hierarchy)
+    const { buildLandingStructure } = require('./_shared/landing-structure-engine');
+    const goal        = memory.current?.primary_goal  || 'leads';
+    const funnelStage = memory.current?.funnel_stage  || 'consideration';
+    const structure   = buildLandingStructure(memory, assetType, goal, funnelStage);
+
+    // Step 2b: Variation mode — generate 3 distinct variants instead of a single asset
+    if (isVariationRequest) {
+      const { selectVariationModes } = require('./_shared/iteration-engine');
+      return await _generateVariants(selectVariationModes(3), memory, structure, assetType, context);
+    }
+
+    // Step 3: Build HTML blueprint (resolved props + layout per section, no HTML yet)
+    const { buildHTMLBlueprint } = require('./_shared/html-blueprint-builder');
+    const blueprint = buildHTMLBlueprint(structure, null, memory);
+
+    // Step 4: Compose full HTML + CSS (self-contained, RTL, mobile-first)
+    // asset_id is not yet known — placeholder will be injected in Step 6 after saveAsset()
+    const { composeHTML } = require('./_shared/html-composer');
+    const composeResult = composeHTML(blueprint);
+
+    // Step 5: Validate — block critical failures, surface warnings
+    const { validateGeneric } = require('./_shared/validators/anti-generic-validator');
+    const { validateHTML }    = require('./_shared/validators/html-validator');
+    const { validateVisual }  = require('./_shared/validators/visual-validator');
+
+    const genericResult = validateGeneric({ blueprint, composeResult, memory });
+    const htmlResult    = validateHTML(composeResult.html, { assetType });
+    const visualResult  = validateVisual({ blueprint, html: composeResult.html, assetType });
+
+    // Block if content or structural validators find critical/major issues
+    if (!genericResult.valid || !htmlResult.valid) {
+      const criticalIssues = [
+        ...genericResult.issues.filter(i => i.severity === 'critical' || i.severity === 'major'),
+        ...htmlResult.issues.filter(i => i.severity === 'critical' || i.severity === 'major'),
+      ].slice(0, 3);
+      const issueLines = criticalIssues.map(i => `• ${i.message}`).join('\n');
+      return {
+        reply: `📄 הדף לא נשמר — נמצאו בעיות איכות שחוסמות פרסום:\n\n${issueLines}\n\n` +
+               `_הוסף מידע עסקי מפורט יותר ונסה שנית._`,
+        quickActions: ['ספר על העסק שלך', 'נתח ביצועים'],
+      };
+    }
+
+    // Collect non-blocking warnings (content + HTML + visual)
+    const allWarnings = [
+      ...genericResult.issues.filter(i => i.severity === 'minor' || i.severity === 'warning'),
+      ...htmlResult.issues.filter(i => i.severity === 'minor' || i.severity === 'warning'),
+      ...visualResult.issues.filter(i => i.severity === 'major' || i.severity === 'minor'),
+    ];
+
+    // Step 6: Save to Supabase Storage + DB, get preview URL
+    // We need the assetId before saving so forms contain the real value.
+    // Strategy: pre-generate the UUID, inject it into HTML, then save with that same ID.
+    const crypto = require('crypto');
+    const pregenId = crypto.randomUUID();
+    const htmlWithAssetId = composeResult.html.replace(/\{\{asset_id\}\}/g, pregenId);
+
+    const { saveAsset } = require('./_shared/asset-storage');
+    const saved = await saveAsset({
+      userId,
+      html:          htmlWithAssetId,
+      composeResult: { ...composeResult, html: htmlWithAssetId },
+      title: businessProfile.business_name
+        ? `${businessProfile.business_name} — ${_assetLabel(assetType)}`
+        : null,
+      _pregenId: pregenId,   // passed through so saveAsset uses this UUID instead of generating a new one
+    });
+
+    // Fire-and-forget: store last generated asset reference for feedback lookups
+    const { storeLastGeneratedAsset } = require('./_shared/feedback-loop');
+    storeLastGeneratedAsset(userId, {
+      asset_id:    saved.assetId,
+      template_id: blueprint.template_id || null,
+      asset_type:  assetType,
+    }).catch(() => {});
+
+    // Fire-and-forget: advance onboarding progress so progressive unlock triggers
+    const { advanceOnboarding } = require('./_shared/product-context');
+    const _sb = getAdminClient();
+    advanceOnboarding(userId, _sb, 'profile_started').catch(() => {});
+    advanceOnboarding(userId, _sb, 'first_asset').catch(() => {});
+    // Count assets to check if multiple_assets threshold reached
+    _sb.from('generated_assets').select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .then(({ count }) => { if ((count || 0) >= 3) advanceOnboarding(userId, _sb, 'multiple_assets').catch(() => {}); })
+      .catch(() => {});
+
+    // Step 7: Build reply with preview link (no raw HTML returned to user)
+    const sectionCount = Array.isArray(structure.sections) ? structure.sections.length : 0;
+    const imageSlots   = saved.metadata?.image_slots ?? 0;
+    const expiry       = new Date(saved.expiresAt).toLocaleDateString('he-IL');
+
+    const visualGradeEmoji = { A: '🟢', B: '🟡', C: '🟠', D: '🔴', F: '🔴' }[visualResult.grade] || '⚪';
+
+    let reply = `📄 **${_assetLabel(assetType)} מוכן — ${businessProfile.business_name || profileName}**\n\n`;
+    reply += `🔗 **קישור לתצוגה מקדימה:**\n\`${saved.previewUrl}\`\n\n`;
+    reply += `📐 **מבנה:** ${sectionCount} סקשנים`;
+    if (imageSlots > 0) reply += ` · ${imageSlots} מקומות תמונה`;
+    reply += `\n${visualGradeEmoji} **ציון ויזואלי:** ${visualResult.combined_score}/100 (דרגה ${visualResult.grade})`;
+    reply += ` · בהירות: ${visualResult.clarity_score} · היררכיה: ${visualResult.hierarchy_score}`;
+    reply += `\n⏳ **תוקף:** ${expiry}\n\n`;
+    reply += `_הדף כולל placeholder לתמונות — הוסף תמונות אמיתיות לפני פרסום._`;
+
+    if (allWarnings.length > 0) {
+      reply += `\n\n⚠️ _${allWarnings.slice(0, 2).map(w => w.message).join(' · ')}_`;
+    } else if (composeResult.warnings?.length > 0) {
+      reply += `\n\n⚠️ _${composeResult.warnings.slice(0, 2).join(' · ')}_`;
+    }
+
+    return {
+      reply,
+      quickActions: ['הורד ZIP', 'צור קריאייטיב ויזואלי', 'כתוב קופי מודעה', 'נתח ביצועים'],
+      assetId:    saved.assetId,
+      previewUrl: saved.previewUrl,
+      expiresAt:  saved.expiresAt,
+    };
+
+  } catch (err) {
+    console.error('[campaigner-chat] generateLandingPageResponse error:', err.message);
+    return {
+      reply: `📄 אירעה שגיאה בבניית הדף. נסה שוב עוד רגע.\n\n_פרטי שגיאה: ${err.code || err.message || 'UNKNOWN'}_`,
+      quickActions: ['נסה שוב', 'ספר על העסק שלך'],
+    };
+  }
+}
+
+// ── Variation generator — runs the pipeline once per mode ────────────────────
+async function _generateVariants(modes, baseMemory, baseStructure, assetType, context) {
+  const { applyVariationMode }      = require('./_shared/iteration-engine');
+  const { buildHTMLBlueprint }      = require('./_shared/html-blueprint-builder');
+  const { composeHTML }             = require('./_shared/html-composer');
+  const { validateGeneric }         = require('./_shared/validators/anti-generic-validator');
+  const { validateHTML }            = require('./_shared/validators/html-validator');
+  const { validateVisual }          = require('./_shared/validators/visual-validator');
+  const { saveAsset }               = require('./_shared/asset-storage');
+  const { storeLastGeneratedAsset } = require('./_shared/feedback-loop');
+  const crypto = require('crypto');
+
+  const { businessProfile, profileName, userId } = context;
+  const GRADE_EMOJI = { A: '🟢', B: '🟡', C: '🟠', D: '🔴', F: '🔴' };
+  const results = [];
+
+  for (const mode of modes) {
+    try {
+      const { structure: varStructure, memory: varMemory, label, description } =
+        applyVariationMode(mode, baseStructure, baseMemory);
+
+      const blueprint     = buildHTMLBlueprint(varStructure, null, varMemory);
+      const composeResult = composeHTML(blueprint);
+
+      const genericResult = validateGeneric({ blueprint, composeResult, memory: varMemory });
+      const htmlResult    = validateHTML(composeResult.html, { assetType });
+      const visualResult  = validateVisual({ blueprint, html: composeResult.html, assetType });
+
+      if (!genericResult.valid || !htmlResult.valid) {
+        results.push({ mode, label, description, error: true });
+        continue;
+      }
+
+      const pregenId   = crypto.randomUUID();
+      const htmlWithId = composeResult.html.replace(/\{\{asset_id\}\}/g, pregenId);
+
+      const saved = await saveAsset({
+        userId,
+        html:          htmlWithId,
+        composeResult: { ...composeResult, html: htmlWithId },
+        title: businessProfile.business_name
+          ? `${businessProfile.business_name} — ${label}`
+          : label,
+        _pregenId: pregenId,
+      });
+
+      storeLastGeneratedAsset(userId, {
+        asset_id:    saved.assetId,
+        template_id: blueprint.template_id || null,
+        asset_type:  assetType,
+      }).catch(() => {});
+
+      // Fire-and-forget: advance onboarding for variation creation
+      const { advanceOnboarding: _adv } = require('./_shared/product-context');
+      const _sb2 = getAdminClient();
+      _adv(userId, _sb2, 'first_asset').catch(() => {});
+      _sb2.from('generated_assets').select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .then(({ count }) => { if ((count || 0) >= 3) _adv(userId, _sb2, 'multiple_assets').catch(() => {}); })
+        .catch(() => {});
+
+      results.push({
+        mode, label, description, error: false,
+        previewUrl:   saved.previewUrl,
+        expiresAt:    saved.expiresAt,
+        assetId:      saved.assetId,
+        sectionCount: Array.isArray(varStructure.sections) ? varStructure.sections.length : 0,
+        grade:        visualResult.grade,
+        score:        visualResult.combined_score,
+      });
+
+    } catch (err) {
+      console.warn(`[campaigner-chat] variant "${mode}" failed:`, err.message);
+      results.push({ mode, label: mode, description: '', error: true });
+    }
+  }
+
+  // Build reply
+  const firstOk  = results.find(r => !r.error);
+  const expiryStr = firstOk ? new Date(firstOk.expiresAt).toLocaleDateString('he-IL') : null;
+  const successN  = results.filter(r => !r.error).length;
+
+  let reply = `📄 **${successN} וריאציות — ${businessProfile.business_name || profileName}**\n\n`;
+
+  results.forEach((r, i) => {
+    reply += `---\n\n**${i + 1}. ${r.label}**\n`;
+    if (r.description) reply += `_${r.description}_\n`;
+    if (r.error) {
+      reply += `⚠️ _וריאציה זו לא נוצרה — ייתכן שחסר מידע עסקי._\n\n`;
+    } else {
+      reply += `🔗 \`${r.previewUrl}\`\n`;
+      reply += `📐 ${r.sectionCount} סקשנים · ${GRADE_EMOJI[r.grade] || '⚪'} ציון: ${r.score}/100 (${r.grade})\n\n`;
+    }
+  });
+
+  if (expiryStr) reply += `\n⏳ **תוקף:** ${expiryStr}\n`;
+  reply += `\n💡 _הרץ A/B test בין הוריאציות כדי לגלות מה עובד הכי טוב לקהל שלך._`;
+
+  return {
+    reply,
+    quickActions: ['נתח ביצועים', 'כתוב קופי מודעה', 'צור קריאייטיב ויזואלי'],
+    variants: results.filter(r => !r.error).map(r => ({
+      mode: r.mode, label: r.label, assetId: r.assetId, previewUrl: r.previewUrl,
+    })),
+  };
+}
+
+function _assetLabel(assetType) {
+  return { landing_page_html: 'דף נחיתה', banner_html: 'באנר', ad_html: 'כרטיס מודעה', landing_hero: 'Hero Section' }[assetType] || 'דף נחיתה';
+}
+
 // ── Helper ────────────────────────────────────────────────────────────────────
 function providerLabel(provider) {
   return { google_ads: 'Google Ads', ga4: 'Google Analytics 4', meta: 'Meta Ads' }[provider] || provider;
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
-// Async because generateCopyResponse and generateRecsResponse are async.
-// All other generators are sync and resolve immediately when awaited.
 async function generateResponse(intent, context) {
   switch (intent) {
     case 'overview':      return generateOverviewResponse(context);
@@ -908,6 +1263,9 @@ async function generateResponse(intent, context) {
     case 'economics':     return generateEconomicsResponse(context);
     case 'test':          return generateTestResponse(context);
     case 'copy':          return await generateCopyResponse(context);
+    case 'creative':      return await generateCreativeResponse(context);
+    case 'landing':       return await generateLandingPageResponse(context);
+    case 'visual':        return await generateLandingPageResponse(context);
     default:              return generateOverviewResponse(context);
   }
 }
