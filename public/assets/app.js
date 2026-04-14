@@ -31,7 +31,8 @@ let state = {
   onboardingSteps:   null,   // loaded from onboarding_progress table
   unlockedScreens:   new Set(['dashboard','business-profile']),
   businessProfile:   null,   // business_profiles row
-  updatesCount:      0,      // unread updates badge for bell icon
+  updatesCount:      0,      // unread system updates badge
+  localNotifCount:   0,      // unread personal notifications (analysis, leads) from localStorage
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -255,10 +256,10 @@ function renderShell(content) {
       ].filter(n => u.has(n.unlock)),
     },
     {
-      header: 'נכסים שיווקיים',
+      header: 'קמפיינים ולידים',
       items: [
-        { id: 'campaigns', icon: '🎯', label: 'נכסים שיווקיים', always: true },
-        { id: 'leads',     icon: '📥', label: 'לידים',          unlock: 'leads' },
+        { id: 'campaigns', icon: '🎯', label: 'קמפיינים', always: true },
+        { id: 'leads',     icon: '📥', label: 'לידים',    unlock: 'leads' },
       ],
     },
     {
@@ -286,7 +287,7 @@ function renderShell(content) {
 
   const initials    = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
   const sidebarPlan = state.subscription?.plan || 'free';
-  const bellCount   = state.updatesCount || 0;
+  const bellCount   = (state.updatesCount || 0) + (state.localNotifCount || 0);
 
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
@@ -311,10 +312,10 @@ function renderShell(content) {
       </aside>
       <main class="main-content" id="page-content">
         <div style="margin:-2rem -2rem 1.5rem;padding:0.5rem 1.5rem;display:flex;justify-content:flex-end;align-items:center;border-bottom:1px solid #f1f5f9;background:white;position:sticky;top:0;z-index:10;">
-          <button onclick="navigate('updates')" title="עדכוני מערכת"
+          <button data-bell-btn onclick="navigate('updates')" title="התראות ועדכונים"
             style="position:relative;background:none;border:none;cursor:pointer;font-size:1.3rem;padding:0.3rem;border-radius:50%;transition:background 0.15s;line-height:1;">
             🔔
-            ${bellCount > 0 ? `<span style="position:absolute;top:0;right:0;background:#ef4444;color:white;font-size:0.58rem;font-weight:700;min-width:1rem;height:1rem;border-radius:9999px;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1;">${bellCount > 99 ? '99+' : bellCount}</span>` : ''}
+            ${bellCount > 0 ? `<span data-bell-badge style="position:absolute;top:0;right:0;background:#ef4444;color:white;font-size:0.58rem;font-weight:700;min-width:1rem;height:1rem;border-radius:9999px;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1;">${bellCount > 99 ? '99+' : bellCount}</span>` : ''}
           </button>
         </div>
         ${content}
@@ -663,7 +664,7 @@ async function renderCampaigns() {
   renderShell(`
     <div class="page-header flex items-center justify-between">
       <div>
-        <h1 class="page-title">נכסים שיווקיים</h1>
+        <h1 class="page-title">קמפיינים</h1>
         <p class="page-subtitle">נהל ונתח את הנכסים השיווקיים שלך</p>
       </div>
       <button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ נכס חדש</button>
@@ -735,52 +736,173 @@ async function addCampaign() {
   }
 }
 
+// ── Local notifications (stored in localStorage) ─────────────────────────────
+const LOCAL_NOTIF_KEY = 'cb_notifications_v1';
+
+function getLocalNotifications() {
+  try { return JSON.parse(localStorage.getItem(LOCAL_NOTIF_KEY) || '[]'); } catch { return []; }
+}
+
+function addLocalNotification(notif) {
+  const list = getLocalNotifications();
+  list.unshift({ id: Date.now(), read: false, createdAt: new Date().toISOString(), ...notif });
+  if (list.length > 50) list.splice(50);
+  localStorage.setItem(LOCAL_NOTIF_KEY, JSON.stringify(list));
+  // Update badge immediately
+  const unread = list.filter(n => !n.read).length;
+  state.localNotifCount = unread;
+  refreshBellBadge();
+}
+
+function markLocalNotificationsRead() {
+  const list = getLocalNotifications().map(n => ({ ...n, read: true }));
+  localStorage.setItem(LOCAL_NOTIF_KEY, JSON.stringify(list));
+  state.localNotifCount = 0;
+  refreshBellBadge();
+}
+
+function refreshBellBadge() {
+  const total = (state.updatesCount || 0) + (state.localNotifCount || 0);
+  const btn   = document.querySelector('[data-bell-btn]');
+  if (!btn) return;
+  const badge = btn.querySelector('[data-bell-badge]');
+  if (total > 0) {
+    const label = total > 99 ? '99+' : String(total);
+    if (badge) {
+      badge.textContent = label;
+      badge.style.display = 'flex';
+    } else {
+      btn.insertAdjacentHTML('beforeend',
+        `<span data-bell-badge style="position:absolute;top:0;right:0;background:#ef4444;color:white;font-size:0.58rem;font-weight:700;min-width:1rem;height:1rem;border-radius:9999px;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1;">${label}</span>`);
+    }
+  } else if (badge) {
+    badge.style.display = 'none';
+  }
+}
+
+// ── Analysis progress banner ──────────────────────────────────────────────────
+const ANALYSIS_STAGES = [
+  { icon: '🔌', label: 'מתחבר לפלטפורמה...',   pct: 10, delay: 0     },
+  { icon: '📊', label: 'מאחזר נתונים חיים...',  pct: 30, delay: 6000  },
+  { icon: '🤖', label: 'מנתח עם AI...',          pct: 55, delay: 18000 },
+  { icon: '💡', label: 'מייצר המלצות...',        pct: 78, delay: 35000 },
+  { icon: '✍️', label: 'מסיים ומארגן...',        pct: 92, delay: 52000 },
+];
+
+function showAnalysisBanner(campaignName) {
+  removeAnalysisBanner();
+  const banner = document.createElement('div');
+  banner.id = 'analysis-progress-banner';
+  banner.style.cssText = 'position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:9999;background:white;border-radius:1rem;box-shadow:0 8px 32px rgba(0,0,0,0.18);padding:1rem 1.5rem;min-width:320px;max-width:90vw;border:2px solid #6366f1;direction:rtl;';
+  banner.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem">
+      <div style="font-weight:700;color:#1e293b;font-size:0.92rem">🔍 מנתח: ${campaignName}</div>
+      <button onclick="document.getElementById('analysis-progress-banner').style.display='none'" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:1rem;line-height:1;padding:0">✕</button>
+    </div>
+    <div id="apb-stage" style="font-size:0.85rem;color:#6366f1;margin-bottom:0.5rem;font-weight:600">🔌 מתחבר לפלטפורמה...</div>
+    <div style="background:#e2e8f0;border-radius:9999px;height:6px;overflow:hidden">
+      <div id="apb-bar" style="background:linear-gradient(90deg,#6366f1,#8b5cf6);height:100%;border-radius:9999px;width:10%;transition:width 1.2s ease;"></div>
+    </div>
+  `;
+  document.body.appendChild(banner);
+}
+
+function updateAnalysisBanner(stageIdx) {
+  const s = ANALYSIS_STAGES[stageIdx] || ANALYSIS_STAGES[ANALYSIS_STAGES.length - 1];
+  const stageEl = document.getElementById('apb-stage');
+  const barEl   = document.getElementById('apb-bar');
+  if (stageEl) stageEl.textContent = `${s.icon} ${s.label}`;
+  if (barEl)   barEl.style.width   = s.pct + '%';
+}
+
+function finishAnalysisBanner(success) {
+  const stageEl = document.getElementById('apb-stage');
+  const barEl   = document.getElementById('apb-bar');
+  if (stageEl) stageEl.textContent = success ? '✅ הניתוח הסתיים בהצלחה!' : '❌ הניתוח נכשל';
+  if (barEl)   barEl.style.width   = success ? '100%' : '0%';
+  if (success && barEl) barEl.style.background = '#10b981';
+  setTimeout(() => removeAnalysisBanner(), 4000);
+}
+
+function removeAnalysisBanner() {
+  const el = document.getElementById('analysis-progress-banner');
+  if (el) el.remove();
+}
+
 async function runAnalysis(campaignId) {
   // STATE-01: disable all buttons for this campaign to prevent duplicate jobs
   const btns = document.querySelectorAll(`[data-analysis-btn="${campaignId}"]`);
   btns.forEach(b => { b.disabled = true; b.textContent = 'מנתח...'; });
+  const campaign = state.campaigns?.find(c => c.id === campaignId);
+  const campName = campaign?.name || campaignId;
   try {
-    toast('מריץ ניתוח...', 'info');
     const job = await api('POST', 'enqueue-sync-job', { campaignId });
-    toast('המשימה נקלטה — מושך נתונים חיים ומנתח...', 'success');
-    pollJobStatus(job.jobId, campaignId);
+    showAnalysisBanner(campName);
+    pollJobStatus(job.jobId, campaignId, campName);
   } catch (err) {
     btns.forEach(b => { b.disabled = false; b.textContent = 'הרץ ניתוח'; });
     toast(err.message || 'שגיאה בהרצת ניתוח', 'error');
   }
 }
 
-async function pollJobStatus(jobId, campaignId) {
-  let attempts = 0;
+async function pollJobStatus(jobId, campaignId, campName) {
+  let attempts   = 0;
+  let stageIdx   = 0;
+  const stageTimers = [];
+
+  // Schedule stage transitions based on timing estimates
+  ANALYSIS_STAGES.forEach((s, i) => {
+    if (s.delay > 0) {
+      stageTimers.push(setTimeout(() => {
+        stageIdx = i;
+        updateAnalysisBanner(i);
+      }, s.delay));
+    }
+  });
+
   const restoreBtns = () => {
     document.querySelectorAll(`[data-analysis-btn="${campaignId}"]`)
       .forEach(b => { b.disabled = false; b.textContent = 'הרץ ניתוח'; });
   };
+
+  const cleanup = () => {
+    stageTimers.forEach(t => clearTimeout(t));
+    restoreBtns();
+  };
+
   const poll = async () => {
     attempts++;
     try {
       const { data } = await sb.from('sync_jobs').select('status,result_payload').eq('id', jobId).maybeSingle();
       if (data?.status === 'done') {
-        restoreBtns();
+        cleanup();
+        finishAnalysisBanner(true);
+        addLocalNotification({ icon: '✅', title: `ניתוח הסתיים`, body: `הניתוח עבור "${campName}" הושלם בהצלחה.`, page: 'campaigns', campaignId });
         toast('הניתוח הסתיים!', 'success');
-        showCampaignDetail(campaignId);
+        // Refresh detail page only if still on that campaign
+        if (state.currentPage === 'campaigns' && state.currentCampaignId === campaignId) {
+          showCampaignDetail(campaignId);
+        }
         return;
       }
       if (data?.status === 'failed') {
-        restoreBtns();
+        cleanup();
+        finishAnalysisBanner(false);
+        addLocalNotification({ icon: '❌', title: 'ניתוח נכשל', body: `הניתוח עבור "${campName}" נכשל.`, page: 'campaigns', campaignId });
         toast('הניתוח נכשל — נסה שנית', 'error');
         return;
       }
-      if (attempts < 20) {
+      if (attempts < 30) {
         setTimeout(poll, 3000);
       } else {
-        // STATE-02: notify user on timeout instead of silent fail
-        restoreBtns();
+        cleanup();
+        finishAnalysisBanner(false);
+        addLocalNotification({ icon: '⏱️', title: 'ניתוח לוקח זמן', body: `הניתוח עבור "${campName}" לא הסתיים. נסה שנית בעוד כמה דקות.`, page: 'campaigns', campaignId });
         toast('הניתוח לוקח יותר מהצפוי. נסה שנית בעוד כמה דקות.', 'warning');
       }
     } catch {
-      if (attempts < 20) setTimeout(poll, 3000);
-      else { restoreBtns(); toast('שגיאה בבדיקת סטטוס הניתוח', 'error'); }
+      if (attempts < 30) setTimeout(poll, 3000);
+      else { cleanup(); finishAnalysisBanner(false); toast('שגיאה בבדיקת סטטוס הניתוח', 'error'); }
     }
   };
   setTimeout(poll, 3000);
@@ -956,6 +1078,7 @@ async function renderIntegrations() {
     { provider: 'google_ads', name: 'Google Ads',          icon: '🟢', desc: 'ניתוח קמפיינים בגוגל' },
     { provider: 'meta',       name: 'Meta Ads',            icon: '🔵', desc: 'פייסבוק ואינסטגרם' },
     { provider: 'ga4',        name: 'Google Analytics 4',  icon: '📈', desc: 'ניתוח תנועת אתר' },
+    { provider: 'tiktok',     name: 'TikTok Ads',          icon: '🎵', desc: 'קמפיינים ב-TikTok' },
   ];
 
   const connectedMap = new Map(state.integrations.map(i => [i.provider, i]));
@@ -1051,6 +1174,12 @@ async function connectIntegration(provider) {
     const redirectUri = `${appUrl}/.netlify/functions/oauth-callback-meta`;
     const scope       = 'ads_read,ads_management,read_insights';
     const url = `https://www.facebook.com/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&state=${state64}`;
+    window.location.href = url;
+  } else if (provider === 'tiktok') {
+    const clientKey   = window.__TIKTOK_CLIENT_KEY__ || '';
+    const redirectUri = `${appUrl}/.netlify/functions/oauth-callback-tiktok`;
+    const scope       = 'user.info.basic,video.list,ads.read';
+    const url = `https://www.tiktok.com/v2/auth/authorize?client_key=${encodeURIComponent(clientKey)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${state64}`;
     window.location.href = url;
   }
 }
@@ -1444,57 +1573,60 @@ async function renderAdmin() {
       </div>
     </div>
 
-    ${(() => {
-      const allUsers = usersData?.users || [];
-      const pendingUsers = allUsers.filter(u => u.paymentStatus === 'pending');
-      const paidUsers    = allUsers.filter(u => u.plan !== 'free' && u.paymentStatus !== 'pending');
-      const freeUsers    = allUsers.filter(u => u.plan === 'free' && u.paymentStatus !== 'pending');
-
-      const userTable = (users, showActivate) => users.length === 0 ? '<p class="text-muted text-sm">אין משתמשים</p>' : `
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
-            <thead>
-              <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
-                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">אימייל</th>
-                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">שם</th>
-                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">תוכנית</th>
-                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">נכסים</th>
-                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">הצטרף</th>
-                ${showActivate ? '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">פעולה</th>' : ''}
-              </tr>
-            </thead>
-            <tbody>
-              ${users.map(u => `
-                <tr style="border-bottom:1px solid #f1f5f9">
-                  <td style="padding:0.4rem 0.6rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.62rem">admin</span>' : ''}</td>
-                  <td style="padding:0.4rem 0.6rem">${u.name || '—'}</td>
-                  <td style="padding:0.4rem 0.6rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
-                  <td style="padding:0.4rem 0.6rem">${u.campaignCount}</td>
-                  <td style="padding:0.4rem 0.6rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
-                  ${showActivate ? `<td style="padding:0.4rem 0.6rem"><button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button></td>` : ''}
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`;
-
-      return `
-        ${pendingUsers.length > 0 ? `
-        <div class="analysis-card mb-4" style="border:2px solid #f59e0b;background:#fffbeb">
-          <h3 class="font-semibold mb-3" style="color:#92400e">⏳ ממתינים לאישור (${pendingUsers.length})</h3>
-          ${userTable(pendingUsers, true)}
-        </div>` : ''}
-
-        <div class="analysis-card mb-4">
-          <h3 class="font-semibold mb-3" style="color:#16a34a">💳 מנויים פעילים (${paidUsers.length})</h3>
-          ${userTable(paidUsers, false)}
-        </div>
-
-        <div class="analysis-card">
-          <h3 class="font-semibold mb-3" style="color:#64748b">🆓 גרסה חינמית (${freeUsers.length})</h3>
-          ${userTable(freeUsers, false)}
-        </div>`;
-    })()}
+    ${buildAdminUserSections(usersData, pBadge)}
   `);
+}
+
+function buildAdminUserSections(usersData, pBadge) {
+  const allUsers    = usersData?.users || [];
+  const pendingUsers = allUsers.filter(u => u.paymentStatus === 'pending');
+  const paidUsers    = allUsers.filter(u => u.plan !== 'free' && u.paymentStatus !== 'pending');
+  const freeUsers    = allUsers.filter(u => u.plan === 'free'  && u.paymentStatus !== 'pending');
+
+  function buildRow(u, showActivate) {
+    const adminBadge = u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.62rem">admin</span>' : '';
+    const actionCell = showActivate
+      ? '<td style="padding:0.4rem 0.6rem"><button class="btn btn-sm btn-primary" onclick="activateUserPayment(\'' + u.id + '\',\'' + u.plan + '\')">הפעל</button></td>'
+      : '';
+    const joined = u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—';
+    return '<tr style="border-bottom:1px solid #f1f5f9">' +
+      '<td style="padding:0.4rem 0.6rem">' + (u.email || '') + adminBadge + '</td>' +
+      '<td style="padding:0.4rem 0.6rem">' + (u.name || '—') + '</td>' +
+      '<td style="padding:0.4rem 0.6rem"><span class="badge ' + (pBadge[u.plan] || 'badge-gray') + '">' + getPlanLabel(u.plan) + '</span></td>' +
+      '<td style="padding:0.4rem 0.6rem">' + (u.campaignCount || 0) + '</td>' +
+      '<td style="padding:0.4rem 0.6rem">' + joined + '</td>' +
+      actionCell +
+      '</tr>';
+  }
+
+  function buildTable(users, showActivate) {
+    if (!users.length) return '<p class="text-muted text-sm">אין משתמשים</p>';
+    const actionTh = showActivate ? '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">פעולה</th>' : '';
+    return '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">' +
+      '<thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">' +
+      '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">אימייל</th>' +
+      '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">שם</th>' +
+      '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">תוכנית</th>' +
+      '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">קמפיינים</th>' +
+      '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">הצטרף</th>' +
+      actionTh + '</tr></thead>' +
+      '<tbody>' + users.map(u => buildRow(u, showActivate)).join('') + '</tbody>' +
+      '</table></div>';
+  }
+
+  let html = '';
+  if (pendingUsers.length > 0) {
+    html += '<div class="analysis-card mb-4" style="border:2px solid #f59e0b;background:#fffbeb">' +
+      '<h3 class="font-semibold mb-3" style="color:#92400e">⏳ ממתינים לאישור (' + pendingUsers.length + ')</h3>' +
+      buildTable(pendingUsers, true) + '</div>';
+  }
+  html += '<div class="analysis-card mb-4">' +
+    '<h3 class="font-semibold mb-3" style="color:#16a34a">💳 מנויים פעילים (' + paidUsers.length + ')</h3>' +
+    buildTable(paidUsers, false) + '</div>';
+  html += '<div class="analysis-card">' +
+    '<h3 class="font-semibold mb-3" style="color:#64748b">🆓 גרסה חינמית (' + freeUsers.length + ')</h3>' +
+    buildTable(freeUsers, false) + '</div>';
+  return html;
 }
 
 async function activateUserPayment(userId, plan) {
@@ -1932,6 +2064,8 @@ async function boot() {
   const initialPage = resolveInitialPage();
 
   sb.auth.onAuthStateChange(async (event, session) => {
+    // INITIAL_SESSION with null session = JWT refresh in progress — do NOT flash login screen
+    if (event === 'INITIAL_SESSION' && !session) return;
     if (!session) {
       clearBootCache();
       renderAuth();
@@ -1962,6 +2096,8 @@ async function boot() {
       state.profile         = {};
       state.subscription    = { plan: 'free' };
       state.unlockedScreens = new Set(['dashboard', 'business-profile', 'landing-pages']);
+      // Respect hash routing even in no-cache path
+      if (initialPage !== 'dashboard') state.currentPage = initialPage;
       renderShell('<div style="height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem"><div class="spinner"></div><p style="color:#64748b;font-size:0.9rem;">טוען...</p></div>');
       initCampaignerChat();
     }
@@ -1999,9 +2135,13 @@ async function boot() {
         onboardingSteps: steps,
       });
 
-      // Fetch updates count for bell notification (fire-and-forget)
+      // Local personal notifications count (stored in localStorage)
+      state.localNotifCount = getLocalNotifications().filter(n => !n.read).length;
+
+      // Fetch system updates count for bell notification (fire-and-forget)
       api('GET', 'get-updates').then(data => {
         state.updatesCount = Array.isArray(data) ? data.length : 0;
+        refreshBellBadge();
       }).catch(() => {});
 
       // Re-render only if we didn't show cached version (first-ever load)
@@ -2383,45 +2523,76 @@ async function renderAICreation() {
   `);
 }
 
-// ── Updates page ──────────────────────────────────────────────────────────────
+// ── Updates / Notifications page ─────────────────────────────────────────────
 async function renderUpdates() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
-  let updates;
+
+  // Mark personal notifications as read when entering this page
+  markLocalNotificationsRead();
+
+  let updates = [];
   try {
     updates = await api('GET', 'get-updates');
-  } catch (err) {
-    renderShell(`
-      <div class="page-header"><h1 class="page-title">🆕 עדכוני מערכת</h1></div>
-      <div class="analysis-card" style="text-align:center;padding:2rem;color:var(--gray-500)">
-        שגיאה בטעינת עדכונים. נסה שוב מאוחר יותר.
-      </div>`);
-    return;
-  }
+  } catch { /* show page even if system updates fail */ }
 
+  const personalNotifs = getLocalNotifications();
   const typeLabel = { new: 'חדש', improved: 'שיפור', fixed: 'תוקן' };
   const typeCls   = { new: 'update-tag-new', improved: 'update-tag-improved', fixed: 'update-tag-fixed' };
 
+  const personalHtml = personalNotifs.length ? `
+    <div class="card mb-4">
+      <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+        <span>🔔 התראות אישיות</span>
+        <button onclick="clearPersonalNotifications()" class="btn btn-sm btn-secondary" style="font-size:0.75rem">נקה הכל</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0.6rem;margin-top:0.75rem">
+        ${personalNotifs.map(n => `
+          <div style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.75rem;background:#f8fafc;border-radius:0.5rem;border-right:3px solid #6366f1;cursor:pointer"
+               onclick="${n.page ? `navigate('${n.page}')` : ''}">
+            <span style="font-size:1.3rem;line-height:1">${n.icon || '📌'}</span>
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:0.88rem;color:#1e293b">${escHtml(n.title)}</div>
+              <div style="font-size:0.82rem;color:#64748b;margin-top:0.15rem">${escHtml(n.body)}</div>
+              <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.25rem">${new Date(n.createdAt).toLocaleString('he-IL', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })}</div>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
   renderShell(`
     <div class="page-header">
-      <h1 class="page-title">🆕 עדכוני מערכת</h1>
-      <p class="page-subtitle text-muted">מה חדש ב-CampaignAI</p>
+      <h1 class="page-title">🔔 התראות ועדכונים</h1>
+      <p class="page-subtitle text-muted">התראות אישיות ועדכוני מערכת</p>
     </div>
-    ${updates.length === 0
-      ? `<div class="updates-empty"><div class="updates-empty-icon">📭</div><p>אין עדכונים להצגה כרגע. בקרוב יגיעו חדשות!</p></div>`
-      : `<div class="updates-list">
-          ${updates.map(u => `
-            <div class="update-card ${u.is_pinned ? 'update-card-pinned' : ''}">
-              <div class="update-card-meta">
-                <span class="update-tag ${typeCls[u.type] || ''}">${typeLabel[u.type] || u.type}</span>
-                ${u.is_pinned ? '<span class="update-tag update-tag-pinned">📌 נעוץ</span>' : ''}
-                <span class="update-date">${new Date(u.created_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-              </div>
-              <h3 class="update-title">${escHtml(u.title)}</h3>
-              <p class="update-body">${escHtml(u.content)}</p>
-            </div>
-          `).join('')}
-        </div>`
-    }`);
+    ${personalHtml}
+    <div class="card">
+      <div class="card-title">🆕 עדכוני מערכת</div>
+      <div style="margin-top:0.75rem">
+        ${updates.length === 0
+          ? `<div style="text-align:center;padding:1.5rem;color:#94a3b8">אין עדכוני מערכת כרגע.</div>`
+          : `<div class="updates-list">
+              ${updates.map(u => `
+                <div class="update-card ${u.is_pinned ? 'update-card-pinned' : ''}">
+                  <div class="update-card-meta">
+                    <span class="update-tag ${typeCls[u.type] || ''}">${typeLabel[u.type] || u.type}</span>
+                    ${u.is_pinned ? '<span class="update-tag update-tag-pinned">📌 נעוץ</span>' : ''}
+                    <span class="update-date">${new Date(u.created_at).toLocaleDateString('he-IL', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                  </div>
+                  <h3 class="update-title">${escHtml(u.title)}</h3>
+                  <p class="update-body">${escHtml(u.content)}</p>
+                </div>
+              `).join('')}
+            </div>`
+        }
+      </div>
+    </div>`);
+}
+
+function clearPersonalNotifications() {
+  localStorage.setItem(LOCAL_NOTIF_KEY, '[]');
+  state.localNotifCount = 0;
+  refreshBellBadge();
+  renderUpdates();
 }
 
 // ── Support page ───────────────────────────────────────────────────────────────
@@ -3611,7 +3782,8 @@ window.navigate              = navigate;
 window.handleLogout          = handleLogout;
 window.showAddCampaignModal  = showAddCampaignModal;
 window.addCampaign           = addCampaign;
-window.runAnalysis           = runAnalysis;
+window.runAnalysis                = runAnalysis;
+window.clearPersonalNotifications = clearPersonalNotifications;
 window.showCampaignDetail    = showCampaignDetail;
 window.connectIntegration    = connectIntegration;
 window.disconnectIntegration = disconnectIntegration;

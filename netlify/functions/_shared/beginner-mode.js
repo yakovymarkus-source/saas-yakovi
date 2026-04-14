@@ -174,13 +174,16 @@ function generateBeginnerOverride(state, intent, message, context) {
   // ── Per-milestone routing ─────────────────────────────────────────────────
   switch (milestone) {
     case 'connect': {
-      // CA-009: intents that work WITHOUT live ad data — let normal flow run
-      // (ad copy, economics, business profile, A/B test suggestions)
-      const NO_DATA_INTENTS = new Set(['copy', 'economics', 'business', 'test', 'landing', 'creative', 'visual']);
-      if (NO_DATA_INTENTS.has(intent)) return null;
-      // All other intents (overview, budget, top_ads, roas, ctr, recs, trends,
-      // tracking, integrations) require real campaign data — redirect
-      return { reply: ms.redirect(name), quickActions: ms.quickActions };
+      // Only redirect intents that GENUINELY need live ad data to answer.
+      // All other intents (general questions, recommendations, strategy, creation)
+      // should get a real answer even without connected integrations.
+      const NEEDS_DATA_INTENTS = new Set(['budget', 'roas', 'ctr', 'top_ads', 'tracking']);
+      if (NEEDS_DATA_INTENTS.has(intent)) {
+        return { reply: ms.redirect(name), quickActions: ms.quickActions };
+      }
+      // Everything else (overview, recs, trends, copy, business, economics,
+      // landing, creative, visual, test, integrations) — let normal flow run
+      return null;
     }
 
     case 'analyze':
