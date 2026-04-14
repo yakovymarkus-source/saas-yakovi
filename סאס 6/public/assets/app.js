@@ -1881,6 +1881,17 @@ async function boot() {
       }
       render();                // ← page appears instantly
       initCampaignerChat();
+    } else {
+      // No cache — render shell immediately so loading screen doesn't persist.
+      // Step 2 will re-render with full data once the fetch completes.
+      state.profile         = {};
+      state.subscription    = { plan: 'free' };
+      state.unlockedScreens = new Set(['dashboard', 'business-profile']);
+      if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
+        state.currentPage = initialPage;
+      }
+      render();
+      initCampaignerChat();
     }
 
     // ── Step 2: fetch fresh data in background ────────────────────────────────
@@ -1952,7 +1963,7 @@ async function boot() {
   });
 
   setTimeout(() => {
-    if (document.querySelector('.loading-screen')) renderAuth();
+    if (document.querySelector('.loading-screen') && !state.user) renderAuth();
   }, 8000);
 
   keepAlive();
