@@ -233,8 +233,8 @@ function renderShell(content) {
   const navSections = [
     {
       items: [
-        { id: 'dashboard',        icon: '📊', label: 'דשבורד',       always: true },
         { id: 'business-profile', icon: '🏢', label: 'פרופיל עסקי', always: true },
+        { id: 'dashboard',        icon: '📊', label: 'דשבורד',       always: true },
       ],
     },
     {
@@ -1196,14 +1196,12 @@ async function confirmPayment() {
   if (btn) { btn.disabled = true; btn.textContent = 'שולח...'; }
   try {
     const plan = window._pendingPlan || 'early_bird';
-    await api('POST', 'payment-pending', { plan });
-    if (state.subscription) {
-      state.subscription.payment_status = 'pending';
-    } else {
-      state.subscription = { plan, payment_status: 'pending' };
-    }
-    toast('הבקשה התקבלה! החשבון יופעל תוך דקות לאחר אישור התשלום.', 'success');
-    setTimeout(() => navigate('billing'), 500);
+    const res = await api('POST', 'payment-pending', { plan });
+    // Subscription is now active — update local state
+    state.subscription = { plan, status: 'active', payment_status: 'verified' };
+    clearBootCache(); // force fresh data on next load
+    toast(res?.message || 'החשבון הופעל! ברוך הבא 🎉', 'success');
+    setTimeout(() => { navigate('dashboard'); }, 1200);
   } catch (err) {
     toast(err.message || 'שגיאה — נסו שנית', 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'שילמתי, הפעילו לי את החשבון'; }
@@ -1446,37 +1444,57 @@ async function renderAdmin() {
       </div>
     </div>
 
-    <div class="analysis-card">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold">משתמשים אחרונים</h3>
-        <span class="text-muted text-sm">סה"כ ${fmt(usersData?.total)}</span>
-      </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
-          <thead>
-            <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">אימייל</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">שם</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">תוכנית</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">נכסים</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">הצטרף</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">פעולה</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${(usersData?.users || []).map(u => `
-              <tr style="border-bottom:1px solid #f1f5f9${u.paymentStatus === 'pending' ? ';background:#fffbeb' : ''}">
-                <td style="padding:0.5rem 0.75rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.65rem">admin</span>' : ''}${u.paymentStatus === 'pending' ? ' <span class="badge badge-gray" style="font-size:0.65rem">pending</span>' : ''}</td>
-                <td style="padding:0.5rem 0.75rem">${u.name || '—'}</td>
-                <td style="padding:0.5rem 0.75rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
-                <td style="padding:0.5rem 0.75rem">${u.campaignCount}</td>
-                <td style="padding:0.5rem 0.75rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
-                <td style="padding:0.5rem 0.75rem">${u.paymentStatus === 'pending' ? `<button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>` : ''}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>`);
+    ${(() => {
+      const allUsers = usersData?.users || [];
+      const pendingUsers = allUsers.filter(u => u.paymentStatus === 'pending');
+      const paidUsers    = allUsers.filter(u => u.plan !== 'free' && u.paymentStatus !== 'pending');
+      const freeUsers    = allUsers.filter(u => u.plan === 'free' && u.paymentStatus !== 'pending');
+
+      const userTable = (users, showActivate) => users.length === 0 ? '<p class="text-muted text-sm">אין משתמשים</p>' : `
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+            <thead>
+              <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">אימייל</th>
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">שם</th>
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">תוכנית</th>
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">נכסים</th>
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">הצטרף</th>
+                ${showActivate ? '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">פעולה</th>' : ''}
+              </tr>
+            </thead>
+            <tbody>
+              ${users.map(u => `
+                <tr style="border-bottom:1px solid #f1f5f9">
+                  <td style="padding:0.4rem 0.6rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.62rem">admin</span>' : ''}</td>
+                  <td style="padding:0.4rem 0.6rem">${u.name || '—'}</td>
+                  <td style="padding:0.4rem 0.6rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
+                  <td style="padding:0.4rem 0.6rem">${u.campaignCount}</td>
+                  <td style="padding:0.4rem 0.6rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
+                  ${showActivate ? `<td style="padding:0.4rem 0.6rem"><button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button></td>` : ''}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+
+      return `
+        ${pendingUsers.length > 0 ? `
+        <div class="analysis-card mb-4" style="border:2px solid #f59e0b;background:#fffbeb">
+          <h3 class="font-semibold mb-3" style="color:#92400e">⏳ ממתינים לאישור (${pendingUsers.length})</h3>
+          ${userTable(pendingUsers, true)}
+        </div>` : ''}
+
+        <div class="analysis-card mb-4">
+          <h3 class="font-semibold mb-3" style="color:#16a34a">💳 מנויים פעילים (${paidUsers.length})</h3>
+          ${userTable(paidUsers, false)}
+        </div>
+
+        <div class="analysis-card">
+          <h3 class="font-semibold mb-3" style="color:#64748b">🆓 גרסה חינמית (${freeUsers.length})</h3>
+          ${userTable(freeUsers, false)}
+        </div>`;
+    })()}
+  `);
 }
 
 async function activateUserPayment(userId, plan) {
@@ -2479,27 +2497,15 @@ async function renderBusinessProfile() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
   let profile = null;
+  let completion = { pct: 0, missingRequired: [], missingEnrichment: [] };
+  let nextQ = null;
   try {
     const res = await api('GET', 'business-profile');
     profile = res.profile || null;
+    completion = res.completion || completion;
+    nextQ = res.nextQuestion || null;
     state.businessProfile = profile;
   } catch {}
-
-  const { scoreCompletion: _score, nextQ } = (() => {
-    if (!profile) return { nextQ: null };
-    const required = ['offer','price_amount','target_audience','problem_solved','desired_outcome','primary_goal'];
-    const missing  = required.filter(f => !profile[f]);
-    const pct      = Math.round(((required.length - missing.length) / required.length) * 70);
-    const questions = {
-      offer:           'מה בדיוק אתה מוכר? (משפט אחד)',
-      price_amount:    'מה המחיר של ההצעה שלך?',
-      target_audience: 'למי אתה מוכר? תאר את הלקוח האידיאלי',
-      problem_solved:  'מה הבעיה הספציפית שאתה פותר?',
-      desired_outcome: 'מה הלקוח מקבל בסוף?',
-      primary_goal:    'מה מטרת הקמפיין? (לידים / מכירות / פגישות)',
-    };
-    return { pct, nextQ: missing[0] ? questions[missing[0]] : null };
-  })();
 
   // Empty state — first time user
   if (!profile) {
@@ -2526,7 +2532,7 @@ async function renderBusinessProfile() {
   }
 
   // Has profile — show summary + enrichment nudges
-  const score = profile.profile_score || 0;
+  const score = completion.pct || 0;
   const scoreColor = score >= 70 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444';
 
   renderShell(`
@@ -2761,19 +2767,98 @@ async function renderLandingPages() {
 }
 
 function openLandingPageCreator() {
-  // Open the chat widget focused on landing page creation
-  if (typeof toggleChat === 'function') {
-    if (!chatState.open) toggleChat();
-    // Pre-fill prompt if profile has offer
-    if (state.businessProfile?.offer) {
-      const inp = document.getElementById('chat-input');
-      if (inp && !inp.value) {
-        inp.value = `צור לי דף נחיתה עבור: ${state.businessProfile.offer}`;
-        inp.focus();
-      }
+  const bp = state.businessProfile || {};
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <button class="btn btn-sm btn-secondary mb-2" onclick="navigate('landing-pages')">← חזור לדפים</button>
+        <h1 class="page-title">🚀 צור דף נחיתה חדש</h1>
+        <p class="page-subtitle">מלא את הפרטים ו-AI יבנה דף מותאם אישית</p>
+      </div>
+    </div>
+    <div class="card" style="max-width:680px">
+      <div class="form-group">
+        <label class="form-label">שם הדף / קמפיין <span style="color:#ef4444">*</span></label>
+        <input id="lp-name" class="form-input" type="text" maxlength="100"
+          placeholder="לדוגמה: קמפיין לידים לקורס הכתיבה" value="${bp.business_name || ''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">מה אתה מוכר / מציע? <span style="color:#ef4444">*</span></label>
+        <textarea id="lp-offer" class="form-input" rows="3" maxlength="500"
+          placeholder="תאר את המוצר/שירות שרוצים לקדם בדף">${bp.offer || ''}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">קהל יעד <span style="color:#ef4444">*</span></label>
+        <input id="lp-audience" class="form-input" type="text" maxlength="200"
+          placeholder="למי מיועד הדף? גיל, מאפיינים, צרכים" value="${bp.target_audience || ''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">מטרת הדף</label>
+        <select id="lp-goal" class="form-input">
+          <option value="leads" ${bp.primary_goal==='leads'?'selected':''}>איסוף לידים</option>
+          <option value="sales" ${bp.primary_goal==='sales'?'selected':''}>מכירה ישירה</option>
+          <option value="appointments" ${bp.primary_goal==='appointments'?'selected':''}>קביעת פגישות</option>
+          <option value="awareness">מודעות / קהל</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">הוראות נוספות ל-AI (אופציונלי)</label>
+        <textarea id="lp-instructions" class="form-input" rows="4" maxlength="800"
+          placeholder="לדוגמה: טון מקצועי, כלול סעיפי יתרונות ו-testimonials, צבעים כהים, כפתור CTA בולט בתחתית"></textarea>
+      </div>
+      <div id="lp-error" style="color:#ef4444;font-size:0.875rem;margin-bottom:0.75rem;display:none"></div>
+      <div id="lp-result" style="display:none;margin-bottom:1rem;padding:1rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:0.5rem;color:#166534;font-size:0.875rem"></div>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <button class="btn btn-gradient" id="lp-submit-btn" onclick="submitLandingPageCreate()" style="width:auto">
+          🚀 צור דף נחיתה עם AI
+        </button>
+        <button class="btn btn-secondary" onclick="navigate('landing-pages')" style="width:auto">ביטול</button>
+      </div>
+    </div>
+  `);
+}
+
+async function submitLandingPageCreate() {
+  const name   = document.getElementById('lp-name')?.value?.trim();
+  const offer  = document.getElementById('lp-offer')?.value?.trim();
+  const audience = document.getElementById('lp-audience')?.value?.trim();
+  const goal   = document.getElementById('lp-goal')?.value || 'leads';
+  const instructions = document.getElementById('lp-instructions')?.value?.trim() || '';
+  const errEl  = document.getElementById('lp-error');
+  const resultEl = document.getElementById('lp-result');
+  const btn    = document.getElementById('lp-submit-btn');
+
+  errEl.style.display = 'none';
+  if (!offer) { errEl.textContent = 'נדרש לפחות תיאור המוצר'; errEl.style.display = 'block'; return; }
+  if (!audience) { errEl.textContent = 'נדרש תיאור קהל יעד'; errEl.style.display = 'block'; return; }
+
+  btn.disabled = true; btn.textContent = 'בונה דף... ⏳';
+  resultEl.style.display = 'none';
+
+  const goalLabel = { leads: 'איסוף לידים', sales: 'מכירה ישירה', appointments: 'קביעת פגישות', awareness: 'מודעות' };
+
+  const prompt = [
+    `צור דף נחיתה עבור: ${offer}`,
+    `קהל יעד: ${audience}`,
+    `מטרה: ${goalLabel[goal] || goal}`,
+    name ? `שם הקמפיין: ${name}` : '',
+    instructions ? `הוראות נוספות: ${instructions}` : '',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const res = await api('POST', 'campaigner-chat', { message: prompt, mode: 'create' });
+    btn.disabled = false; btn.textContent = '🚀 צור דף נחיתה עם AI';
+    if (res?.reply) {
+      resultEl.innerHTML = '<strong>✅ הדף נוצר!</strong><br>' + res.reply.replace(/\n/g,'<br>');
+      resultEl.style.display = 'block';
+      // Refresh landing pages list after short delay
+      setTimeout(() => navigate('landing-pages'), 2500);
     }
+  } catch (err) {
+    btn.disabled = false; btn.textContent = '🚀 צור דף נחיתה עם AI';
+    errEl.textContent = err.message || 'שגיאה ביצירת הדף. נסה שנית.';
+    errEl.style.display = 'block';
   }
-  toast('הקלד בצ\'אט מה תרצה שייצרו לך — הכל מתחיל משם', 'info');
 }
 
 function createVariation(assetId, assetTitle) {
