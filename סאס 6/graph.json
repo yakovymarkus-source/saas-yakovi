@@ -1,0 +1,316 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "confidence": "high",
+    "timestamp": "2026-04-14T16:02:07+03:00",
+    "commit": "a8d73bfe2d7ec98fb463ec16819c0eb8a2860e95"
+  },
+
+  "structure": {
+    "functions": [
+      "netlify/functions/health.js",
+      "netlify/functions/account-profile.js",
+      "netlify/functions/account-delete.js",
+      "netlify/functions/activate-payment.js",
+      "netlify/functions/admin-assets.js",
+      "netlify/functions/admin-audit.js",
+      "netlify/functions/admin-billing.js",
+      "netlify/functions/admin-overview.js",
+      "netlify/functions/admin-support.js",
+      "netlify/functions/admin-system.js",
+      "netlify/functions/admin-updates.js",
+      "netlify/functions/admin-user.js",
+      "netlify/functions/admin-users.js",
+      "netlify/functions/asset-feedback.js",
+      "netlify/functions/asset-metrics.js",
+      "netlify/functions/billing-checkout.js",
+      "netlify/functions/billing-portal.js",
+      "netlify/functions/billing-webhook.js",
+      "netlify/functions/business-profile.js",
+      "netlify/functions/campaigner-chat.js",
+      "netlify/functions/create-campaign.js",
+      "netlify/functions/delete-lead.js",
+      "netlify/functions/enqueue-sync-job.js",
+      "netlify/functions/export-leads.js",
+      "netlify/functions/gdpr-export.js",
+      "netlify/functions/get-ads-data.js",
+      "netlify/functions/get-economics.js",
+      "netlify/functions/get-leads.js",
+      "netlify/functions/get-updates.js",
+      "netlify/functions/integration-connect.js",
+      "netlify/functions/meta-event.js",
+      "netlify/functions/oauth-callback-google.js",
+      "netlify/functions/oauth-callback-meta.js",
+      "netlify/functions/oauth-nonce.js",
+      "netlify/functions/payment-pending.js",
+      "netlify/functions/process-sync-job.js",
+      "netlify/functions/serve-asset.js",
+      "netlify/functions/submit-lead.js",
+      "netlify/functions/submit-ticket.js",
+      "netlify/functions/supabase-auth-email.js",
+      "netlify/functions/sync-performance.js",
+      "netlify/functions/trigger-pending-jobs.js",
+      "netlify/functions/update-lead.js"
+    ],
+
+    "shared_modules": {
+      "core_infrastructure": [
+        "netlify/functions/_shared/http.js",
+        "netlify/functions/_shared/errors.js",
+        "netlify/functions/_shared/observability.js",
+        "netlify/functions/_shared/supabase.js",
+        "netlify/functions/_shared/auth.js",
+        "netlify/functions/_shared/admin-auth.js",
+        "netlify/functions/_shared/request.js",
+        "netlify/functions/_shared/validation.js",
+        "netlify/functions/_shared/env.js",
+        "netlify/functions/_shared/audit.js",
+        "netlify/functions/_shared/crypto.js",
+        "netlify/functions/_shared/persistence.js",
+        "netlify/functions/_shared/rate-limit.js",
+        "netlify/functions/_shared/account.js"
+      ],
+      "business_domain": [
+        "netlify/functions/_shared/billing.js",
+        "netlify/functions/_shared/admin-metrics.js",
+        "netlify/functions/_shared/business-profile.js",
+        "netlify/functions/_shared/product-context.js",
+        "netlify/functions/_shared/email.js",
+        "netlify/functions/_shared/token-manager.js",
+        "netlify/functions/_shared/dictionary.js",
+        "netlify/functions/_shared/templates.js"
+      ],
+      "ai_analysis_engine": [
+        "netlify/functions/_shared/orchestrator.js",
+        "netlify/functions/_shared/decision-engine.js",
+        "netlify/functions/_shared/analyze-service.js",
+        "netlify/functions/_shared/explanationEngine.js",
+        "netlify/functions/_shared/learning-engine.js",
+        "netlify/functions/_shared/iteration-advisor.js",
+        "netlify/functions/_shared/bottleneck-tracker.js",
+        "netlify/functions/_shared/user-intelligence.js",
+        "netlify/functions/_shared/revenue-calculator.js",
+        "netlify/functions/_shared/ab-test-tracker.js",
+        "netlify/functions/_shared/ad-copy-generator.js",
+        "netlify/functions/_shared/profile-intake-extractor.js",
+        "netlify/functions/_shared/beginner-mode.js",
+        "netlify/functions/_shared/marketing-memory.js",
+        "netlify/functions/_shared/creative-context-pack.js",
+        "netlify/functions/_shared/feedback-loop.js",
+        "netlify/functions/_shared/iteration-engine.js",
+        "netlify/functions/_shared/landing-structure-engine.js",
+        "netlify/functions/_shared/html-blueprint-builder.js",
+        "netlify/functions/_shared/html-composer.js",
+        "netlify/functions/_shared/section-content-generator.js",
+        "netlify/functions/_shared/asset-storage.js",
+        "netlify/functions/_shared/leads-service.js"
+      ],
+      "ai_providers": [
+        "netlify/functions/_shared/providers/registry.js",
+        "netlify/functions/_shared/providers/router.js",
+        "netlify/functions/_shared/providers/contract.js",
+        "netlify/functions/_shared/providers/config.js",
+        "netlify/functions/_shared/providers/adapters/claude.js",
+        "netlify/functions/_shared/providers/adapters/openai.js",
+        "netlify/functions/_shared/providers/adapters/nano-banana.js"
+      ],
+      "prompt_builders": [
+        "netlify/functions/_shared/prompt-builders/ad-copy.js",
+        "netlify/functions/_shared/prompt-builders/ad-creative.js",
+        "netlify/functions/_shared/prompt-builders/analysis.js",
+        "netlify/functions/_shared/prompt-builders/issue-explanation.js",
+        "netlify/functions/_shared/prompt-builders/landing-page.js",
+        "netlify/functions/_shared/prompt-builders/iteration-advice.js"
+      ],
+      "design_system": [
+        "netlify/functions/_shared/design-system/tokens.js",
+        "netlify/functions/_shared/design-system/components.js",
+        "netlify/functions/_shared/design-system/templates.js"
+      ],
+      "validators": [
+        "netlify/functions/_shared/validators/anti-generic-validator.js",
+        "netlify/functions/_shared/validators/html-validator.js",
+        "netlify/functions/_shared/validators/visual-validator.js"
+      ],
+      "exporters": [
+        "netlify/functions/_shared/exporters/html-exporter.js",
+        "netlify/functions/_shared/exporters/zip-exporter.js"
+      ],
+      "integrations": [
+        "netlify/functions/_shared/integrations/ga4.js",
+        "netlify/functions/_shared/integrations/google-ads.js",
+        "netlify/functions/_shared/integrations/meta.js"
+      ],
+      "payments": [
+        "netlify/functions/_shared/payments/index.js",
+        "netlify/functions/_shared/payments/payment-service.js",
+        "netlify/functions/_shared/payments/factory.js",
+        "netlify/functions/_shared/payments/registry.js",
+        "netlify/functions/_shared/payments/contract.js",
+        "netlify/functions/_shared/payments/statuses.js",
+        "netlify/functions/_shared/payments/providers/stripe.js",
+        "netlify/functions/_shared/payments/providers/grow.js"
+      ],
+      "authz": [
+        "netlify/functions/_shared/authz/access.js"
+      ]
+    },
+
+    "frontend": {
+      "user_app": [
+        "public/index.html",
+        "public/assets/app.js",
+        "public/assets/app.css"
+      ],
+      "admin_app": [
+        "public/admin/index.html",
+        "public/admin/app.js",
+        "public/admin/app.css"
+      ],
+      "libs": [
+        "src/lib/metaPixel.js"
+      ]
+    },
+
+    "tests": [
+      "tests/unit/persistence-atomicity.test.js",
+      "tests/unit/phase4f.unit.test.js",
+      "tests/unit/phase4g.unit.test.js",
+      "tests/unit/phase4g.economics-testing.unit.test.js",
+      "tests/unit/phase4h.unit.test.js",
+      "tests/unit/orchestrator.unit.test.js",
+      "tests/unit/profile-intake-extractor.unit.test.js",
+      "tests/integration/process-sync-job.security.test.js",
+      "tests/integration/process-sync-job.concurrency.test.js",
+      "tests/integration/process-sync-job.concurrency-persistence.test.js",
+      "tests/integration/process-sync-job.e2e-consistency.test.js",
+      "tests/integration/process-sync-job.failure-observability.test.js",
+      "tests/integration/process-sync-job.lifecycle-failures.test.js",
+      "tests/integration/enqueue-sync-job.validation.test.js",
+      "tests/integration/authz.access.test.js",
+      "tests/integration/package-completeness.test.js"
+    ],
+
+    "config": [
+      "netlify.toml",
+      "package.json",
+      "schema.sql",
+      "schema-addendum.sql",
+      "scripts/inject-env.js",
+      "scripts/smoke-run.js"
+    ]
+  },
+
+  "relations": {
+    "function_groups": {
+      "auth_account": {
+        "files": ["account-profile.js", "account-delete.js", "supabase-auth-email.js"],
+        "shared_deps": ["http", "auth", "observability", "supabase", "request", "account", "validation", "errors"]
+      },
+      "admin": {
+        "files": ["admin-overview.js", "admin-system.js", "admin-billing.js", "admin-user.js", "admin-users.js", "admin-audit.js", "admin-assets.js", "admin-support.js", "admin-updates.js"],
+        "shared_deps": ["http", "admin-auth", "observability", "supabase", "errors", "request", "audit", "admin-metrics", "payments"]
+      },
+      "billing": {
+        "files": ["billing-checkout.js", "billing-webhook.js", "billing-portal.js", "payment-pending.js", "activate-payment.js"],
+        "shared_deps": ["http", "auth", "admin-auth", "observability", "supabase", "errors", "request", "payments", "email", "billing", "env", "audit", "validation"]
+      },
+      "oauth_integrations": {
+        "files": ["oauth-nonce.js", "oauth-callback-google.js", "oauth-callback-meta.js", "integration-connect.js"],
+        "shared_deps": ["http", "auth", "observability", "supabase", "errors", "token-manager", "env"]
+      },
+      "ads_data_sync": {
+        "files": ["get-ads-data.js", "sync-performance.js", "enqueue-sync-job.js", "process-sync-job.js", "trigger-pending-jobs.js", "meta-event.js"],
+        "shared_deps": ["http", "auth", "observability", "supabase", "errors", "request", "token-manager", "env", "persistence", "integrations/ga4", "integrations/google-ads", "integrations/meta"]
+      },
+      "campaigner_ai": {
+        "files": ["campaigner-chat.js", "create-campaign.js", "get-economics.js"],
+        "shared_deps": [
+          "http", "auth", "observability", "supabase", "errors", "request", "validation",
+          "decision-engine", "orchestrator", "dictionary", "user-intelligence", "beginner-mode",
+          "learning-engine", "business-profile", "revenue-calculator", "ab-test-tracker",
+          "ad-copy-generator", "profile-intake-extractor", "marketing-memory", "creative-context-pack",
+          "iteration-engine", "landing-structure-engine", "html-blueprint-builder", "html-composer",
+          "validators/anti-generic-validator", "validators/html-validator", "validators/visual-validator",
+          "asset-storage", "product-context"
+        ],
+        "note": "campaigner-chat.js is the largest and most complex function in the system"
+      },
+      "assets": {
+        "files": ["serve-asset.js", "asset-feedback.js", "asset-metrics.js", "admin-assets.js"],
+        "shared_deps": ["http", "auth", "admin-auth", "observability", "supabase", "errors", "request", "feedback-loop", "asset-storage", "product-context"]
+      },
+      "leads": {
+        "files": ["get-leads.js", "submit-lead.js", "update-lead.js", "delete-lead.js", "export-leads.js"],
+        "shared_deps": ["http", "auth", "observability", "supabase", "errors", "request", "leads-service"]
+      },
+      "content": {
+        "files": ["get-updates.js", "submit-ticket.js"],
+        "shared_deps": ["http", "auth", "admin-auth", "observability", "supabase", "errors", "request"]
+      },
+      "gdpr": {
+        "files": ["gdpr-export.js"],
+        "shared_deps": ["http", "auth", "observability", "supabase", "errors"]
+      },
+      "health": {
+        "files": ["health.js"],
+        "shared_deps": []
+      }
+    },
+
+    "shared_module_deps": {
+      "orchestrator.js": ["providers/router", "providers/registry"],
+      "decision-engine.js": ["analyze-service", "orchestrator", "prompt-builders/analysis"],
+      "analyze-service.js": ["orchestrator", "prompt-builders/analysis"],
+      "explanationEngine.js": ["orchestrator", "prompt-builders/issue-explanation"],
+      "iteration-advisor.js": ["orchestrator", "prompt-builders/iteration-advice"],
+      "ad-copy-generator.js": ["orchestrator", "prompt-builders/ad-copy"],
+      "landing-structure-engine.js": ["orchestrator", "prompt-builders/landing-page"],
+      "html-blueprint-builder.js": ["design-system/tokens", "design-system/components", "design-system/templates"],
+      "html-composer.js": ["html-blueprint-builder", "section-content-generator"],
+      "providers/router.js": ["providers/registry", "providers/contract", "providers/config"],
+      "providers/registry.js": ["providers/adapters/claude", "providers/adapters/openai", "providers/adapters/nano-banana"],
+      "payments/index.js": ["payments/payment-service", "payments/factory", "payments/registry"],
+      "payments/payment-service.js": ["payments/contract", "payments/statuses"],
+      "payments/factory.js": ["payments/providers/stripe", "payments/providers/grow"],
+      "auth.js": ["supabase"],
+      "admin-auth.js": ["supabase"],
+      "account.js": ["supabase"],
+      "billing.js": [],
+      "token-manager.js": ["supabase", "crypto"],
+      "audit.js": ["supabase"],
+      "persistence.js": ["supabase"],
+      "rate-limit.js": ["supabase"],
+      "user-intelligence.js": ["supabase"],
+      "learning-engine.js": ["supabase"],
+      "ab-test-tracker.js": ["supabase"],
+      "marketing-memory.js": ["supabase", "business-profile"],
+      "creative-context-pack.js": ["supabase", "business-profile"],
+      "feedback-loop.js": ["supabase"],
+      "asset-storage.js": ["supabase"],
+      "leads-service.js": ["supabase"],
+      "product-context.js": ["supabase"],
+      "business-profile.js": ["supabase"]
+    },
+
+    "data_flow": {
+      "user_to_backend": "Frontend (public/assets/app.js) → Netlify Functions → Supabase DB",
+      "admin_to_backend": "Frontend (public/admin/app.js) → Netlify Functions (admin-*) → Supabase DB",
+      "ai_pipeline": "campaigner-chat → orchestrator → providers/router → providers/adapters/[claude|openai|nano-banana]",
+      "sync_pipeline": "trigger-pending-jobs → enqueue-sync-job → process-sync-job → integrations/[ga4|google-ads|meta]",
+      "payment_flow": "billing-checkout → payments/index → payments/providers/[stripe|grow] → billing-webhook → activate-payment",
+      "oauth_flow": "oauth-nonce → oauth-callback-[google|meta] → integration-connect → token-manager",
+      "asset_generation": "campaigner-chat → landing-structure-engine → html-blueprint-builder → html-composer → asset-storage"
+    },
+
+    "universal_deps": {
+      "description": "These modules are imported by virtually every function",
+      "modules": ["http.js", "errors.js", "observability.js", "supabase.js"]
+    },
+
+    "auth_split": {
+      "user_auth": "auth.js → requireAuth (JWT, used in user-facing functions)",
+      "admin_auth": "admin-auth.js → requireAdmin (used in admin-* functions)"
+    }
+  }
+}
