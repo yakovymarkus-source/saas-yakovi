@@ -31,12 +31,14 @@ let state = {
   onboardingSteps:   null,   // loaded from onboarding_progress table
   unlockedScreens:   new Set(['dashboard','business-profile']),
   businessProfile:   null,   // business_profiles row
+  updatesCount:      0,      // unread updates badge for bell icon
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
 const routes = {
   dashboard:        renderDashboard,
   'business-profile': renderBusinessProfile,
+  'ai-creation':    renderAICreation,
   'landing-pages':  renderLandingPages,
   recommendations:  renderRecommendations,
   performance:      renderPerformance,
@@ -77,6 +79,7 @@ function getPlanLimits(plan) { return PLAN_LIMITS[plan] || PLAN_LIMITS.free; }
 function getPlanLabel(plan)  { return PLAN_LIMITS[plan]?.label || plan.toUpperCase(); }
 
 function navigate(page, params = {}) {
+  if (page === 'updates') state.updatesCount = 0;
   state.currentPage = page;
   Object.assign(state, params);
   render();
@@ -224,32 +227,66 @@ function renderAuth() {
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function renderShell(content) {
   const u = state.unlockedScreens;
-  // Progressive nav — only show what's unlocked for this user right now
-  const coreNav = [
-    { id: 'dashboard',        icon: '📊', label: 'דשבורד',             always: true },
-    { id: 'business-profile', icon: '🏢', label: 'פרופיל עסקי',        always: true },
-    { id: 'landing-pages',    icon: '🚀', label: 'דפי נחיתה',          unlock: 'landing-pages' },
-    { id: 'recommendations',  icon: '💡', label: 'המלצות',             unlock: 'recommendations' },
-    { id: 'copy',             icon: '✍️', label: 'קופי',               unlock: 'copy' },
-    { id: 'performance',      icon: '📈', label: 'ביצועים',            unlock: 'performance' },
-    { id: 'ab-tests',         icon: '🧪', label: 'A/B Tests',          unlock: 'ab-tests' },
-    { id: 'economics',        icon: '💰', label: 'כלכלת יחידה',        unlock: 'economics' },
-  ].filter(n => n.always || u.has(n.unlock));
 
-  const legacyNav = [
-    { id: 'campaigns',    icon: '🎯', label: 'נכסים שיווקיים' },
-    { id: 'leads',        icon: '📥', label: 'לידים' },
-    { id: 'integrations', icon: '🔌', label: 'אינטגרציות' },
-    { id: 'billing',      icon: '💳', label: 'חיוב' },
-    { id: 'settings',     icon: '⚙️', label: 'הגדרות' },
-    { id: 'updates',      icon: '🆕', label: 'עדכונים' },
-    { id: 'support',      icon: '💬', label: 'תמיכה' },
-    ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול' }] : []),
+  // Nav sections — grouped with dividers
+  const navSections = [
+    {
+      items: [
+        { id: 'dashboard',        icon: '📊', label: 'דשבורד',       always: true },
+        { id: 'business-profile', icon: '🏢', label: 'פרופיל עסקי', always: true },
+      ],
+    },
+    {
+      header: 'יצירה בAI',
+      items: [
+        { id: 'ai-creation',   icon: '🤖', label: 'מחולל תכנים',  always: true },
+        { id: 'landing-pages', icon: '🚀', label: 'דפי נחיתה',    unlock: 'landing-pages', sub: true },
+        { id: 'copy',          icon: '✍️', label: 'פוסטים וקופי', unlock: 'copy',          sub: true },
+      ].filter(n => n.always || u.has(n.unlock)),
+    },
+    {
+      header: 'ניתוח וביצועים',
+      items: [
+        { id: 'recommendations', icon: '💡', label: 'המלצות',       unlock: 'recommendations' },
+        { id: 'performance',     icon: '📈', label: 'ביצועים',      unlock: 'performance' },
+        { id: 'ab-tests',        icon: '🧪', label: 'A/B Tests',    unlock: 'ab-tests' },
+        { id: 'economics',       icon: '💰', label: 'כלכלת יחידה', unlock: 'economics' },
+      ].filter(n => u.has(n.unlock)),
+    },
+    {
+      header: 'נכסים שיווקיים',
+      items: [
+        { id: 'campaigns', icon: '🎯', label: 'נכסים שיווקיים', always: true },
+        { id: 'leads',     icon: '📥', label: 'לידים',          always: true },
+      ],
+    },
+    {
+      items: [
+        { id: 'integrations', icon: '🔌', label: 'אינטגרציות', always: true },
+        { id: 'billing',      icon: '💳', label: 'חיוב',        always: true },
+        { id: 'settings',     icon: '⚙️', label: 'הגדרות',      always: true },
+        { id: 'support',      icon: '💬', label: 'תמיכה',        always: true },
+        ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול', always: true }] : []),
+      ],
+    },
   ];
 
-  const navItems = [...coreNav, ...legacyNav];
-  const initials  = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
+  const renderNavSection = s => {
+    if (!s.items.length) return '';
+    return `
+      ${s.header ? `<div style="font-size:0.62rem;font-weight:700;letter-spacing:0.09em;color:rgba(255,255,255,0.38);text-transform:uppercase;padding:0.8rem 1rem 0.2rem;margin-top:0.4rem;">${s.header}</div>` : ''}
+      ${s.items.map(n => `
+        <div class="nav-item ${state.currentPage === n.id ? 'active' : ''}" data-page="${n.id}"
+             style="${n.sub ? 'padding-right:2rem;font-size:0.84rem;opacity:0.85;' : ''}">
+          <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
+        </div>`).join('')}
+    `;
+  };
+
+  const initials    = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
   const sidebarPlan = state.subscription?.plan || 'free';
+  const bellCount   = state.updatesCount || 0;
+
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
@@ -258,10 +295,7 @@ function renderShell(content) {
           Campaign<span>AI</span>
         </div>
         <nav class="sidebar-nav">
-          ${navItems.map(n => `
-            <div class="nav-item ${state.currentPage === n.id ? 'active' : ''}" data-page="${n.id}">
-              <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
-            </div>`).join('')}
+          ${navSections.map(renderNavSection).join('')}
         </nav>
         <div class="sidebar-footer">
           <div class="flex items-center gap-2">
@@ -274,7 +308,16 @@ function renderShell(content) {
           </div>
         </div>
       </aside>
-      <main class="main-content" id="page-content">${content}</main>
+      <main class="main-content" id="page-content">
+        <div style="margin:-2rem -2rem 1.5rem;padding:0.5rem 1.5rem;display:flex;justify-content:flex-end;align-items:center;border-bottom:1px solid #f1f5f9;background:white;position:sticky;top:0;z-index:10;">
+          <button onclick="navigate('updates')" title="עדכוני מערכת"
+            style="position:relative;background:none;border:none;cursor:pointer;font-size:1.3rem;padding:0.3rem;border-radius:50%;transition:background 0.15s;line-height:1;">
+            🔔
+            ${bellCount > 0 ? `<span style="position:absolute;top:0;right:0;background:#ef4444;color:white;font-size:0.58rem;font-weight:700;min-width:1rem;height:1rem;border-radius:9999px;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1;">${bellCount > 99 ? '99+' : bellCount}</span>` : ''}
+          </button>
+        </div>
+        ${content}
+      </main>
     </div>`;
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
     el.addEventListener('click', () => navigate(el.dataset.page));
@@ -1927,6 +1970,11 @@ async function boot() {
         onboardingSteps: steps,
       });
 
+      // Fetch updates count for bell notification (fire-and-forget)
+      api('GET', 'get-updates').then(data => {
+        state.updatesCount = Array.isArray(data) ? data.length : 0;
+      }).catch(() => {});
+
       // Re-render only if we didn't show cached version (first-ever load)
       if (!cached || cached.userId !== session.user.id) {
         if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
@@ -1980,10 +2028,10 @@ const chatState = {
   loading:  false,
   history:  [],          // [{role:'user'|'assistant', content:string}]
   quickActions: [
-    'בנה לי תסריט למודעת פייסבוק/אינסטגרם',
     'בצע חקר שוק וניתוח מתחרים',
-    'תכנן מבנה לדף נחיתה ממיר',
     'נתח ביצועי קמפיינים קיימים',
+    'מה הצעד הבא שמומלץ לי לעשות?',
+    'יש לי שאלה על הקמפיין שלי',
   ],
 };
 
@@ -2238,12 +2286,72 @@ function clearChatHistory() {
       </div>`;
   }
   chatState.quickActions = [
-    'בנה לי תסריט למודעת פייסבוק/אינסטגרם',
     'בצע חקר שוק וניתוח מתחרים',
-    'תכנן מבנה לדף נחיתה ממיר',
     'נתח ביצועי קמפיינים קיימים',
+    'מה הצעד הבא שמומלץ לי לעשות?',
+    'יש לי שאלה על הקמפיין שלי',
   ];
   renderQuickActions(chatState.quickActions);
+}
+
+// ── AI Creation hub ───────────────────────────────────────────────────────────
+async function renderAICreation() {
+  const u = state.unlockedScreens;
+
+  const tools = [
+    {
+      id:     'landing-pages',
+      icon:   '🚀',
+      title:  'דפי נחיתה',
+      desc:   'בנה דפי נחיתה ממירים — מבנה, תוכן ועיצוב מלא עם AI',
+      locked: !u.has('landing-pages'),
+    },
+    {
+      id:     'copy',
+      icon:   '✍️',
+      title:  'פוסטים וקופי',
+      desc:   'צור פוסטים לרשתות חברתיות, כותרות ותסריטי מודעות',
+      locked: !u.has('copy'),
+    },
+    {
+      id:     'copy',
+      icon:   '📢',
+      title:  'מודעות וסקריפטים',
+      desc:   'כתוב מודעות לפייסבוק, אינסטגרם וגוגל — מוכן לשידור',
+      locked: !u.has('copy'),
+    },
+    {
+      id:     'recommendations',
+      icon:   '💡',
+      title:  'המלצות אסטרטגיות',
+      desc:   'קבל המלצות מבוססות נתונים לשיפור הקמפיינים שלך',
+      locked: !u.has('recommendations'),
+    },
+  ];
+
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">🤖 יצירה בAI</h1>
+      <p class="page-subtitle">בחר כלי ליצירת תוכן — ממשק ישיר ללא צ'אט</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.25rem;margin-top:0.5rem;">
+      ${tools.map(t => `
+        <div onclick="${t.locked ? '' : `navigate('${t.id}')`}"
+          style="background:white;border-radius:0.75rem;border:1.5px solid ${t.locked ? '#e2e8f0' : '#e0e7ff'};
+                 padding:1.5rem;cursor:${t.locked ? 'default' : 'pointer'};transition:box-shadow 0.15s,border-color 0.15s;
+                 opacity:${t.locked ? '0.6' : '1'};"
+          ${!t.locked ? `onmouseenter="this.style.boxShadow='0 4px 20px rgba(99,102,241,0.12)';this.style.borderColor='#818cf8';"
+                         onmouseleave="this.style.boxShadow='';this.style.borderColor='#e0e7ff';"` : ''}>
+          <div style="font-size:2rem;margin-bottom:0.75rem;">${t.icon}</div>
+          <div style="font-size:1rem;font-weight:700;color:#1e293b;margin-bottom:0.4rem;">
+            ${t.title}${t.locked ? ' <span style="font-size:0.8rem;">🔒</span>' : ''}
+          </div>
+          <div style="font-size:0.875rem;color:#64748b;line-height:1.5;">${t.desc}</div>
+          ${t.locked ? '<div style="margin-top:0.75rem;font-size:0.78rem;color:#94a3b8;">השלם את הפרופיל העסקי כדי לפתוח</div>' : ''}
+        </div>
+      `).join('')}
+    </div>
+  `);
 }
 
 // ── Updates page ──────────────────────────────────────────────────────────────
