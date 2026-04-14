@@ -1299,6 +1299,17 @@ exports.handler = async (event) => {
     // Detect intent
     const intent = detectIntent(message);
 
+    // ── Creation intents → redirect to AI Creation page ──────────────────────
+    // Chat handles inquiries and analysis only. Landing pages, creatives, and
+    // visual assets are generated through the dedicated AI Creation interface.
+    const CREATION_INTENTS = new Set(['landing', 'creative', 'visual']);
+    if (CREATION_INTENTS.has(intent)) {
+      return ok({
+        reply: 'יצירת נכסים שיווקיים (דפי נחיתה, קריאייטיב, ויזואלים) מתבצעת דרך עמוד **מחולל התכנים** — ממשק ייעודי ומלא ללא צ׳אט.\n\nלחץ על **מחולל תכנים** בתפריט הצד.\n\nכאן אני עונה על שאלות, מנתח ביצועים ומייעץ אסטרטגית. במה אוכל לעזור?',
+        quickActions: ['נתח ביצועי קמפיינים', 'מה הצעד הבא המומלץ לי?', 'בצע חקר שוק', 'יש לי שאלה על הקמפיין שלי'],
+      });
+    }
+
     // ── Engine result (shared between beginner layer + intelligence update) ──
     const engineResult = chatContext.globalRaw.clicks > 0
       ? analyze(chatContext.globalRaw)

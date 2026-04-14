@@ -57,9 +57,8 @@ const routes = {
 
 // ── Progressive unlock helper ─────────────────────────────────────────────────
 function computeUnlockedScreens(steps) {
-  const screens = new Set(['dashboard', 'business-profile']);
+  const screens = new Set(['dashboard', 'business-profile', 'landing-pages']);
   if (!steps) return screens;
-  if (steps.profile_started)  screens.add('landing-pages');
   if (steps.first_asset)      screens.add('recommendations');
   if (steps.multiple_assets)  screens.add('copy');
   if (steps.has_metrics)      screens.add('performance');
@@ -240,7 +239,7 @@ function renderShell(content) {
       header: 'יצירה בAI',
       items: [
         { id: 'ai-creation',   icon: '🤖', label: 'מחולל תכנים',  always: true },
-        { id: 'landing-pages', icon: '🚀', label: 'דפי נחיתה',    unlock: 'landing-pages', sub: true },
+        { id: 'landing-pages', icon: '🚀', label: 'דפי נחיתה',    always: true, sub: true },
         { id: 'copy',          icon: '✍️', label: 'פוסטים וקופי', unlock: 'copy',          sub: true },
       ].filter(n => n.always || u.has(n.unlock)),
     },
@@ -1925,15 +1924,13 @@ async function boot() {
       render();                // ← page appears instantly
       initCampaignerChat();
     } else {
-      // No cache — render shell immediately so loading screen doesn't persist.
-      // Step 2 will re-render with full data once the fetch completes.
+      // No cache — show shell with spinner only; Step 2 will render the real page.
+      // Do NOT call render() here — it triggers page API calls and creates a
+      // double-render race condition with Step 2.
       state.profile         = {};
       state.subscription    = { plan: 'free' };
-      state.unlockedScreens = new Set(['dashboard', 'business-profile']);
-      if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
-        state.currentPage = initialPage;
-      }
-      render();
+      state.unlockedScreens = new Set(['dashboard', 'business-profile', 'landing-pages']);
+      renderShell('<div style="height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem"><div class="spinner"></div><p style="color:#64748b;font-size:0.9rem;">טוען...</p></div>');
       initCampaignerChat();
     }
 
@@ -2304,7 +2301,7 @@ async function renderAICreation() {
       icon:   '🚀',
       title:  'דפי נחיתה',
       desc:   'בנה דפי נחיתה ממירים — מבנה, תוכן ועיצוב מלא עם AI',
-      locked: !u.has('landing-pages'),
+      locked: false,
     },
     {
       id:     'copy',
