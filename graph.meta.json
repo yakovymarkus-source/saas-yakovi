@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "type": "full",
+  "timestamp": "2026-04-14T16:02:07+03:00",
+  "commit_hash": "a8d73bfe2d7ec98fb463ec16819c0eb8a2860e95",
+  "project": "saas-sync-package",
+  "root": "סאס 6/",
+  "confidence": "high",
+  "scan_coverage": {
+    "functions": "complete",
+    "shared_modules": "complete",
+    "frontend": "complete",
+    "tests": "listed_only",
+    "node_modules": "excluded"
+  },
+  "notes": [
+    "Initial full build — no prior graph existed",
+    "Imports scanned via grep on netlify/functions/*.js and _shared/**/*.js",
+    "Dynamic require() calls inside function bodies (not top-level) are marked as runtime-only"
+  ]
+}

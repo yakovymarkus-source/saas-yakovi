@@ -176,7 +176,7 @@ function generateBeginnerOverride(state, intent, message, context) {
     case 'connect': {
       // CA-009: intents that work WITHOUT live ad data — let normal flow run
       // (ad copy, economics, business profile, A/B test suggestions)
-      const NO_DATA_INTENTS = new Set(['copy', 'economics', 'business', 'test']);
+      const NO_DATA_INTENTS = new Set(['copy', 'economics', 'business', 'test', 'landing', 'creative', 'visual']);
       if (NO_DATA_INTENTS.has(intent)) return null;
       // All other intents (overview, budget, top_ads, roas, ctr, recs, trends,
       // tracking, integrations) require real campaign data — redirect

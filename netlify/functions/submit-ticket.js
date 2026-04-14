@@ -18,6 +18,7 @@ const { requireAuth }              = require('./_shared/auth');
 const { parseJsonBody }            = require('./_shared/request');
 const { getAdminClient }           = require('./_shared/supabase');
 const { AppError }                 = require('./_shared/errors');
+const { sendEmail }                = require('./_shared/email');
 
 const VALID_TYPES = new Set(['question', 'bug', 'feature_request', 'feedback']);
 
@@ -71,6 +72,26 @@ exports.handler = async (event) => {
 
     if (error) {
       throw new AppError({ code: 'DB_WRITE_FAILED', devMessage: error.message, status: 500 });
+    }
+
+    // Notify admin — fire-and-forget so ticket creation never fails due to email
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (adminEmail) {
+      const typeLabels = { question: 'שאלה', bug: 'באג', feature_request: 'בקשת פיצ׳ר', feedback: 'משוב' };
+      sendEmail({
+        to:      adminEmail,
+        subject: `📩 פנייה חדשה — ${typeLabels[type] || type}: ${safeTitle}`,
+        html: `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px;line-height:1.7;color:#1a1a1a;max-width:540px;margin:0 auto;padding:32px 24px;">
+<h2 style="margin:0 0 20px;font-size:22px;">📩 פנייה חדשה מהמערכת</h2>
+<p><strong>סוג:</strong> ${typeLabels[type] || type}</p>
+<p><strong>כותרת:</strong> ${safeTitle}</p>
+<p><strong>משתמש:</strong> ${user.id}</p>
+<div style="background:#f8fafc;border-right:4px solid #6366f1;padding:16px 20px;border-radius:0 8px 8px 0;margin:16px 0;white-space:pre-wrap;">${safeDesc}</div>
+<p><a href="${process.env.APP_URL || ''}" style="display:inline-block;background:#111;color:#fff;padding:12px 24px;text-decoration:none;border-radius:7px;font-weight:bold;">פתח לוח ניהול</a></p>
+<hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0 12px;">
+<p style="font-size:12px;color:#999;">CampaignBrain — מערכת ניהול קמפיינים</p>
+</div>`,
+      }).catch(e => console.warn('[submit-ticket] admin email failed:', e.message));
     }
 
     return ok({ ticketId: data.id }, ctx.requestId);

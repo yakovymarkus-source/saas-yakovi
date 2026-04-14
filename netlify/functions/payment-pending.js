@@ -3,9 +3,9 @@
 /**
  * payment-pending.js
  *
- * Called by the frontend after the user completes a manual GrowLink payment.
- * Sets subscription plan + payment_status='pending' so the admin can verify
- * and activate.  Does NOT grant plan access until admin calls activate-payment.
+ * Called by the frontend after the user completes a GrowLink payment.
+ * Auto-activates the subscription immediately and notifies admin for verification.
+ * Admin can manually deactivate if the payment turns out to be fraudulent.
  */
 
 const { ok, fail, options }                     = require('./_shared/http');
@@ -16,7 +16,7 @@ const { AppError }                              = require('./_shared/errors');
 const { parseJsonBody }                         = require('./_shared/request');
 const { validatePaymentPending }                = require('./_shared/validation');
 const { writeAudit }                            = require('./_shared/audit');
-const { sendAdminPaymentAlert }                 = require('./_shared/email');
+const { sendAdminPaymentAlert, sendActivationEmail } = require('./_shared/email');
 const { getEnv }                                = require('./_shared/env');
 
 exports.handler = async (event) => {
@@ -33,33 +33,45 @@ exports.handler = async (event) => {
 
     const sb = getAdminClient();
 
-    // Upsert subscription with payment_status='pending'
-    await sb.rpc('set_payment_pending', { p_user_id: user.id, p_plan: plan });
+    // Auto-activate subscription immediately
+    await sb.rpc('activate_payment', { p_user_id: user.id, p_plan: plan });
 
-    await writeAudit({ userId: user.id, action: 'payment.pending', targetType: 'subscription', targetId: user.id, metadata: { plan }, ip: context.ip, requestId: context.requestId });
+    await writeAudit({ userId: user.id, action: 'payment.self_activated', targetType: 'subscription', targetId: user.id, metadata: { plan }, ip: context.ip, requestId: context.requestId });
 
-    // Fetch user profile for email
+    // Fetch user profile + auth email for notifications
     const { data: profile } = await sb.from('profiles')
       .select('name, email')
       .eq('id', user.id)
       .maybeSingle();
 
-    // Notify admin
+    let userEmail = profile?.email;
+    if (!userEmail) {
+      const { data: authUser } = await sb.auth.admin.getUserById(user.id);
+      userEmail = authUser?.user?.email || null;
+    }
+
+    // Send activation confirmation to user
+    if (userEmail) {
+      sendActivationEmail({ to: userEmail })
+        .catch(e => console.warn('[payment-pending] user email failed:', e.message));
+    }
+
+    // Notify admin for verification
     const adminEmail = getEnv().ADMIN_EMAIL;
     if (adminEmail) {
-      await sendAdminPaymentAlert({
+      sendAdminPaymentAlert({
         adminEmail,
-        userEmail: profile?.email || user.email,
+        userEmail: userEmail || user.id,
         userName:  profile?.name,
         plan,
       }).catch(e => console.warn('[payment-pending] admin alert failed:', e.message));
     }
 
-    await writeRequestLog(buildLogPayload(context, 'info', 'payment_pending_set', {
+    await writeRequestLog(buildLogPayload(context, 'info', 'payment_self_activated', {
       user_id: user.id, plan,
     }));
 
-    return ok({ message: 'הבקשה התקבלה! החשבון יופעל תוך דקות לאחר אישור התשלום.' }, context.requestId);
+    return ok({ message: 'החשבון הופעל בהצלחה! ברוך הבא 🎉' }, context.requestId);
   } catch (error) {
     await writeRequestLog(buildLogPayload(context, 'error', 'payment_pending_failed', { code: error.code })).catch(() => {});
     return fail(error, context.requestId);

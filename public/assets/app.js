@@ -31,12 +31,14 @@ let state = {
   onboardingSteps:   null,   // loaded from onboarding_progress table
   unlockedScreens:   new Set(['dashboard','business-profile']),
   businessProfile:   null,   // business_profiles row
+  updatesCount:      0,      // unread updates badge for bell icon
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
 const routes = {
   dashboard:        renderDashboard,
   'business-profile': renderBusinessProfile,
+  'ai-creation':    renderAICreation,
   'landing-pages':  renderLandingPages,
   recommendations:  renderRecommendations,
   performance:      renderPerformance,
@@ -55,10 +57,9 @@ const routes = {
 
 // ── Progressive unlock helper ─────────────────────────────────────────────────
 function computeUnlockedScreens(steps) {
-  const screens = new Set(['dashboard', 'business-profile']);
+  const screens = new Set(['dashboard', 'business-profile', 'landing-pages']);
   if (!steps) return screens;
-  if (steps.profile_started)  screens.add('landing-pages');
-  if (steps.first_asset)      screens.add('recommendations');
+  if (steps.first_asset)      { screens.add('recommendations'); screens.add('leads'); }
   if (steps.multiple_assets)  screens.add('copy');
   if (steps.has_metrics)      screens.add('performance');
   if (steps.has_ab_data)      { screens.add('ab-tests'); screens.add('economics'); }
@@ -77,8 +78,11 @@ function getPlanLimits(plan) { return PLAN_LIMITS[plan] || PLAN_LIMITS.free; }
 function getPlanLabel(plan)  { return PLAN_LIMITS[plan]?.label || plan.toUpperCase(); }
 
 function navigate(page, params = {}) {
+  if (page === 'updates') state.updatesCount = 0;
   state.currentPage = page;
   Object.assign(state, params);
+  // Update URL hash so page survives refresh
+  window.location.hash = page;
   render();
 }
 
@@ -224,32 +228,66 @@ function renderAuth() {
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function renderShell(content) {
   const u = state.unlockedScreens;
-  // Progressive nav — only show what's unlocked for this user right now
-  const coreNav = [
-    { id: 'dashboard',        icon: '📊', label: 'דשבורד',             always: true },
-    { id: 'business-profile', icon: '🏢', label: 'פרופיל עסקי',        always: true },
-    { id: 'landing-pages',    icon: '🚀', label: 'דפי נחיתה',          unlock: 'landing-pages' },
-    { id: 'recommendations',  icon: '💡', label: 'המלצות',             unlock: 'recommendations' },
-    { id: 'copy',             icon: '✍️', label: 'קופי',               unlock: 'copy' },
-    { id: 'performance',      icon: '📈', label: 'ביצועים',            unlock: 'performance' },
-    { id: 'ab-tests',         icon: '🧪', label: 'A/B Tests',          unlock: 'ab-tests' },
-    { id: 'economics',        icon: '💰', label: 'כלכלת יחידה',        unlock: 'economics' },
-  ].filter(n => n.always || u.has(n.unlock));
 
-  const legacyNav = [
-    { id: 'campaigns',    icon: '🎯', label: 'נכסים שיווקיים' },
-    { id: 'leads',        icon: '📥', label: 'לידים' },
-    { id: 'integrations', icon: '🔌', label: 'אינטגרציות' },
-    { id: 'billing',      icon: '💳', label: 'חיוב' },
-    { id: 'settings',     icon: '⚙️', label: 'הגדרות' },
-    { id: 'updates',      icon: '🆕', label: 'עדכונים' },
-    { id: 'support',      icon: '💬', label: 'תמיכה' },
-    ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול' }] : []),
+  // Nav sections — grouped with dividers
+  const navSections = [
+    {
+      items: [
+        { id: 'business-profile', icon: '🏢', label: 'פרופיל עסקי', always: true },
+        { id: 'dashboard',        icon: '📊', label: 'דשבורד',       always: true },
+      ],
+    },
+    {
+      header: 'יצירה בAI',
+      items: [
+        { id: 'ai-creation',   icon: '🤖', label: 'מחולל תכנים',  always: true },
+        { id: 'landing-pages', icon: '🚀', label: 'דפי נחיתה',    always: true, sub: true },
+        { id: 'copy',          icon: '✍️', label: 'פוסטים וקופי', unlock: 'copy',          sub: true },
+      ].filter(n => n.always || u.has(n.unlock)),
+    },
+    {
+      header: 'ניתוח וביצועים',
+      items: [
+        { id: 'recommendations', icon: '💡', label: 'המלצות',       unlock: 'recommendations' },
+        { id: 'performance',     icon: '📈', label: 'ביצועים',      unlock: 'performance' },
+        { id: 'ab-tests',        icon: '🧪', label: 'A/B Tests',    unlock: 'ab-tests' },
+        { id: 'economics',       icon: '💰', label: 'כלכלת יחידה', unlock: 'economics' },
+      ].filter(n => u.has(n.unlock)),
+    },
+    {
+      header: 'נכסים שיווקיים',
+      items: [
+        { id: 'campaigns', icon: '🎯', label: 'נכסים שיווקיים', always: true },
+        { id: 'leads',     icon: '📥', label: 'לידים',          unlock: 'leads' },
+      ],
+    },
+    {
+      items: [
+        { id: 'integrations', icon: '🔌', label: 'אינטגרציות', always: true },
+        { id: 'billing',      icon: '💳', label: 'חיוב',        always: true },
+        { id: 'settings',     icon: '⚙️', label: 'הגדרות',      always: true },
+        { id: 'support',      icon: '💬', label: 'תמיכה',        always: true },
+        ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול', always: true }] : []),
+      ],
+    },
   ];
 
-  const navItems = [...coreNav, ...legacyNav];
-  const initials  = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
+  const renderNavSection = s => {
+    if (!s.items.length) return '';
+    return `
+      ${s.header ? `<div style="font-size:0.62rem;font-weight:700;letter-spacing:0.09em;color:rgba(255,255,255,0.38);text-transform:uppercase;padding:0.8rem 1rem 0.2rem;margin-top:0.4rem;">${s.header}</div>` : ''}
+      ${s.items.map(n => `
+        <div class="nav-item ${state.currentPage === n.id ? 'active' : ''}" data-page="${n.id}"
+             style="${n.sub ? 'padding-right:2rem;font-size:0.84rem;opacity:0.85;' : ''}">
+          <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
+        </div>`).join('')}
+    `;
+  };
+
+  const initials    = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
   const sidebarPlan = state.subscription?.plan || 'free';
+  const bellCount   = state.updatesCount || 0;
+
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
@@ -258,10 +296,7 @@ function renderShell(content) {
           Campaign<span>AI</span>
         </div>
         <nav class="sidebar-nav">
-          ${navItems.map(n => `
-            <div class="nav-item ${state.currentPage === n.id ? 'active' : ''}" data-page="${n.id}">
-              <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
-            </div>`).join('')}
+          ${navSections.map(renderNavSection).join('')}
         </nav>
         <div class="sidebar-footer">
           <div class="flex items-center gap-2">
@@ -274,7 +309,16 @@ function renderShell(content) {
           </div>
         </div>
       </aside>
-      <main class="main-content" id="page-content">${content}</main>
+      <main class="main-content" id="page-content">
+        <div style="margin:-2rem -2rem 1.5rem;padding:0.5rem 1.5rem;display:flex;justify-content:flex-end;align-items:center;border-bottom:1px solid #f1f5f9;background:white;position:sticky;top:0;z-index:10;">
+          <button onclick="navigate('updates')" title="עדכוני מערכת"
+            style="position:relative;background:none;border:none;cursor:pointer;font-size:1.3rem;padding:0.3rem;border-radius:50%;transition:background 0.15s;line-height:1;">
+            🔔
+            ${bellCount > 0 ? `<span style="position:absolute;top:0;right:0;background:#ef4444;color:white;font-size:0.58rem;font-weight:700;min-width:1rem;height:1rem;border-radius:9999px;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1;">${bellCount > 99 ? '99+' : bellCount}</span>` : ''}
+          </button>
+        </div>
+        ${content}
+      </main>
     </div>`;
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
     el.addEventListener('click', () => navigate(el.dataset.page));
@@ -950,8 +994,8 @@ async function renderIntegrations() {
               ${integ.last_sync_at ? `<div class="text-xs text-muted">סנכרון: ${new Date(integ.last_sync_at).toLocaleString('he-IL')}</div>` : ''}
               ${integ.last_error   ? `<div class="text-xs" style="color:#ef4444;margin-top:0.25rem">שגיאה: ${integ.last_error}</div>` : ''}
               ${(integ.connection_status === 'error' || integ.connection_status === 'expired')
-                ? `<button class="btn btn-sm btn-primary mt-2" onclick="connectIntegration('${def.provider}')">חבר מחדש</button>` : ''}
-            ` : `<button class="btn btn-primary" onclick="connectIntegration('${def.provider}')">חבר</button>`}
+                ? `<button class="btn btn-sm btn-primary mt-2" id="connect-btn-${def.provider}" onclick="connectIntegration('${def.provider}')">חבר מחדש</button>` : ''}
+            ` : `<button class="btn btn-primary" id="connect-btn-${def.provider}" onclick="connectIntegration('${def.provider}')">חבר</button>`}
           </div>`;
       }).join('')}
     </div>
@@ -968,15 +1012,24 @@ async function renderIntegrations() {
 }
 
 async function connectIntegration(provider) {
+  // Show immediate feedback — Netlify cold start can take 10-30s
+  const btn = document.getElementById(`connect-btn-${provider}`);
+  if (btn) { btn.disabled = true; btn.textContent = 'מתחבר...'; }
+  toast('מתחבר — אנא המתן מספר שניות...', 'info');
+
   const { data: { session } } = await sb.auth.getSession();
   const userId = session?.user?.id;
-  if (!userId) { toast('עליך להיות מחובר', 'error'); return; }
+  if (!userId) {
+    if (btn) { btn.disabled = false; btn.textContent = 'חבר'; }
+    toast('עליך להיות מחובר', 'error'); return;
+  }
 
   let nonce;
   try {
     const res = await api('POST', 'oauth-nonce', { provider });
     nonce = res.nonce;
   } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'חבר'; }
     toast('שגיאה ביצירת חיבור: ' + (err.message || 'נסה שוב'), 'error');
     return;
   }
@@ -1143,14 +1196,12 @@ async function confirmPayment() {
   if (btn) { btn.disabled = true; btn.textContent = 'שולח...'; }
   try {
     const plan = window._pendingPlan || 'early_bird';
-    await api('POST', 'payment-pending', { plan });
-    if (state.subscription) {
-      state.subscription.payment_status = 'pending';
-    } else {
-      state.subscription = { plan, payment_status: 'pending' };
-    }
-    toast('הבקשה התקבלה! החשבון יופעל תוך דקות לאחר אישור התשלום.', 'success');
-    setTimeout(() => navigate('billing'), 500);
+    const res = await api('POST', 'payment-pending', { plan });
+    // Subscription is now active — update local state
+    state.subscription = { plan, status: 'active', payment_status: 'verified' };
+    clearBootCache(); // force fresh data on next load
+    toast(res?.message || 'החשבון הופעל! ברוך הבא 🎉', 'success');
+    setTimeout(() => { navigate('dashboard'); }, 1200);
   } catch (err) {
     toast(err.message || 'שגיאה — נסו שנית', 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'שילמתי, הפעילו לי את החשבון'; }
@@ -1393,37 +1444,57 @@ async function renderAdmin() {
       </div>
     </div>
 
-    <div class="analysis-card">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold">משתמשים אחרונים</h3>
-        <span class="text-muted text-sm">סה"כ ${fmt(usersData?.total)}</span>
-      </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
-          <thead>
-            <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">אימייל</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">שם</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">תוכנית</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">נכסים</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">הצטרף</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">פעולה</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${(usersData?.users || []).map(u => `
-              <tr style="border-bottom:1px solid #f1f5f9${u.paymentStatus === 'pending' ? ';background:#fffbeb' : ''}">
-                <td style="padding:0.5rem 0.75rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.65rem">admin</span>' : ''}${u.paymentStatus === 'pending' ? ' <span class="badge badge-gray" style="font-size:0.65rem">pending</span>' : ''}</td>
-                <td style="padding:0.5rem 0.75rem">${u.name || '—'}</td>
-                <td style="padding:0.5rem 0.75rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
-                <td style="padding:0.5rem 0.75rem">${u.campaignCount}</td>
-                <td style="padding:0.5rem 0.75rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
-                <td style="padding:0.5rem 0.75rem">${u.paymentStatus === 'pending' ? `<button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>` : ''}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-    </div>`);
+    ${(() => {
+      const allUsers = usersData?.users || [];
+      const pendingUsers = allUsers.filter(u => u.paymentStatus === 'pending');
+      const paidUsers    = allUsers.filter(u => u.plan !== 'free' && u.paymentStatus !== 'pending');
+      const freeUsers    = allUsers.filter(u => u.plan === 'free' && u.paymentStatus !== 'pending');
+
+      const userTable = (users, showActivate) => users.length === 0 ? '<p class="text-muted text-sm">אין משתמשים</p>' : `
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+            <thead>
+              <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">אימייל</th>
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">שם</th>
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">תוכנית</th>
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">נכסים</th>
+                <th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">הצטרף</th>
+                ${showActivate ? '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">פעולה</th>' : ''}
+              </tr>
+            </thead>
+            <tbody>
+              ${users.map(u => `
+                <tr style="border-bottom:1px solid #f1f5f9">
+                  <td style="padding:0.4rem 0.6rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.62rem">admin</span>' : ''}</td>
+                  <td style="padding:0.4rem 0.6rem">${u.name || '—'}</td>
+                  <td style="padding:0.4rem 0.6rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
+                  <td style="padding:0.4rem 0.6rem">${u.campaignCount}</td>
+                  <td style="padding:0.4rem 0.6rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
+                  ${showActivate ? `<td style="padding:0.4rem 0.6rem"><button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button></td>` : ''}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+
+      return `
+        ${pendingUsers.length > 0 ? `
+        <div class="analysis-card mb-4" style="border:2px solid #f59e0b;background:#fffbeb">
+          <h3 class="font-semibold mb-3" style="color:#92400e">⏳ ממתינים לאישור (${pendingUsers.length})</h3>
+          ${userTable(pendingUsers, true)}
+        </div>` : ''}
+
+        <div class="analysis-card mb-4">
+          <h3 class="font-semibold mb-3" style="color:#16a34a">💳 מנויים פעילים (${paidUsers.length})</h3>
+          ${userTable(paidUsers, false)}
+        </div>
+
+        <div class="analysis-card">
+          <h3 class="font-semibold mb-3" style="color:#64748b">🆓 גרסה חינמית (${freeUsers.length})</h3>
+          ${userTable(freeUsers, false)}
+        </div>`;
+    })()}
+  `);
 }
 
 async function activateUserPayment(userId, plan) {
@@ -1832,6 +1903,9 @@ function resolveInitialPage() {
   const params = new URLSearchParams(window.location.search);
   if (params.has('success') || params.has('canceled') || params.has('session_id')) return 'billing';
   if (params.has('connected') || (params.has('error') && window.location.search)) return 'integrations';
+  // Restore page from URL hash on refresh
+  const hash = window.location.hash.slice(1);
+  if (hash && routes[hash]) return hash;
   return 'dashboard';
 }
 
@@ -1881,6 +1955,15 @@ async function boot() {
       }
       render();                // ← page appears instantly
       initCampaignerChat();
+    } else {
+      // No cache — show shell with spinner only; Step 2 will render the real page.
+      // Do NOT call render() here — it triggers page API calls and creates a
+      // double-render race condition with Step 2.
+      state.profile         = {};
+      state.subscription    = { plan: 'free' };
+      state.unlockedScreens = new Set(['dashboard', 'business-profile', 'landing-pages']);
+      renderShell('<div style="height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem"><div class="spinner"></div><p style="color:#64748b;font-size:0.9rem;">טוען...</p></div>');
+      initCampaignerChat();
     }
 
     // ── Step 2: fetch fresh data in background ────────────────────────────────
@@ -1915,6 +1998,11 @@ async function boot() {
         businessProfile: bpRes, campaigns: campsRes || [],
         onboardingSteps: steps,
       });
+
+      // Fetch updates count for bell notification (fire-and-forget)
+      api('GET', 'get-updates').then(data => {
+        state.updatesCount = Array.isArray(data) ? data.length : 0;
+      }).catch(() => {});
 
       // Re-render only if we didn't show cached version (first-ever load)
       if (!cached || cached.userId !== session.user.id) {
@@ -1952,7 +2040,7 @@ async function boot() {
   });
 
   setTimeout(() => {
-    if (document.querySelector('.loading-screen')) renderAuth();
+    if (document.querySelector('.loading-screen') && !state.user) renderAuth();
   }, 8000);
 
   keepAlive();
@@ -1969,10 +2057,10 @@ const chatState = {
   loading:  false,
   history:  [],          // [{role:'user'|'assistant', content:string}]
   quickActions: [
-    'בנה לי תסריט למודעת פייסבוק/אינסטגרם',
     'בצע חקר שוק וניתוח מתחרים',
-    'תכנן מבנה לדף נחיתה ממיר',
     'נתח ביצועי קמפיינים קיימים',
+    'מה הצעד הבא שמומלץ לי לעשות?',
+    'יש לי שאלה על הקמפיין שלי',
   ],
 };
 
@@ -2019,7 +2107,7 @@ function initCampaignerChat() {
       <div class="chat-welcome">
         <div class="chat-welcome-icon">🧠</div>
         <h3>Campaigner AI</h3>
-        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות נכסים שיווקיים מנצחים מאפס: מחקר שוק, תסריטי מודעות, תכנון דפי נחיתה וניתוח ביצועי קמפיינים. במה נתחיל היום?</p>
+        <p>שלום! אני הייעוץ האסטרטגי שלך. שאל אותי על ביצועי קמפיינים, תקציב, CTR, ROI, חקר שוק וכל שאלה שיווקית. לבניית נכסים (דפי נחיתה, קריאייטיב, קופי) — עבור ל<strong>מחולל התכנים</strong> בתפריט.</p>
         <div class="chat-knowledge-badge">
           <span class="chat-knowledge-dot"></span>
           מנוע ידע שיווקי פעיל
@@ -2219,7 +2307,7 @@ function clearChatHistory() {
       <div class="chat-welcome">
         <div class="chat-welcome-icon">🧠</div>
         <h3>Campaigner AI</h3>
-        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות נכסים שיווקיים מנצחים מאפס: מחקר שוק, תסריטי מודעות, תכנון דפי נחיתה וניתוח ביצועי קמפיינים. במה נתחיל היום?</p>
+        <p>שלום! אני הייעוץ האסטרטגי שלך. שאל אותי על ביצועי קמפיינים, תקציב, CTR, ROI, חקר שוק וכל שאלה שיווקית. לבניית נכסים (דפי נחיתה, קריאייטיב, קופי) — עבור ל<strong>מחולל התכנים</strong> בתפריט.</p>
         <div class="chat-knowledge-badge">
           <span class="chat-knowledge-dot"></span>
           מנוע ידע שיווקי פעיל
@@ -2227,12 +2315,72 @@ function clearChatHistory() {
       </div>`;
   }
   chatState.quickActions = [
-    'בנה לי תסריט למודעת פייסבוק/אינסטגרם',
     'בצע חקר שוק וניתוח מתחרים',
-    'תכנן מבנה לדף נחיתה ממיר',
     'נתח ביצועי קמפיינים קיימים',
+    'מה הצעד הבא שמומלץ לי לעשות?',
+    'יש לי שאלה על הקמפיין שלי',
   ];
   renderQuickActions(chatState.quickActions);
+}
+
+// ── AI Creation hub ───────────────────────────────────────────────────────────
+async function renderAICreation() {
+  const u = state.unlockedScreens;
+
+  const tools = [
+    {
+      id:     'landing-pages',
+      icon:   '🚀',
+      title:  'דפי נחיתה',
+      desc:   'בנה דפי נחיתה ממירים — מבנה, תוכן ועיצוב מלא עם AI',
+      locked: false,
+    },
+    {
+      id:     'copy',
+      icon:   '✍️',
+      title:  'פוסטים וקופי',
+      desc:   'צור פוסטים לרשתות חברתיות, כותרות ותסריטי מודעות',
+      locked: !u.has('copy'),
+    },
+    {
+      id:     'copy',
+      icon:   '📢',
+      title:  'מודעות וסקריפטים',
+      desc:   'כתוב מודעות לפייסבוק, אינסטגרם וגוגל — מוכן לשידור',
+      locked: !u.has('copy'),
+    },
+    {
+      id:     'recommendations',
+      icon:   '💡',
+      title:  'המלצות אסטרטגיות',
+      desc:   'קבל המלצות מבוססות נתונים לשיפור הקמפיינים שלך',
+      locked: !u.has('recommendations'),
+    },
+  ];
+
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">🤖 יצירה בAI</h1>
+      <p class="page-subtitle">בחר כלי ליצירת תוכן — ממשק ישיר ללא צ'אט</p>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.25rem;margin-top:0.5rem;">
+      ${tools.map(t => `
+        <div onclick="${t.locked ? '' : `navigate('${t.id}')`}"
+          style="background:white;border-radius:0.75rem;border:1.5px solid ${t.locked ? '#e2e8f0' : '#e0e7ff'};
+                 padding:1.5rem;cursor:${t.locked ? 'default' : 'pointer'};transition:box-shadow 0.15s,border-color 0.15s;
+                 opacity:${t.locked ? '0.6' : '1'};"
+          ${!t.locked ? `onmouseenter="this.style.boxShadow='0 4px 20px rgba(99,102,241,0.12)';this.style.borderColor='#818cf8';"
+                         onmouseleave="this.style.boxShadow='';this.style.borderColor='#e0e7ff';"` : ''}>
+          <div style="font-size:2rem;margin-bottom:0.75rem;">${t.icon}</div>
+          <div style="font-size:1rem;font-weight:700;color:#1e293b;margin-bottom:0.4rem;">
+            ${t.title}${t.locked ? ' <span style="font-size:0.8rem;">🔒</span>' : ''}
+          </div>
+          <div style="font-size:0.875rem;color:#64748b;line-height:1.5;">${t.desc}</div>
+          ${t.locked ? '<div style="margin-top:0.75rem;font-size:0.78rem;color:#94a3b8;">השלם את הפרופיל העסקי כדי לפתוח</div>' : ''}
+        </div>
+      `).join('')}
+    </div>
+  `);
 }
 
 // ── Updates page ──────────────────────────────────────────────────────────────
@@ -2349,27 +2497,15 @@ async function renderBusinessProfile() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
   let profile = null;
+  let completion = { pct: 0, missingRequired: [], missingEnrichment: [] };
+  let nextQ = null;
   try {
     const res = await api('GET', 'business-profile');
     profile = res.profile || null;
+    completion = res.completion || completion;
+    nextQ = res.nextQuestion || null;
     state.businessProfile = profile;
   } catch {}
-
-  const { scoreCompletion: _score, nextQ } = (() => {
-    if (!profile) return { nextQ: null };
-    const required = ['offer','price_amount','target_audience','problem_solved','desired_outcome','primary_goal'];
-    const missing  = required.filter(f => !profile[f]);
-    const pct      = Math.round(((required.length - missing.length) / required.length) * 70);
-    const questions = {
-      offer:           'מה בדיוק אתה מוכר? (משפט אחד)',
-      price_amount:    'מה המחיר של ההצעה שלך?',
-      target_audience: 'למי אתה מוכר? תאר את הלקוח האידיאלי',
-      problem_solved:  'מה הבעיה הספציפית שאתה פותר?',
-      desired_outcome: 'מה הלקוח מקבל בסוף?',
-      primary_goal:    'מה מטרת הקמפיין? (לידים / מכירות / פגישות)',
-    };
-    return { pct, nextQ: missing[0] ? questions[missing[0]] : null };
-  })();
 
   // Empty state — first time user
   if (!profile) {
@@ -2396,7 +2532,7 @@ async function renderBusinessProfile() {
   }
 
   // Has profile — show summary + enrichment nudges
-  const score = profile.profile_score || 0;
+  const score = completion.pct || 0;
   const scoreColor = score >= 70 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444';
 
   renderShell(`
@@ -2631,19 +2767,98 @@ async function renderLandingPages() {
 }
 
 function openLandingPageCreator() {
-  // Open the chat widget focused on landing page creation
-  if (typeof toggleChat === 'function') {
-    if (!chatState.open) toggleChat();
-    // Pre-fill prompt if profile has offer
-    if (state.businessProfile?.offer) {
-      const inp = document.getElementById('chat-input');
-      if (inp && !inp.value) {
-        inp.value = `צור לי דף נחיתה עבור: ${state.businessProfile.offer}`;
-        inp.focus();
-      }
+  const bp = state.businessProfile || {};
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <button class="btn btn-sm btn-secondary mb-2" onclick="navigate('landing-pages')">← חזור לדפים</button>
+        <h1 class="page-title">🚀 צור דף נחיתה חדש</h1>
+        <p class="page-subtitle">מלא את הפרטים ו-AI יבנה דף מותאם אישית</p>
+      </div>
+    </div>
+    <div class="card" style="max-width:680px">
+      <div class="form-group">
+        <label class="form-label">שם הדף / קמפיין <span style="color:#ef4444">*</span></label>
+        <input id="lp-name" class="form-input" type="text" maxlength="100"
+          placeholder="לדוגמה: קמפיין לידים לקורס הכתיבה" value="${bp.business_name || ''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">מה אתה מוכר / מציע? <span style="color:#ef4444">*</span></label>
+        <textarea id="lp-offer" class="form-input" rows="3" maxlength="500"
+          placeholder="תאר את המוצר/שירות שרוצים לקדם בדף">${bp.offer || ''}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">קהל יעד <span style="color:#ef4444">*</span></label>
+        <input id="lp-audience" class="form-input" type="text" maxlength="200"
+          placeholder="למי מיועד הדף? גיל, מאפיינים, צרכים" value="${bp.target_audience || ''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">מטרת הדף</label>
+        <select id="lp-goal" class="form-input">
+          <option value="leads" ${bp.primary_goal==='leads'?'selected':''}>איסוף לידים</option>
+          <option value="sales" ${bp.primary_goal==='sales'?'selected':''}>מכירה ישירה</option>
+          <option value="appointments" ${bp.primary_goal==='appointments'?'selected':''}>קביעת פגישות</option>
+          <option value="awareness">מודעות / קהל</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">הוראות נוספות ל-AI (אופציונלי)</label>
+        <textarea id="lp-instructions" class="form-input" rows="4" maxlength="800"
+          placeholder="לדוגמה: טון מקצועי, כלול סעיפי יתרונות ו-testimonials, צבעים כהים, כפתור CTA בולט בתחתית"></textarea>
+      </div>
+      <div id="lp-error" style="color:#ef4444;font-size:0.875rem;margin-bottom:0.75rem;display:none"></div>
+      <div id="lp-result" style="display:none;margin-bottom:1rem;padding:1rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:0.5rem;color:#166534;font-size:0.875rem"></div>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <button class="btn btn-gradient" id="lp-submit-btn" onclick="submitLandingPageCreate()" style="width:auto">
+          🚀 צור דף נחיתה עם AI
+        </button>
+        <button class="btn btn-secondary" onclick="navigate('landing-pages')" style="width:auto">ביטול</button>
+      </div>
+    </div>
+  `);
+}
+
+async function submitLandingPageCreate() {
+  const name   = document.getElementById('lp-name')?.value?.trim();
+  const offer  = document.getElementById('lp-offer')?.value?.trim();
+  const audience = document.getElementById('lp-audience')?.value?.trim();
+  const goal   = document.getElementById('lp-goal')?.value || 'leads';
+  const instructions = document.getElementById('lp-instructions')?.value?.trim() || '';
+  const errEl  = document.getElementById('lp-error');
+  const resultEl = document.getElementById('lp-result');
+  const btn    = document.getElementById('lp-submit-btn');
+
+  errEl.style.display = 'none';
+  if (!offer) { errEl.textContent = 'נדרש לפחות תיאור המוצר'; errEl.style.display = 'block'; return; }
+  if (!audience) { errEl.textContent = 'נדרש תיאור קהל יעד'; errEl.style.display = 'block'; return; }
+
+  btn.disabled = true; btn.textContent = 'בונה דף... ⏳';
+  resultEl.style.display = 'none';
+
+  const goalLabel = { leads: 'איסוף לידים', sales: 'מכירה ישירה', appointments: 'קביעת פגישות', awareness: 'מודעות' };
+
+  const prompt = [
+    `צור דף נחיתה עבור: ${offer}`,
+    `קהל יעד: ${audience}`,
+    `מטרה: ${goalLabel[goal] || goal}`,
+    name ? `שם הקמפיין: ${name}` : '',
+    instructions ? `הוראות נוספות: ${instructions}` : '',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const res = await api('POST', 'campaigner-chat', { message: prompt, mode: 'create' });
+    btn.disabled = false; btn.textContent = '🚀 צור דף נחיתה עם AI';
+    if (res?.reply) {
+      resultEl.innerHTML = '<strong>✅ הדף נוצר!</strong><br>' + res.reply.replace(/\n/g,'<br>');
+      resultEl.style.display = 'block';
+      // Refresh landing pages list after short delay
+      setTimeout(() => navigate('landing-pages'), 2500);
     }
+  } catch (err) {
+    btn.disabled = false; btn.textContent = '🚀 צור דף נחיתה עם AI';
+    errEl.textContent = err.message || 'שגיאה ביצירת הדף. נסה שנית.';
+    errEl.style.display = 'block';
   }
-  toast('הקלד בצ\'אט מה תרצה שייצרו לך — הכל מתחיל משם', 'info');
 }
 
 function createVariation(assetId, assetTitle) {
