@@ -1007,30 +1007,35 @@ exports.handler = async (event) => {
     // ── Direct generation mode (from AI creation form — bypasses intent/beginner layers) ──
     if (message.startsWith('[DIRECT_AD]') || message.startsWith('[DIRECT_GENERATE]')) {
       const rawPrompt = message.replace(/^\[(DIRECT_AD|DIRECT_GENERATE)\]\s*/, '');
-      const directContext = await buildContext(user.id);
-      // Try AI first, fallback to structured template
+      // Load business profile only (skip full context to save time)
+      let businessProfile = {};
+      try {
+        const { loadBusinessProfile } = require('./_shared/business-profile');
+        businessProfile = (await loadBusinessProfile(user.id)) || {};
+      } catch {}
+
+      // Single AI attempt — no second fallback to avoid 504
       const aiResult = await orchestrate(
         CAPABILITIES.AD_COPY,
-        { businessProfile: directContext.businessProfile || {}, rawPrompt },
-        { userId: user.id },
+        { businessProfile, rawPrompt },
+        { userId: user.id, options: { timeout: 20000 } },
       );
-      if (aiResult.ok && aiResult.content?.variants?.length) {
-        const vars = aiResult.content.variants;
-        let reply = `✍️ **${vars.length} וריאציות מודעה:**\n\n`;
-        reply += vars.map((v, i) => `**וריאציה ${i+1}:**\n${v.headline ? `**כותרת:** ${v.headline}\n` : ''}${v.body ? `**תיאור:** ${v.body}\n` : ''}${v.cta ? `**CTA:** ${v.cta}` : ''}`).join('\n\n---\n\n');
-        return ok({ reply, quickActions: ['שמור תוצאה', 'שנה את הסגנון', 'צור וריאציה נוספת'] }, context.requestId);
+      if (aiResult.ok) {
+        if (aiResult.content?.variants?.length) {
+          const vars = aiResult.content.variants;
+          let reply = `✍️ **${vars.length} וריאציות מודעה:**\n\n`;
+          reply += vars.map((v, i) => `**וריאציה ${i+1}:**\n${v.headline ? `**כותרת:** ${v.headline}\n` : ''}${v.body ? `**תיאור:** ${v.body}\n` : ''}${v.cta ? `**CTA:** ${v.cta}` : ''}`).join('\n\n---\n\n');
+          return ok({ reply, quickActions: [] }, context.requestId);
+        }
+        if (aiResult.content?.content) {
+          return ok({ reply: aiResult.content.content, quickActions: [] }, context.requestId);
+        }
       }
-      // Fallback: use rawPrompt as Claude prompt via LANDING_PAGE capability (free-form)
-      const fallbackResult = await orchestrate(
-        CAPABILITIES.LANDING_PAGE,
-        { businessProfile: directContext.businessProfile || {}, rawPrompt },
-        { userId: user.id },
-      );
-      if (fallbackResult.ok && fallbackResult.content?.content) {
-        return ok({ reply: fallbackResult.content.content, quickActions: [] }, context.requestId);
-      }
-      // Last resort: echo a structured placeholder from the prompt
-      return ok({ reply: `✍️ תוצאת ה-AI:\n\n${rawPrompt}\n\n_הערה: לקבלת תוצאה מותאמת אישית, הגדר OPENAI_API_KEY או ANTHROPIC_API_KEY בהגדרות הסביבה של Netlify._`, quickActions: [] }, context.requestId);
+      // AI not configured or failed — return a clear message without echoing the raw prompt
+      const note = aiResult.error === 'PROVIDER_NOT_CONFIGURED'
+        ? 'לקבלת תוצאות AI מלאות, הגדר OPENAI_API_KEY בהגדרות הסביבה של Netlify.'
+        : 'שגיאה זמנית בגישה ל-AI. אנא נסה שנית עוד מספר שניות.';
+      return ok({ reply: `⚠️ ${note}`, quickActions: [] }, context.requestId);
     }
 
     // Build context from DB

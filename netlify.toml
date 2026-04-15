@@ -5,6 +5,10 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# ── Function timeouts ─────────────────────────────────────────────────────────
+[functions."campaigner-chat"]
+  timeout = 26
+
 # ── Scheduled functions ────────────────────────────────────────────────────────
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"

@@ -66,18 +66,28 @@ function navigate(page, params = {}) {
 // Netlify Functions validate this token and look up the user's own OAuth credentials.
 // No .env API keys are ever exposed to or used by the frontend.
 async function api(method, path, body) {
-  const token = state.accessToken || '';
-  const res = await fetch(`${CONFIG.apiBase}/${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
-  return json.data ?? json;
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 25000);
+  try {
+    const token = state.accessToken || '';
+    const res = await fetch(`${CONFIG.apiBase}/${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
+    return json.data ?? json;
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('הבקשה ארכה יותר מדי — נסה שנית');
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -316,14 +326,6 @@ async function renderDashboard() {
     analysis = data || [];
   } catch {}
 
-  // Load integrations list if not already loaded
-  if (!state.integrations.length) {
-    try {
-      const res = await api('GET', 'integration-connect');
-      state.integrations = Array.isArray(res) ? res : [];
-    } catch {}
-  }
-
   const plan          = state.subscription?.plan          || 'free';
   const paymentStatus = state.subscription?.payment_status || 'none';
   const planBadge = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
@@ -560,12 +562,6 @@ function renderScoreBadge(score) {
 
 // ── Campaigns ─────────────────────────────────────────────────────────────────
 async function renderCampaigns() {
-  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
-  try {
-    const { data } = await sb.from('campaigns').select('*').eq('owner_user_id', state.user.id).order('created_at', { ascending: false });
-    state.campaigns = data || [];
-  } catch {}
-
   renderShell(`
     <div class="page-header flex items-center justify-between">
       <div>
@@ -1736,12 +1732,6 @@ function expandSavedWork(btn, content) {
 
 // ── Marketing Assets ──────────────────────────────────────────────────────────
 async function renderMarketingAssets() {
-  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
-  try {
-    const { data } = await sb.from('campaigns').select('*').eq('owner_user_id', state.user.id).order('created_at', { ascending: false });
-    state.campaigns = data || [];
-  } catch {}
-
   // Check if user has any landing pages saved (to decide whether to show leads)
   const hasLandingPages = loadAISavedWorks().some(a => a.type === 'landing_page');
 
@@ -1912,32 +1902,6 @@ async function sendSupportMessage() {
   }
 }
 
-async function submitContactForm(e) {
-  e.preventDefault();
-  const btn = document.getElementById('contact-submit-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'שולח...'; }
-  const subject = document.getElementById('contact-subject')?.value || 'פנייה';
-  const message = document.getElementById('contact-message')?.value.trim() || '';
-  if (!message) {
-    toast('נא למלא הודעה', 'error');
-    if (btn) { btn.disabled = false; btn.textContent = 'שלח פנייה'; }
-    return;
-  }
-  try {
-    await api('POST', 'contact', {
-      name:    state.profile?.name || '',
-      email:   state.profile?.email || state.user?.email || '',
-      subject,
-      message,
-    });
-    toast('הפנייה נשלחה! נחזור אליך בהקדם.', 'success');
-    document.getElementById('contact-message').value = '';
-    if (btn) { btn.disabled = false; btn.textContent = 'שלח פנייה'; }
-  } catch (err) {
-    toast(err.message || 'שגיאה בשליחת הפנייה', 'error');
-    if (btn) { btn.disabled = false; btn.textContent = 'שלח פנייה'; }
-  }
-}
 
 async function saveProfile(e) {
   e.preventDefault();
@@ -2133,10 +2097,22 @@ async function activateUserPayment(userId, plan) {
   }
 }
 
-// ── Main render ───────────────────────────────────────────────────────────────
+// ── Main render (with queue to prevent concurrent renders) ────────────────────
+let _renderRunning = false;
+let _renderQueued  = false;
+
 async function render() {
-  const fn = routes[state.currentPage] || renderDashboard;
-  await fn();
+  if (_renderRunning) { _renderQueued = true; return; }
+  _renderRunning = true;
+  try {
+    do {
+      _renderQueued = false;
+      const fn = routes[state.currentPage] || renderDashboard;
+      await fn();
+    } while (_renderQueued);
+  } finally {
+    _renderRunning = false;
+  }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
@@ -2172,37 +2148,46 @@ async function boot() {
 
   sb.auth.onAuthStateChange(async (event, session) => {
     bootCompleted = true;
+
+    // Token refresh — just update the token silently, no re-render needed
+    if (event === 'TOKEN_REFRESHED') {
+      if (session) state.accessToken = session.access_token;
+      return;
+    }
+
     if (!session) { renderAuth(); return; }
 
     state.user        = session.user;
     state.accessToken = session.access_token;
 
-    // Show shell instantly with spinner — don't block on DB
+    // Show shell instantly — don't block on DB
     state.profile      = {};
     state.subscription = { plan: 'free' };
     state.campaigns    = [];
+    state.integrations = [];
     if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
       state.currentPage = initialPage;
     }
     render();
-    initCampaignerChat();
+    initSupportChat();
 
-    // Load profile + subscription + campaigns in background, then refresh
+    // Load all data in parallel in background, then refresh
     try {
-      const [profile, sub, campsRes] = await Promise.all([
+      const [profile, sub, campsRes, intRes] = await Promise.all([
         sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(r => r.data),
         sb.from('subscriptions').select('plan,status,payment_status').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
-        sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id).then(r => r.data),
+        sb.from('campaigns').select('id,name,created_at').eq('owner_user_id', session.user.id).order('created_at', { ascending: false }).then(r => r.data),
+        api('GET', 'integration-connect').catch(() => []),
       ]);
       state.profile      = profile    || {};
       state.subscription = sub        || { plan: 'free' };
       state.campaigns    = campsRes   || [];
+      state.integrations = Array.isArray(intRes) ? intRes : [];
     } catch {
       // keep defaults set above
     }
-    // Re-render nav to show plan badge + name once data is loaded
-    const pageContent = document.getElementById('page-content');
-    if (pageContent) render(); // silent re-render to update sidebar
+    // Re-render once with all data loaded
+    render();
   });
 
   setTimeout(() => {
@@ -2213,97 +2198,97 @@ async function boot() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  CAMPAIGNER AI — Chat Widget
-//  Floats bottom-left. Feeds live stats from get-ads-data cache to the
-//  decision engine and returns specific, data-driven Hebrew responses.
+//  Support Chat Widget — floating bottom-right
+//  Replaces the old AI chat. Users send support messages here.
+//  Message history is stored in localStorage (same as support page).
 // ══════════════════════════════════════════════════════════════════════════════
 
-const chatState = {
-  open:     false,
-  loading:  false,
-  history:  [],          // [{role:'user'|'assistant', content:string}]
-  quickActions: [
-    'נתח ביצועי קמפיינים קיימים',
-    'בצע חקר שוק וניתוח מתחרים',
-    'מה ה-CTR הממוצע שלי ב-30 יום האחרונים?',
-    'אילו קמפיינים כדאי לעצור עכשיו?',
-  ],
-};
+const chatState = { open: false };
 
-// ── Markdown-lite renderer ────────────────────────────────────────────────────
-function renderMarkdown(text) {
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/_(.+?)_/g, '<em>$1</em>')
-    .replace(/\n/g, '<br>');
+// ── Build support log HTML from localStorage ──────────────────────────────────
+function renderSupportLog() {
+  const log = getSysLog();
+  if (!log.length) {
+    return `
+      <div class="chat-welcome">
+        <div class="chat-welcome-icon">💬</div>
+        <h3>תמיכה ושאלות</h3>
+        <p>שלום! שלח לנו הודעה ונחזור אליך בהקדם תוך יום עסקים.</p>
+      </div>`;
+  }
+  const initials = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
+  return log.map(m => `
+    <div class="chat-msg ${m.role === 'user' ? 'user' : 'assistant'}">
+      <div class="chat-msg-icon">${m.role === 'user' ? initials : '💬'}</div>
+      <div class="chat-msg-bubble">${m.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+    </div>`).join('');
+}
+
+// ── Refresh the log in the open chat panel ────────────────────────────────────
+function refreshChatLog() {
+  const msgs = document.getElementById('chat-messages');
+  if (!msgs) return;
+  msgs.innerHTML = renderSupportLog();
+  requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
 }
 
 // ── Build / inject widget DOM ─────────────────────────────────────────────────
-function initCampaignerChat() {
+function initSupportChat() {
   if (document.getElementById('chat-trigger')) return; // already mounted
 
-  // Floating trigger button
   const trigger = document.createElement('button');
   trigger.id = 'chat-trigger';
-  trigger.setAttribute('aria-label', 'פתח Campaigner AI');
-  trigger.innerHTML = '<span>🧠</span><span class="chat-badge" id="chat-badge"></span>';
+  trigger.setAttribute('aria-label', 'פתח תמיכה');
+  trigger.innerHTML = '<span>💬</span>';
   trigger.onclick = toggleChat;
   document.body.appendChild(trigger);
 
-  // Chat panel
   const panel = document.createElement('div');
   panel.id = 'chat-panel';
   panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-label', 'Campaigner AI');
+  panel.setAttribute('aria-label', 'תמיכה');
   panel.innerHTML = `
     <div class="chat-header">
-      <div class="chat-avatar">🧠</div>
+      <div class="chat-avatar">💬</div>
       <div class="chat-header-info">
-        <div class="chat-header-name">Campaigner AI</div>
-        <div class="chat-header-sub">מנתח נתוני פרסום בזמן אמת</div>
+        <div class="chat-header-name">תמיכה</div>
+        <div class="chat-header-sub">נחזור אליך תוך יום עסקים</div>
       </div>
-      <div class="chat-status-dot" title="מחובר"></div>
+      <div class="chat-status-dot" title="זמין"></div>
       <div class="chat-header-actions">
-        <button class="chat-header-btn" onclick="clearChatHistory()" title="נקה שיחה">🗑</button>
         <button class="chat-header-btn" onclick="toggleChat()" title="סגור">✕</button>
       </div>
     </div>
-    <div class="chat-messages" id="chat-messages">
-      <div class="chat-welcome">
-        <div class="chat-welcome-icon">🧠</div>
-        <h3>Campaigner AI</h3>
-        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות נכסים שיווקיים מנצחים מאפס: מחקר שוק, תסריטי מודעות, תכנון דפי נחיתה וניתוח ביצועי קמפיינים. במה נתחיל היום?</p>
-        <div class="chat-knowledge-badge">
-          <span class="chat-knowledge-dot"></span>
-          מנוע ידע שיווקי פעיל
-        </div>
-      </div>
-    </div>
-    <div class="chat-quick-actions" id="chat-quick-actions"></div>
+    <div class="chat-messages" id="chat-messages"></div>
     <div class="chat-input-bar">
+      <select class="chat-support-select" id="chat-support-subject">
+        <option value="תמיכה טכנית">תמיכה טכנית</option>
+        <option value="שאלה על חיוב">חיוב</option>
+        <option value="בקשת תכונה">בקשת תכונה</option>
+        <option value="דיווח על באג">דיווח באג</option>
+        <option value="אחר">אחר</option>
+      </select>
       <textarea
         class="chat-input"
-        id="chat-input"
-        placeholder="שאל על ביצועים, תקציב, CTR..."
+        id="chat-support-input"
+        placeholder="כתוב הודעה..."
         rows="1"
         maxlength="2000"
       ></textarea>
-      <button class="chat-send-btn" id="chat-send-btn" onclick="submitChatMessage()" title="שלח">➤</button>
+      <button class="chat-send-btn" id="chat-send-btn" onclick="submitSupportChat()" title="שלח">➤</button>
     </div>`;
   document.body.appendChild(panel);
 
-  // Auto-resize textarea
-  const textarea = document.getElementById('chat-input');
-  textarea.addEventListener('input', () => {
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
-  });
-  textarea.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitChatMessage(); }
-  });
-
-  renderQuickActions(chatState.quickActions);
+  const textarea = document.getElementById('chat-support-input');
+  if (textarea) {
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
+    });
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitSupportChat(); }
+    });
+  }
 }
 
 // ── Toggle open/close ─────────────────────────────────────────────────────────
@@ -2311,183 +2296,46 @@ function toggleChat() {
   chatState.open = !chatState.open;
   const panel   = document.getElementById('chat-panel');
   const trigger = document.getElementById('chat-trigger');
-  const badge   = document.getElementById('chat-badge');
   if (panel) panel.classList.toggle('open', chatState.open);
   if (trigger) trigger.innerHTML = chatState.open
     ? '<span style="font-size:1.1rem">✕</span>'
-    : '<span>🧠</span><span class="chat-badge" id="chat-badge"></span>';
+    : '<span>💬</span>';
   if (chatState.open) {
-    scrollChatToBottom();
-    document.getElementById('chat-input')?.focus();
+    refreshChatLog();
+    document.getElementById('chat-support-input')?.focus();
   }
 }
 
-// ── Render quick action chips ─────────────────────────────────────────────────
-function renderQuickActions(actions) {
-  const container = document.getElementById('chat-quick-actions');
-  if (!container) return;
-  container.innerHTML = (actions || []).map(a =>
-    `<button class="chat-quick-btn" onclick="handleQuickAction(this)">${a}</button>`
-  ).join('');
-}
-
-function handleQuickAction(btn) {
-  const text = btn.textContent;
-  if (text === '💬 פנה לתמיכה') { navigate('support'); toggleChat(); return; }
-  const input = document.getElementById('chat-input');
-  if (input) { input.value = text; input.style.height = 'auto'; }
-  submitChatMessage();
-}
-
-// ── Append message bubble ─────────────────────────────────────────────────────
-function appendChatBubble(role, content, animate = false) {
-  const msgs = document.getElementById('chat-messages');
-  if (!msgs) return;
-
-  const initials = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
-  const icon = role === 'user' ? initials : '🧠';
-
-  const wrapper = document.createElement('div');
-  wrapper.className = `chat-msg ${role}`;
-  wrapper.innerHTML = `
-    <div class="chat-msg-icon">${icon}</div>
-    <div class="chat-msg-bubble" id="bubble-${Date.now()}"></div>`;
-  msgs.appendChild(wrapper);
-
-  const bubble = wrapper.querySelector('.chat-msg-bubble');
-  if (animate && role === 'assistant') {
-    typewriterEffect(bubble, content);
-  } else {
-    bubble.innerHTML = renderMarkdown(content);
-  }
-  scrollChatToBottom();
-  return bubble;
-}
-
-// ── Typewriter (simulated streaming) ─────────────────────────────────────────
-function typewriterEffect(el, text) {
-  const words  = text.split(' ');
-  let current  = '';
-  let idx      = 0;
-
-  function tick() {
-    if (idx >= words.length) { el.innerHTML = renderMarkdown(text); return; }
-    current += (idx > 0 ? ' ' : '') + words[idx++];
-    el.innerHTML = renderMarkdown(current) + '<span style="opacity:.4">▋</span>';
-    scrollChatToBottom();
-    setTimeout(tick, 18 + Math.random() * 22);
-  }
-  tick();
-}
-
-// ── Typing indicator ──────────────────────────────────────────────────────────
-function showTypingIndicator() {
-  const msgs = document.getElementById('chat-messages');
-  if (!msgs) return;
-  const el = document.createElement('div');
-  el.className = 'chat-typing';
-  el.id = 'chat-typing';
-  el.innerHTML = `
-    <div class="chat-typing-icon">🧠</div>
-    <div class="chat-typing-bubble">
-      <span style="font-size:0.75rem;color:#6366f1">הסוכן מנתח את הנתונים...</span>
-      <div class="chat-typing-dots"><span></span><span></span><span></span></div>
-    </div>`;
-  msgs.appendChild(el);
-  scrollChatToBottom();
-}
-function hideTypingIndicator() {
-  document.getElementById('chat-typing')?.remove();
-}
-
-// ── Scroll helper ─────────────────────────────────────────────────────────────
-function scrollChatToBottom() {
-  const msgs = document.getElementById('chat-messages');
-  if (msgs) requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
-}
-
-// ── Submit message ────────────────────────────────────────────────────────────
-async function submitChatMessage() {
-  const input = document.getElementById('chat-input');
-  const sendBtn = document.getElementById('chat-send-btn');
-  const message = input?.value.trim();
-  if (!message || chatState.loading) return;
-
-  // Clear input
-  input.value = '';
-  input.style.height = 'auto';
-
-  // Add user bubble
-  appendChatBubble('user', message);
-  chatState.history.push({ role: 'user', content: message });
-
-  // Disable input while loading
-  chatState.loading = true;
-  if (sendBtn) sendBtn.disabled = true;
-  showTypingIndicator();
-
-  // Hide quick actions while processing
-  const qa = document.getElementById('chat-quick-actions');
-  if (qa) qa.style.display = 'none';
-
+// ── Submit support message from chat widget ───────────────────────────────────
+async function submitSupportChat() {
+  const btn     = document.getElementById('chat-send-btn');
+  const msgEl   = document.getElementById('chat-support-input');
+  const subject = document.getElementById('chat-support-subject')?.value || 'פנייה';
+  const message = msgEl?.value.trim() || '';
+  if (!message) { toast('נא לכתוב הודעה', 'error'); return; }
+  if (btn) { btn.disabled = true; }
+  // Optimistically show message in log
+  addSysLog('user', `[${subject}] ${message}`);
+  if (msgEl) { msgEl.value = ''; msgEl.style.height = 'auto'; }
+  refreshChatLog();
   try {
-    const result = await api('POST', 'campaigner-chat', {
+    await api('POST', 'contact', {
+      name:    state.profile?.name    || '',
+      email:   state.profile?.email   || state.user?.email || '',
+      subject,
       message,
-      history: chatState.history.slice(-6), // send last 3 exchanges for context
     });
-
-    hideTypingIndicator();
-
-    const reply = result.reply || 'לא הצלחתי לקבל תשובה. נסה שוב.';
-    appendChatBubble('assistant', reply, true /* animate */);
-    chatState.history.push({ role: 'assistant', content: reply });
-
-    // Update quick actions from response
-    if (result.quickActions?.length) {
-      chatState.quickActions = result.quickActions;
-    }
-
+    addSysLog('system', 'קיבלנו את הפנייה שלך! נחזור אליך בהקדם תוך יום עסקים.');
+    toast('הפנייה נשלחה!', 'success');
   } catch (err) {
-    hideTypingIndicator();
-    const errMsg = err.message?.includes('NOT_CONNECTED')
-      ? 'חבר קודם אינטגרציה כדי שאוכל לנתח את הנתונים שלך.'
-      : `שגיאה: ${err.message || 'נסה שוב'}`;
-    appendChatBubble('assistant', errMsg, true);
-    chatState.history.push({ role: 'assistant', content: errMsg });
+    addSysLog('system', `שגיאה: ${err.message || 'נסה שנית'}`);
+    toast(err.message || 'שגיאה בשליחה', 'error');
   } finally {
-    chatState.loading = false;
-    if (sendBtn) sendBtn.disabled = false;
-    if (input)   input.focus();
-    // Restore quick actions
-    if (qa) qa.style.display = '';
-    renderQuickActions(chatState.quickActions);
-    scrollChatToBottom();
+    if (btn) btn.disabled = false;
+    refreshChatLog();
+    // Sync support page if open
+    if (state.currentPage === 'support') renderSupport();
   }
-}
-
-// ── Clear chat history ────────────────────────────────────────────────────────
-function clearChatHistory() {
-  chatState.history = [];
-  const msgs = document.getElementById('chat-messages');
-  if (msgs) {
-    msgs.innerHTML = `
-      <div class="chat-welcome">
-        <div class="chat-welcome-icon">🧠</div>
-        <h3>Campaigner AI</h3>
-        <p>שלום! אני השותף האסטרטגי שלך לצמיחה. אני לא רק מנתח נתונים בזמן אמת, אלא עוזר לך לבנות נכסים שיווקיים מנצחים מאפס: מחקר שוק, תסריטי מודעות, תכנון דפי נחיתה וניתוח ביצועי קמפיינים. במה נתחיל היום?</p>
-        <div class="chat-knowledge-badge">
-          <span class="chat-knowledge-dot"></span>
-          מנוע ידע שיווקי פעיל
-        </div>
-      </div>`;
-  }
-  chatState.quickActions = [
-    'נתח ביצועי קמפיינים קיימים',
-    'מה ה-CTR הממוצע שלי ב-30 יום האחרונים?',
-    'אילו קמפיינים כדאי לעצור עכשיו?',
-    '💬 פנה לתמיכה',
-  ];
-  renderQuickActions(chatState.quickActions);
 }
 
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
@@ -2497,6 +2345,7 @@ window.saveBusinessProfile   = saveBusinessProfile;
 window.switchAITab           = switchAITab;
 window.generateAdScript      = generateAdScript;
 window.generateLandingPage   = generateLandingPage;
+window.generateAdCreative    = generateAdCreative;
 window.copyAIResult          = copyAIResult;
 window.expandSavedWork       = expandSavedWork;
 window.filterAdminUsers      = filterAdminUsers;
@@ -2516,11 +2365,7 @@ window.exportData            = exportData;
 window.deleteAccount         = deleteAccount;
 window.refreshLiveStats      = refreshLiveStats;
 window.toggleChat            = toggleChat;
-window.submitChatMessage     = submitChatMessage;
-window.clearChatHistory      = clearChatHistory;
-window.handleQuickAction     = handleQuickAction;
-window.submitContactForm     = submitContactForm;
-window.generateAdCreative    = generateAdCreative;
+window.submitSupportChat     = submitSupportChat;
 window.sendSupportMessage    = sendSupportMessage;
 window.renderSupport         = renderSupport;
 

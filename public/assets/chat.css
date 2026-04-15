@@ -7,7 +7,7 @@
 #chat-trigger {
   position: fixed;
   bottom: 1.75rem;
-  left: 1.75rem;
+  right: 1.75rem;
   z-index: 900;
   width: 3.5rem;
   height: 3.5rem;
@@ -50,7 +50,7 @@
 #chat-panel {
   position: fixed;
   bottom: 6.5rem;
-  left: 1.75rem;
+  right: 1.75rem;
   z-index: 900;
   width: 380px;
   max-height: 580px;
@@ -60,7 +60,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transform-origin: bottom left;
+  transform-origin: bottom right;
   transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), opacity 0.2s;
   opacity: 0;
   transform: scale(0.85) translateY(16px);
@@ -319,7 +319,22 @@
   0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
 }
 
+/* support subject select inside chat */
+.chat-support-select {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.5rem;
+  border: 1.5px solid var(--gray-200);
+  border-radius: 0.5rem;
+  background: white;
+  color: var(--gray-700);
+  flex-shrink: 0;
+  max-width: 130px;
+  direction: rtl;
+  outline: none;
+}
+.chat-support-select:focus { border-color: var(--brand); }
+
 @media (max-width: 768px) {
   #chat-panel    { left: 0.75rem; right: 0.75rem; bottom: 5rem; width: auto; max-height: 70vh; }
-  #chat-trigger  { bottom: 4.5rem; left: 1rem; }
+  #chat-trigger  { bottom: 4.5rem; right: 1rem; }
 }
