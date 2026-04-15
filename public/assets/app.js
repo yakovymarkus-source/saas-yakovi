@@ -1093,12 +1093,38 @@ async function confirmPayment() {
     } else {
       state.subscription = { plan, payment_status: 'pending' };
     }
-    toast('הבקשה התקבלה! החשבון יופעל תוך דקות לאחר אישור התשלום.', 'success');
+    toast('הבקשה התקבלה! מחפש אישור תשלום...', 'success');
     setTimeout(() => navigate('billing'), 500);
+    pollPaymentActivation();
   } catch (err) {
     toast(err.message || 'שגיאה — נסו שנית', 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'שילמתי, הפעילו לי את החשבון'; }
   }
+}
+
+// Poll subscription status every 10s for up to 5 min after payment-pending
+function pollPaymentActivation() {
+  let attempts = 0;
+  const maxAttempts = 30; // 30 × 10s = 5 min
+  const poll = async () => {
+    attempts++;
+    try {
+      const { data: sub } = await sb.from('subscriptions')
+        .select('plan,status,payment_status')
+        .eq('user_id', state.user?.id)
+        .maybeSingle();
+      if (sub && sub.payment_status === 'verified') {
+        state.subscription = sub;
+        toast('🎉 התשלום אושר! החשבון שלך הופעל.', 'success');
+        navigate('dashboard');
+        return;
+      }
+    } catch {}
+    if (attempts < maxAttempts) {
+      setTimeout(poll, 10000);
+    }
+  };
+  setTimeout(poll, 10000);
 }
 
 // ── Payment claim — safety-net for users who closed the browser ──────────────
@@ -1154,10 +1180,11 @@ async function submitClaim() {
     } else {
       state.subscription = { plan, payment_status: 'pending', status: 'active' };
     }
+    pollPaymentActivation();
     if (inner) inner.innerHTML = `
       <div style="font-size:2.5rem;margin-bottom:1rem">✅</div>
       <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:0.5rem">הבקשה התקבלה!</h3>
-      <p style="font-size:0.875rem;color:#64748b">החשבון יופעל תוך דקות לאחר אישור התשלום.<br>תקבלו אימייל אישור.</p>
+      <p style="font-size:0.875rem;color:#64748b">אנחנו בודקים את התשלום ברקע — תקבלו עדכון ברגע שיאושר.<br>תקבלו גם אימייל אישור.</p>
       <button onclick="document.getElementById('claim-overlay').remove();navigate('billing')" class="btn btn-primary" style="margin-top:1.25rem">
         הבנתי
       </button>`;
@@ -1314,6 +1341,315 @@ async function saveBusinessProfile(e) {
   }
 }
 
+// ── AI Creation ───────────────────────────────────────────────────────────────
+// Form-based creative asset generator — NOT the chat widget.
+// Sub-tabs: ad_script | landing_page | saved
+let aiCreationTab = 'ad_script';
+
+async function renderAICreation() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  // Load business profile for pre-fill hints
+  let bp = {};
+  try { bp = await api('GET', 'business-profile') || {}; } catch {}
+
+  // Load saved assets
+  let saved = [];
+  try {
+    const res = await api('GET', 'ai-assets');
+    saved = Array.isArray(res) ? res : (res?.assets || []);
+  } catch {}
+
+  _renderAICreationShell(bp, saved);
+}
+
+function _renderAICreationShell(bp, saved) {
+  const tab = aiCreationTab;
+  const hint = bp.offer ? `הצעה נוכחית: ${bp.offer.slice(0, 60)}...` : '';
+
+  const tabContent = {
+    ad_script: `
+      <div class="card">
+        <div class="card-title">✍️ בנה תסריט למודעה</div>
+        <p class="text-sm text-muted mb-4">מלא את הפרטים ו-AI יכתוב תסריט מלא בעברית מותאם לפלטפורמה</p>
+        ${hint ? `<div class="text-xs text-muted mb-3" style="background:#f1f5f9;padding:0.5rem 0.75rem;border-radius:0.5rem">${hint}</div>` : ''}
+        <div class="form-group">
+          <label class="form-label">פלטפורמה</label>
+          <select class="form-input" id="ai-platform">
+            <option value="facebook">פייסבוק / אינסטגרם</option>
+            <option value="google">Google Ads</option>
+            <option value="youtube">יוטיוב (וידאו)</option>
+            <option value="tiktok">TikTok</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">המוצר / שירות</label>
+          <input class="form-input" id="ai-offer" value="${(bp.offer||'').replace(/"/g,'&quot;').slice(0,120)}" placeholder="מה אתם מוכרים?" />
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">קהל יעד</label>
+            <input class="form-input" id="ai-audience" value="${(bp.target_audience||'').replace(/"/g,'&quot;').slice(0,80)}" placeholder="למי הפרסומת?" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">הבעיה שנפתרת</label>
+            <input class="form-input" id="ai-problem" value="${(bp.problem_solved||'').replace(/"/g,'&quot;').slice(0,80)}" placeholder="מה הכאב של הלקוח?" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">סגנון תסריט</label>
+          <select class="form-input" id="ai-tone">
+            <option value="emotional">רגשי / סיפורי</option>
+            <option value="direct">ישיר ועניני (AIDA)</option>
+            <option value="social_proof">הוכחה חברתית</option>
+            <option value="problem_solution">בעיה–פתרון</option>
+            <option value="curiosity">סקרנות / קליק-בייט חוקי</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">קריאה לפעולה (CTA)</label>
+          <input class="form-input" id="ai-cta" placeholder="לדוגמה: השאר פרטים, קנה עכשיו, קבל הצעת מחיר" />
+        </div>
+        <div id="ai-result-ad" style="display:none" class="card mt-4" style="background:#f8fafc">
+          <div class="flex items-center justify-between mb-2">
+            <div class="card-title" style="margin:0">התסריט שלך</div>
+            <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-ad-text')">📋 העתק</button>
+          </div>
+          <div id="ai-result-ad-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
+        </div>
+        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
+          id="ai-gen-ad-btn" onclick="generateAdScript()">
+          ✨ צור תסריט
+        </button>
+      </div>`,
+
+    landing_page: `
+      <div class="card">
+        <div class="card-title">🏗️ תכנן מבנה לדף נחיתה</div>
+        <p class="text-sm text-muted mb-4">AI יבנה תכנית מפורטת לדף נחיתה ממיר בעברית, כולל headline, כפתורי CTA, וסעיפים</p>
+        ${hint ? `<div class="text-xs text-muted mb-3" style="background:#f1f5f9;padding:0.5rem 0.75rem;border-radius:0.5rem">${hint}</div>` : ''}
+        <div class="form-group">
+          <label class="form-label">מוצר / שירות</label>
+          <textarea class="form-input" id="lp-offer" rows="2" placeholder="תארו מה המוצר ומה ההצעה שלכם">${(bp.offer||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">קהל יעד</label>
+            <input class="form-input" id="lp-audience" value="${(bp.target_audience||'').replace(/"/g,'&quot;').slice(0,80)}" placeholder="מי הגולש שמגיע לדף?" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">מטרת הדף</label>
+            <select class="form-input" id="lp-goal">
+              <option value="lead_gen">איסוף לידים</option>
+              <option value="direct_sale">מכירה ישירה</option>
+              <option value="webinar">הרשמה לוובינר</option>
+              <option value="consultation">קביעת פגישה</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ההבטחה / ה-USP המרכזי</label>
+          <input class="form-input" id="lp-promise" value="${(bp.main_promise||'').replace(/"/g,'&quot;')}" placeholder="מה ההבטחה שתגרום לגולש להישאר?" />
+        </div>
+        <div id="ai-result-lp" style="display:none" class="card mt-4" style="background:#f8fafc">
+          <div class="flex items-center justify-between mb-2">
+            <div class="card-title" style="margin:0">מבנה דף הנחיתה</div>
+            <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-lp-text')">📋 העתק</button>
+          </div>
+          <div id="ai-result-lp-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
+        </div>
+        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
+          id="ai-gen-lp-btn" onclick="generateLandingPage()">
+          ✨ צור מבנה דף נחיתה
+        </button>
+      </div>`,
+
+    saved: `
+      <div class="card">
+        <div class="card-title">📁 עבודות שמורות</div>
+        ${saved.length === 0
+          ? `<div class="empty-state">
+               <div class="empty-state-icon">📄</div>
+               <h3 class="empty-state-title">אין עבודות שמורות עדיין</h3>
+               <p class="empty-state-desc">צרו תסריט או מבנה דף נחיתה — הם יישמרו כאן</p>
+             </div>`
+          : saved.map(w => `
+              <div class="saved-work-item">
+                <div class="saved-work-body">
+                  <div class="saved-work-title">${w.title || w.type || 'נכס שיווקי'}</div>
+                  <div class="saved-work-meta">${w.created_at ? new Date(w.created_at).toLocaleDateString('he-IL') : ''}</div>
+                  <div class="saved-work-preview">${(w.content || '').slice(0, 120)}</div>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="expandSavedWork(this, ${JSON.stringify((w.content||'').replace(/'/g,"&#39;"))})">הצג</button>
+              </div>`).join('')}
+      </div>`
+  };
+
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">✨ יצירה עם AI</h1>
+      <p class="page-subtitle">בנה נכסים שיווקיים מנצחים ללא תלות בחיבור אינטגרציות</p>
+    </div>
+    <div class="ai-tabs">
+      <button class="ai-tab ${tab==='ad_script'?'active':''}"     onclick="switchAITab('ad_script')">✍️ תסריט מודעה</button>
+      <button class="ai-tab ${tab==='landing_page'?'active':''}"  onclick="switchAITab('landing_page')">🏗️ דף נחיתה</button>
+      <button class="ai-tab ${tab==='saved'?'active':''}"         onclick="switchAITab('saved')">📁 עבודות שמורות</button>
+    </div>
+    ${tabContent[tab] || tabContent.ad_script}
+  `);
+}
+
+function switchAITab(tab) {
+  aiCreationTab = tab;
+  navigate('ai_creation');
+}
+
+async function generateAdScript() {
+  const btn = document.getElementById('ai-gen-ad-btn');
+  const resBox = document.getElementById('ai-result-ad');
+  const resText = document.getElementById('ai-result-ad-text');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = 'יוצר...';
+  const platform = document.getElementById('ai-platform')?.value || 'facebook';
+  const offer    = document.getElementById('ai-offer')?.value.trim() || '';
+  const audience = document.getElementById('ai-audience')?.value.trim() || '';
+  const problem  = document.getElementById('ai-problem')?.value.trim() || '';
+  const tone     = document.getElementById('ai-tone')?.value || 'emotional';
+  const cta      = document.getElementById('ai-cta')?.value.trim() || '';
+  if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '✨ צור תסריט'; return; }
+  try {
+    const result = await api('POST', 'campaigner-chat', {
+      message: `כתוב תסריט מודעה מלא לפלטפורמה: ${platform}. מוצר/שירות: ${offer}. קהל יעד: ${audience}. בעיה שנפתרת: ${problem}. סגנון: ${tone}. CTA: ${cta}. כתוב רק את התסריט עצמו בעברית, ללא הסברים נוספים.`,
+      history: [],
+    });
+    const text = result.reply || '';
+    if (resBox) resBox.style.display = '';
+    if (resText) resText.textContent = text;
+    toast('התסריט נוצר!', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה ביצירת תסריט', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ צור תסריט';
+  }
+}
+
+async function generateLandingPage() {
+  const btn = document.getElementById('ai-gen-lp-btn');
+  const resBox = document.getElementById('ai-result-lp');
+  const resText = document.getElementById('ai-result-lp-text');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = 'יוצר...';
+  const offer    = document.getElementById('lp-offer')?.value.trim() || '';
+  const audience = document.getElementById('lp-audience')?.value.trim() || '';
+  const goal     = document.getElementById('lp-goal')?.value || 'lead_gen';
+  const promise  = document.getElementById('lp-promise')?.value.trim() || '';
+  if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '✨ צור מבנה דף נחיתה'; return; }
+  try {
+    const result = await api('POST', 'campaigner-chat', {
+      message: `תכנן מבנה מפורט לדף נחיתה ממיר בעברית. מוצר/שירות: ${offer}. קהל יעד: ${audience}. מטרת הדף: ${goal}. ההבטחה המרכזית: ${promise}. פרט כל section בדף: headline, sub-headline, CTA, הוכחה חברתית, FAQ וכו'. כתוב רק את המבנה עצמו.`,
+      history: [],
+    });
+    const text = result.reply || '';
+    if (resBox) resBox.style.display = '';
+    if (resText) resText.textContent = text;
+    toast('המבנה נוצר!', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה ביצירת מבנה', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ צור מבנה דף נחיתה';
+  }
+}
+
+function copyAIResult(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent || '').then(() => toast('הועתק!', 'success')).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = el.textContent || '';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    toast('הועתק!', 'success');
+  });
+}
+
+function expandSavedWork(btn, content) {
+  const item = btn.closest('.saved-work-item');
+  if (!item) return;
+  let expanded = item.querySelector('.saved-work-expanded');
+  if (expanded) { expanded.remove(); btn.textContent = 'הצג'; return; }
+  expanded = document.createElement('div');
+  expanded.className = 'saved-work-expanded';
+  expanded.style.cssText = 'margin-top:0.75rem;white-space:pre-wrap;font-size:0.8125rem;line-height:1.65;color:#374151;background:#f8fafc;border-radius:0.5rem;padding:0.75rem';
+  expanded.textContent = content;
+  item.querySelector('.saved-work-body').appendChild(expanded);
+  btn.textContent = 'סגור';
+}
+
+// ── Marketing Assets ──────────────────────────────────────────────────────────
+async function renderMarketingAssets() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  try {
+    const { data } = await sb.from('campaigns').select('*').eq('owner_user_id', state.user.id).order('created_at', { ascending: false });
+    state.campaigns = data || [];
+  } catch {}
+
+  // Check if user has any landing pages saved (to decide whether to show leads)
+  let hasLandingPages = false;
+  try {
+    const res = await api('GET', 'ai-assets');
+    const assets = Array.isArray(res) ? res : (res?.assets || []);
+    hasLandingPages = assets.some(a => a.type === 'landing_page');
+  } catch {}
+
+  const plan = state.subscription?.plan || 'free';
+  const canCreate = getPlanLimits(plan).campaignLimit !== 0;
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">🎯 נכסים שיווקיים</h1>
+        <p class="page-subtitle">נהל ונתח את הקמפיינים הפעילים שלך</p>
+      </div>
+      ${canCreate
+        ? `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ נכס חדש</button>`
+        : `<button class="btn btn-secondary" style="width:auto" onclick="navigate('billing')">שדרג ליצירה →</button>`}
+    </div>
+
+    <div class="campaign-list">
+      ${state.campaigns.length > 0 ? state.campaigns.map(c => `
+        <div class="campaign-item" onclick="showCampaignDetail('${c.id}')">
+          <div>
+            <div class="campaign-name">${c.name}</div>
+            <div class="campaign-meta">נוצר: ${new Date(c.created_at).toLocaleDateString('he-IL')}</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-sm btn-primary" data-analysis-btn="${c.id}" onclick="event.stopPropagation();runAnalysis('${c.id}')">הרץ ניתוח</button>
+          </div>
+        </div>`).join('') : `
+        <div class="card">
+          <div class="empty-state">
+            <div class="empty-state-icon">🎯</div>
+            <h3 class="empty-state-title">עדיין אין נכסים שיווקיים</h3>
+            <p class="empty-state-desc">לחצו על "+ נכס חדש" כדי להוסיף קמפיין לניתוח</p>
+            ${!canCreate
+              ? `<button class="btn btn-gradient" style="width:auto" onclick="navigate('billing')">שדרג ליצירת נכסים →</button>`
+              : `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ צור נכס ראשון</button>`}
+          </div>
+        </div>`}
+    </div>
+
+    ${hasLandingPages ? `
+    <div class="card mt-4">
+      <div class="card-title">📋 לידים</div>
+      <p class="text-sm text-muted">לידים שנאספו מדפי הנחיתה שלך יופיעו כאן</p>
+      <div class="empty-state" style="padding:1.5rem 0">
+        <div class="empty-state-icon">📥</div>
+        <h3 class="empty-state-title">אין לידים עדיין</h3>
+        <p class="empty-state-desc">פרסם את דף הנחיתה שלך כדי להתחיל לאסוף לידים</p>
+      </div>
+    </div>` : ''}
+  `);
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 async function renderSettings() {
   renderShell(`
@@ -1392,29 +1728,74 @@ async function deleteAccount() {
 }
 
 // ── Admin Dashboard ───────────────────────────────────────────────────────────
+let adminUserFilter = 'all';
+
 async function renderAdmin() {
   if (!state.profile?.is_admin) { navigate('dashboard'); return; }
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
-  let overview = null, usersData = null, pendingData = null;
+  let overview = null, usersData = null;
   try {
-    [overview, usersData, pendingData] = await Promise.all([
+    [overview, usersData] = await Promise.all([
       api('GET', 'admin-overview'),
-      api('GET', 'admin-users?limit=20&page=1'),
-      api('GET', 'admin-users?limit=50&page=1').then(d =>
-        ({ users: (d.users || []).filter(u => u.paymentStatus === 'pending') })
-      ).catch(() => ({ users: [] })),
+      api('GET', 'admin-users?limit=100&page=1'),
     ]);
   } catch (err) {
     renderShell(`<div class="page-header"><h1 class="page-title">שגיאה</h1><p class="text-muted">${err.message}</p></div>`);
     return;
   }
 
-  const fmt      = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
-  const pct      = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
-  const curr     = n => n == null ? '—' : '₪' + (n / 100).toFixed(0);
-  const pBadge   = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
-  const pending  = pendingData?.users || [];
+  const fmt    = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
+  const pct    = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
+  const curr   = n => n == null ? '—' : '₪' + (n / 100).toFixed(0);
+  const pBadge = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
+
+  const allUsers    = usersData?.users || [];
+  const pending     = allUsers.filter(u => u.paymentStatus === 'pending');
+  const freeUsers   = allUsers.filter(u => u.plan === 'free' && u.paymentStatus !== 'pending');
+  const paidUsers   = allUsers.filter(u => u.plan !== 'free');
+  const earlyBirds  = allUsers.filter(u => u.plan === 'early_bird');
+  const proUsers    = allUsers.filter(u => u.plan === 'pro' || u.plan === 'agency');
+
+  const filterMap = {
+    all:        allUsers,
+    pending:    pending,
+    free:       freeUsers,
+    early_bird: earlyBirds,
+    pro:        proUsers,
+  };
+  const filtered = filterMap[adminUserFilter] || allUsers;
+
+  function usersTable(users) {
+    if (!users.length) return '<p class="text-muted text-sm" style="padding:1rem">אין משתמשים בקטגוריה זו</p>';
+    return `<div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+        <thead>
+          <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">אימייל</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">שם</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">תוכנית</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">נכסים</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">הצטרף</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">פעולה</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${users.map(u => `
+            <tr style="border-bottom:1px solid #f1f5f9${u.paymentStatus === 'pending' ? ';background:#fffbeb' : ''}">
+              <td style="padding:0.5rem 0.75rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.65rem">admin</span>' : ''}${u.paymentStatus === 'pending' ? ' <span class="badge badge-yellow" style="font-size:0.65rem">⏳ pending</span>' : ''}</td>
+              <td style="padding:0.5rem 0.75rem">${u.name || '—'}</td>
+              <td style="padding:0.5rem 0.75rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
+              <td style="padding:0.5rem 0.75rem">${u.campaignCount ?? '—'}</td>
+              <td style="padding:0.5rem 0.75rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
+              <td style="padding:0.5rem 0.75rem">${u.paymentStatus === 'pending'
+                ? `<button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>`
+                : ''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
 
   renderShell(`
     <div class="page-header flex items-center justify-between">
@@ -1442,74 +1823,46 @@ async function renderAdmin() {
     </div>` : ''}
 
     <div class="stats-grid" style="margin-bottom:1.5rem">
-      <div class="stat-card">
-        <div class="stat-label">MRR</div>
-        <div class="stat-value">${curr(overview?.mrr)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">סה"כ משתמשים</div>
-        <div class="stat-value">${fmt(overview?.totalUsers)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">הרשמות 24ש'</div>
-        <div class="stat-value">${fmt(overview?.newSignups24h)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Churn</div>
-        <div class="stat-value">${pct(overview?.churnRate)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">המרה לתשלום</div>
-        <div class="stat-value">${pct(overview?.conversionRate)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">תשלומים כושלים 24ש'</div>
+      <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value">${curr(overview?.mrr)}</div></div>
+      <div class="stat-card"><div class="stat-label">סה"כ משתמשים</div><div class="stat-value">${fmt(overview?.totalUsers)}</div></div>
+      <div class="stat-card"><div class="stat-label">הרשמות 24ש'</div><div class="stat-value">${fmt(overview?.newSignups24h)}</div></div>
+      <div class="stat-card"><div class="stat-label">Churn</div><div class="stat-value">${pct(overview?.churnRate)}</div></div>
+      <div class="stat-card"><div class="stat-label">המרה לתשלום</div><div class="stat-value">${pct(overview?.conversionRate)}</div></div>
+      <div class="stat-card"><div class="stat-label">תשלומים כושלים 24ש'</div>
         <div class="stat-value" style="${(overview?.failedPayments24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.failedPayments24h)}</div>
       </div>
     </div>
 
     <div class="analysis-card" style="margin-bottom:1.5rem">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold">בריאות מערכת</h3>
-      </div>
+      <div class="flex items-center justify-between mb-3"><h3 class="font-semibold">בריאות מערכת</h3></div>
       <div style="display:flex;gap:2rem;flex-wrap:wrap">
         <div><span class="text-muted text-sm">עבודות ממתינות</span><br><strong>${fmt(overview?.systemHealth?.pendingJobs)}</strong></div>
         <div><span class="text-muted text-sm">עבודות פועלות</span><br><strong>${fmt(overview?.systemHealth?.runningJobs)}</strong></div>
-        <div><span class="text-muted text-sm">עבודות נכשלות 24ש'</span><br><strong style="${(overview?.systemHealth?.failedJobs24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.systemHealth?.failedJobs24h)}</strong></div>
+        <div><span class="text-muted text-sm">עבודות נכשלות 24ש'</span><br>
+          <strong style="${(overview?.systemHealth?.failedJobs24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.systemHealth?.failedJobs24h)}</strong>
+        </div>
       </div>
     </div>
 
     <div class="analysis-card">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold">משתמשים אחרונים</h3>
-        <span class="text-muted text-sm">סה"כ ${fmt(usersData?.total)}</span>
+        <h3 class="font-semibold">משתמשים</h3>
+        <span class="text-muted text-sm">סה"כ ${fmt(allUsers.length)}</span>
       </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
-          <thead>
-            <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">אימייל</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">שם</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">תוכנית</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">נכסים</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">הצטרף</th>
-              <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">פעולה</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${(usersData?.users || []).map(u => `
-              <tr style="border-bottom:1px solid #f1f5f9${u.paymentStatus === 'pending' ? ';background:#fffbeb' : ''}">
-                <td style="padding:0.5rem 0.75rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.65rem">admin</span>' : ''}${u.paymentStatus === 'pending' ? ' <span class="badge badge-gray" style="font-size:0.65rem">pending</span>' : ''}</td>
-                <td style="padding:0.5rem 0.75rem">${u.name || '—'}</td>
-                <td style="padding:0.5rem 0.75rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
-                <td style="padding:0.5rem 0.75rem">${u.campaignCount}</td>
-                <td style="padding:0.5rem 0.75rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
-                <td style="padding:0.5rem 0.75rem">${u.paymentStatus === 'pending' ? `<button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>` : ''}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
+      <div class="plan-tabs">
+        <button class="plan-tab ${adminUserFilter==='all'?'active':''}"        onclick="filterAdminUsers('all')">הכל (${allUsers.length})</button>
+        ${pending.length > 0 ? `<button class="plan-tab ${adminUserFilter==='pending'?'active':''}" onclick="filterAdminUsers('pending')" style="${adminUserFilter!=='pending'?'border-color:#f59e0b;color:#92400e':''}">⏳ ממתין (${pending.length})</button>` : ''}
+        <button class="plan-tab ${adminUserFilter==='free'?'active':''}"       onclick="filterAdminUsers('free')">חינמי (${freeUsers.length})</button>
+        <button class="plan-tab ${adminUserFilter==='early_bird'?'active':''}" onclick="filterAdminUsers('early_bird')">Early Bird (${earlyBirds.length})</button>
+        <button class="plan-tab ${adminUserFilter==='pro'?'active':''}"        onclick="filterAdminUsers('pro')">Pro/Agency (${proUsers.length})</button>
       </div>
+      ${usersTable(filtered)}
     </div>`);
+}
+
+function filterAdminUsers(filter) {
+  adminUserFilter = filter;
+  renderAdmin();
 }
 
 async function activateUserPayment(userId, plan) {
@@ -1609,10 +1962,10 @@ const chatState = {
   loading:  false,
   history:  [],          // [{role:'user'|'assistant', content:string}]
   quickActions: [
-    'בנה לי תסריט למודעת פייסבוק/אינסטגרם',
-    'בצע חקר שוק וניתוח מתחרים',
-    'תכנן מבנה לדף נחיתה ממיר',
     'נתח ביצועי קמפיינים קיימים',
+    'בצע חקר שוק וניתוח מתחרים',
+    'מה ה-CTR הממוצע שלי ב-30 יום האחרונים?',
+    'אילו קמפיינים כדאי לעצור עכשיו?',
   ],
 };
 
@@ -1867,10 +2220,10 @@ function clearChatHistory() {
       </div>`;
   }
   chatState.quickActions = [
-    'בנה לי תסריט למודעת פייסבוק/אינסטגרם',
-    'בצע חקר שוק וניתוח מתחרים',
-    'תכנן מבנה לדף נחיתה ממיר',
     'נתח ביצועי קמפיינים קיימים',
+    'בצע חקר שוק וניתוח מתחרים',
+    'מה ה-CTR הממוצע שלי ב-30 יום האחרונים?',
+    'אילו קמפיינים כדאי לעצור עכשיו?',
   ];
   renderQuickActions(chatState.quickActions);
 }
@@ -1879,6 +2232,13 @@ function clearChatHistory() {
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
 window.saveBusinessProfile   = saveBusinessProfile;
+window.switchAITab           = switchAITab;
+window.generateAdScript      = generateAdScript;
+window.generateLandingPage   = generateLandingPage;
+window.copyAIResult          = copyAIResult;
+window.expandSavedWork       = expandSavedWork;
+window.filterAdminUsers      = filterAdminUsers;
+window.pollPaymentActivation = pollPaymentActivation;
 window.showAddCampaignModal  = showAddCampaignModal;
 window.addCampaign           = addCampaign;
 window.runAnalysis           = runAnalysis;

@@ -40,19 +40,21 @@ const { orchestrate, CAPABILITIES }     = require('./_shared/orchestrator');
 
 // ── Intent detection ──────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
-  { intent: 'overview',  patterns: /\b(איך|ביצועים|סקירה|סטטוס|מצב|overview|status|how am|doing)\b/i },
-  { intent: 'budget',    patterns: /\b(תקציב|budget|הזזה|חלוקה|הקצאה|shift|allocat|reallocat)\b/i },
-  { intent: 'top_ads',   patterns: /\b(מודעות|טובות|top|best|ads|קמפיין|campaign|ניצחון|נצח)\b/i },
-  { intent: 'tracking',  patterns: /\b(tracking|טראקינג|מעקב|פיקסל|pixel|pixel|audit|בדיקה)\b/i },
-  { intent: 'roas',      patterns: /\b(roas|החזר|return|spend|תשואה)\b/i },
-  { intent: 'ctr',       patterns: /\b(ctr|קליקים|clicks|חשיפות|impressions)\b/i },
-  { intent: 'recs',      patterns: /\b(המלצ|מה לעש|recommend|suggest|what should|תעשה|עצה)\b/i },
-  { intent: 'integrations', patterns: /\b(חיבור|integration|connected|גוגל|מטא|google|meta|ga4)\b/i },
-  { intent: 'trends',    patterns: /\b(טרנד|מגמה|שיפור|ירידה|trend|progress|היסטוריה|לאורך זמן|תקופה|שינוי|למידה|פרי|כיוון)\b/i },
-  { intent: 'business',  patterns: /\b(עסק|פרופיל|מה אני מוכר|מחיר שלי|קהל יעד|הצעה שלי|business|profile|offer)\b/i },
-  { intent: 'economics', patterns: /\b(כלכלה|CAC|LTV|CPL|cac|ltv|cpl|עלות ליד|break.?even|רווחיות|כמה להמיר|payback|economics|feasib)\b/i },
-  { intent: 'test',      patterns: /\b(בדיקה|a\/b|ab test|וריאציה|ניסוי|מה לבדוק|hypothesis|variant|control)\b/i },
-  { intent: 'copy',      patterns: /\b(כתוב|קופי|copy|מודעה|ad text|creative text|כותרת|headline|טקסט|מסר|נוסח)\b/i },
+  { intent: 'overview',      patterns: /\b(איך|ביצועים|סקירה|סטטוס|מצב|overview|status|how am|doing)\b/i },
+  { intent: 'budget',        patterns: /\b(תקציב|budget|הזזה|חלוקה|הקצאה|shift|allocat|reallocat)\b/i },
+  { intent: 'top_ads',       patterns: /\b(מודעות|טובות|top|best|ads|קמפיין|campaign|ניצחון|נצח)\b/i },
+  { intent: 'tracking',      patterns: /\b(tracking|טראקינג|מעקב|פיקסל|pixel|pixel|audit|בדיקה)\b/i },
+  { intent: 'roas',          patterns: /\b(roas|החזר|return|spend|תשואה)\b/i },
+  { intent: 'ctr',           patterns: /\b(ctr|קליקים|clicks|חשיפות|impressions)\b/i },
+  { intent: 'recs',          patterns: /\b(המלצ|מה לעש|recommend|suggest|what should|תעשה|עצה)\b/i },
+  { intent: 'integrations',  patterns: /\b(חיבור|integration|connected|גוגל|מטא|google|meta|ga4)\b/i },
+  { intent: 'trends',        patterns: /\b(טרנד|מגמה|שיפור|ירידה|trend|progress|היסטוריה|לאורך זמן|תקופה|שינוי|למידה|פרי|כיוון)\b/i },
+  { intent: 'business',      patterns: /\b(עסק|פרופיל|מה אני מוכר|מחיר שלי|קהל יעד|הצעה שלי|business|profile|offer)\b/i },
+  { intent: 'economics',     patterns: /\b(כלכלה|CAC|LTV|CPL|cac|ltv|cpl|עלות ליד|break.?even|רווחיות|כמה להמיר|payback|economics|feasib)\b/i },
+  { intent: 'test',          patterns: /\b(בדיקה|a\/b|ab test|וריאציה|ניסוי|מה לבדוק|hypothesis|variant|control)\b/i },
+  { intent: 'copy',          patterns: /\b(כתוב|קופי|copy|מודעה|ad text|creative text|כותרת|headline|טקסט|מסר|נוסח)\b/i },
+  // landing_page must appear AFTER copy so targeted copy requests still match copy
+  { intent: 'landing_page',  patterns: /\b(דף נחיתה|landing.?page|above.?the.?fold|תכנן.*(דף|מבנה)|מבנה.*(דף|נחיתה))\b/i },
 ];
 
 function detectIntent(message) {
@@ -908,8 +910,76 @@ async function generateResponse(intent, context) {
     case 'economics':     return generateEconomicsResponse(context);
     case 'test':          return generateTestResponse(context);
     case 'copy':          return await generateCopyResponse(context);
+    case 'landing_page':  return await generateLandingPageResponse(context);
     default:              return generateOverviewResponse(context);
   }
+}
+
+async function generateLandingPageResponse(context) {
+  const { businessProfile, profileName, userId } = context;
+
+  const quickActionsDefault = [
+    'כתוב לי headline ל-A/B test',
+    'צור FAQ לדף הנחיתה',
+    'מה ה-CTA הכי ממיר?',
+    'כתוב תסריט מודעה שמוביל לדף',
+  ];
+
+  if (!businessProfile?.offer) {
+    return {
+      reply: `🏗️ **תכנון דף נחיתה — ${profileName}:**\n\nלא ניתן לתכנן דף נחיתה ללא פרופיל עסקי.\n\n❓ **מה אתה מוכר ומי קהל היעד?**\n\n_עדכן את הפרופיל העסקי כדי שאוכל לבנות מבנה דף ממוקד לעסק שלך._`,
+      quickActions: ['עדכן פרופיל עסקי', 'הצג פרופיל נוכחי'],
+    };
+  }
+
+  // Try AI-generated landing page via orchestrator
+  const aiResult = await orchestrate(
+    CAPABILITIES.LANDING_PAGE,
+    { businessProfile },
+    { userId },
+  );
+
+  if (aiResult.ok && aiResult.content?.structure) {
+    return {
+      reply: `🏗️ **מבנה דף נחיתה — ${businessProfile.business_name || profileName}:**\n\n${aiResult.content.structure}`,
+      quickActions: quickActionsDefault,
+    };
+  }
+
+  // Fallback: structured template
+  const offer    = businessProfile.offer.slice(0, 80);
+  const audience = businessProfile.target_audience || 'קהל היעד שלך';
+  const promise  = businessProfile.main_promise    || businessProfile.desired_outcome || '';
+
+  const reply = `🏗️ **מבנה דף נחיתה ממיר — ${businessProfile.business_name || profileName}:**
+
+**1. Hero Section**
+- Headline: "${promise || offer}"
+- Sub-headline: מה הלקוח מקבל ואיך חייו ישתנו
+- CTA ראשי: "קבל הצעת מחיר / התחל עכשיו"
+
+**2. בעיה (Above the fold)**
+- תאר את הכאב של ${audience}
+- 3 bullet points של הבעיות שהם חווים
+
+**3. פתרון**
+- איך "${offer.slice(0, 60)}" פותר את הבעיה
+- מנגנון ייחודי / USP
+
+**4. ראיות חברתיות**
+- לפחות 2–3 המלצות עם שם ותמונה
+- מספרים (לקוחות, תוצאות, שנות ניסיון)
+
+**5. FAQ**
+- 4–5 שאלות נפוצות שמונעות קנייה
+
+**6. CTA סופי**
+- כפתור עם דחיפות (מוגבל בזמן / כמות)
+- ערבות / ביטחון
+
+_מלא את הפרופיל העסקי לקבל מבנה מותאם יותר._`;
+
+  return { reply, quickActions: quickActionsDefault };
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
