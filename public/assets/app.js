@@ -3640,8 +3640,9 @@ function startCopyGeneration(typeId, prompt, label) {
     inp.value = prompt + profileContext;
     inp.focus();
     inp.dispatchEvent(new Event('input'));
+    // Auto-submit so the user doesn't need to press Enter manually
+    submitChatMessage();
   }
-  toast(`יוצר ${label}...`, 'info');
 }
 
 // ── A/B Tests Screen ──────────────────────────────────────────────────────────

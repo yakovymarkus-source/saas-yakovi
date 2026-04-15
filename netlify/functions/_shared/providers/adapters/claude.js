@@ -24,8 +24,8 @@ const SUPPORTED_CAPABILITIES = [
 
 const BASE_URL      = 'https://api.anthropic.com/v1/messages';
 const API_VERSION   = '2023-06-01';
-const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
-const DEFAULT_TIMEOUT = 30_000;
+const DEFAULT_MODEL = 'claude-sonnet-4-6'; // Sonnet for high-quality landing page + visual generation
+const DEFAULT_TIMEOUT = 22_000; // 22s — leaves headroom within Netlify's 26s function limit
 
 const ClaudeAdapter = {
   getName()         { return 'claude'; },

@@ -8,6 +8,7 @@
   position: fixed;
   bottom: 1.75rem;
   left: 1.75rem;
+  right: auto;
   z-index: 900;
   width: 3.5rem;
   height: 3.5rem;
@@ -51,6 +52,7 @@
   position: fixed;
   bottom: 6.5rem;
   left: 1.75rem;
+  right: auto;
   z-index: 900;
   width: 380px;
   max-height: 580px;
@@ -320,6 +322,6 @@
 }
 
 @media (max-width: 768px) {
-  #chat-panel    { left: 0.75rem; right: 0.75rem; bottom: 5rem; width: auto; max-height: 70vh; }
-  #chat-trigger  { bottom: 4.5rem; left: 1rem; }
+  #chat-panel    { left: 0.5rem; right: 0.5rem; bottom: 5.5rem; width: auto; max-height: 70vh; }
+  #chat-trigger  { bottom: 5rem; left: 1rem; right: auto; }
 }

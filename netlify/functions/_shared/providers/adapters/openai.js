@@ -27,7 +27,7 @@ const SUPPORTED_CAPABILITIES = [
 
 const BASE_URL    = 'https://api.openai.com/v1/chat/completions';
 const DEFAULT_MODEL   = 'gpt-4o-mini';
-const DEFAULT_TIMEOUT = 25_000;
+const DEFAULT_TIMEOUT = 10_000; // 10s — leaves headroom for 1 retry + template fallback within Netlify's 26s function limit
 
 // ── Adapter implementation ────────────────────────────────────────────────────
 

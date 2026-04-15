@@ -162,7 +162,7 @@ exports.handler = async (event) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from:    'CampaignBrain <onboarding@resend.dev>',
+        from:    process.env.EMAIL_FROM ? `CampaignBrain <${process.env.EMAIL_FROM}>` : 'CampaignBrain <onboarding@resend.dev>',
         to:      [userEmail],
         subject,
         html,
