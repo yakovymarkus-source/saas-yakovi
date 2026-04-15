@@ -39,6 +39,7 @@ const routes = {
   integrations:     renderIntegrations,
   billing:          renderBilling,
   settings:         renderSettings,
+  support:          renderSupport,
   admin:            renderAdmin,
 };
 
@@ -202,13 +203,13 @@ function renderAuth() {
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function renderShell(content) {
   const navItems = [
-    { id: 'dashboard',        icon: '📊', label: 'דשבורד' },
+    { id: 'dashboard',        icon: '🏠', label: 'דף הבית' },
     { id: 'business_profile', icon: '🏢', label: 'פרופיל עסקי' },
     { id: 'ai_creation',      icon: '✨', label: 'יצירה עם AI' },
-    { id: 'marketing_assets', icon: '🎯', label: 'נכסים שיווקיים' },
+    { id: 'marketing_assets', icon: '📊', label: 'ניתוח קמפיינים' },
     { id: 'integrations',     icon: '🔌', label: 'אינטגרציות' },
     { id: 'billing',          icon: '💳', label: 'חיוב' },
-    { id: 'settings',         icon: '⚙️', label: 'הגדרות' },
+    { id: 'support',          icon: '💬', label: 'תמיכה' },
     ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול' }] : []),
   ];
   const initials    = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
@@ -477,10 +478,15 @@ function renderLiveStatsContent() {
       const p    = providers[integ.provider] || { label: integ.provider, icon: '🔗' };
       const data = state.liveStats[integ.provider];
       if (!data) {
+        // Trigger background load if not already loading
+        if (!state.liveStatsLoading) loadLiveStats().then(() => {
+          const c = document.getElementById('live-stats-container');
+          if (c) c.innerHTML = renderLiveStatsContent();
+        });
         return `
           <div class="stat-card" style="min-width:0">
             <div class="stat-label">${p.icon} ${p.label}</div>
-            <div class="text-muted text-xs">לא נטען</div>
+            <div class="text-muted text-xs">⏳ טוען...</div>
           </div>`;
       }
       if (data.error) {
@@ -563,7 +569,7 @@ async function renderCampaigns() {
   renderShell(`
     <div class="page-header flex items-center justify-between">
       <div>
-        <h1 class="page-title">נכסים שיווקיים</h1>
+        <h1 class="page-title">📊 ניתוח קמפיינים</h1>
         <p class="page-subtitle">נהל ונתח את הנכסים השיווקיים שלך</p>
       </div>
       <button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ נכס חדש</button>
@@ -716,10 +722,26 @@ async function showCampaignDetail(campaignId) {
   const scoreLabels = { traffic: 'תנועה', ctr: 'CTR', conversion: 'המרה', roas: 'ROAS', coverage: 'כיסוי' };
   const vl = latestVerdict ? (verdictLabel[latestVerdict.verdict] || { text: latestVerdict.verdict, cls: 'badge-gray' }) : null;
 
+  // Bar chart for scores
+  function scoreBar(label, value) {
+    const pct = Math.max(0, Math.min(100, value || 0));
+    const color = pct >= 70 ? '#22c55e' : pct >= 45 ? '#f59e0b' : '#ef4444';
+    return `<div style="margin-bottom:0.6rem">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-sm font-semibold" style="color:#374151">${label}</span>
+        <span class="text-sm font-bold" style="color:${color}">${pct}/100</span>
+      </div>
+      <div style="background:#e2e8f0;border-radius:999px;height:10px;overflow:hidden">
+        <div style="width:${pct}%;background:${color};height:100%;border-radius:999px;transition:width 0.6s ease"></div>
+      </div>
+    </div>`;
+  }
+
   const scoresHtml = latest?.scores ? `
-    <div class="stats-grid" style="margin-bottom:1rem">
+    <div class="card mt-4">
+      <div class="card-title">ציוני ביצועים</div>
       ${Object.entries(latest.scores).filter(([k]) => k !== 'overall').map(([k, v]) =>
-        `<div class="stat-card"><div class="stat-label">${scoreLabels[k] || k}</div><div class="stat-value" style="font-size:1.25rem">${v}/100</div></div>`
+        scoreBar(scoreLabels[k] || k, v)
       ).join('')}
     </div>` : '';
 
@@ -1501,6 +1523,59 @@ function _renderAICreationShell(bp, saved) {
         </button>
       </div>`,
 
+    ad_creative: `
+      <div class="card">
+        <div class="card-title">🖼️ צור מודעה מוכנה</div>
+        <p class="text-sm text-muted mb-4">AI יכתוב מודעה מוכנה לפרסום — כותרת, תיאור וקריאה לפעולה — מותאמת לפלטפורמה</p>
+        ${hint ? `<div class="text-xs text-muted mb-3" style="background:#f1f5f9;padding:0.5rem 0.75rem;border-radius:0.5rem">${hint}</div>` : ''}
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">פלטפורמה</label>
+            <select class="form-input" id="creative-platform">
+              <option value="facebook">פייסבוק</option>
+              <option value="instagram">אינסטגרם</option>
+              <option value="google">Google Ads</option>
+              <option value="tiktok">TikTok</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">סוג מודעה</label>
+            <select class="form-input" id="creative-type">
+              <option value="awareness">מודעת חשיפה</option>
+              <option value="lead">לידים</option>
+              <option value="conversion">המרה</option>
+              <option value="retargeting">ריטרגטינג</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">המוצר / שירות</label>
+          <input class="form-input" id="creative-offer" value="${(bp.offer||'').replace(/"/g,'&quot;').slice(0,120)}" placeholder="מה אתם מוכרים?" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">קהל יעד</label>
+          <input class="form-input" id="creative-audience" value="${(bp.target_audience||'').replace(/"/g,'&quot;').slice(0,80)}" placeholder="מי הקהל שתפנו?" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">ההצעה / מבצע</label>
+          <input class="form-input" id="creative-deal" value="${(bp.main_promise||'').replace(/"/g,'&quot;')}" placeholder="למשל: ניסיון חינם 14 יום, הנחה 30%" />
+        </div>
+        <div id="ai-result-creative" style="display:none" class="card mt-4" style="background:#f8fafc">
+          <div class="flex items-center justify-between mb-2">
+            <div class="card-title" style="margin:0">המודעה שלך</div>
+            <div class="flex gap-2">
+              <button id="ai-save-creative-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
+              <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-creative-text')">📋 העתק</button>
+            </div>
+          </div>
+          <div id="ai-result-creative-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
+        </div>
+        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
+          id="ai-gen-creative-btn" onclick="generateAdCreative()">
+          🖼️ צור מודעה
+        </button>
+      </div>`,
+
     saved: `
       <div class="card">
         <div class="card-title">📁 עבודות שמורות</div>
@@ -1529,6 +1604,7 @@ function _renderAICreationShell(bp, saved) {
     </div>
     <div class="ai-tabs">
       <button class="ai-tab ${tab==='ad_script'?'active':''}"     onclick="switchAITab('ad_script')">✍️ תסריט מודעה</button>
+      <button class="ai-tab ${tab==='ad_creative'?'active':''}"   onclick="switchAITab('ad_creative')">🖼️ מודעה מוכנה</button>
       <button class="ai-tab ${tab==='landing_page'?'active':''}"  onclick="switchAITab('landing_page')">🏗️ דף נחיתה</button>
       <button class="ai-tab ${tab==='saved'?'active':''}"         onclick="switchAITab('saved')">📁 עבודות שמורות</button>
     </div>
@@ -1556,7 +1632,7 @@ async function generateAdScript() {
   if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '✨ צור תסריט'; return; }
   try {
     const result = await api('POST', 'campaigner-chat', {
-      message: `כתוב תסריט מודעה מלא לפלטפורמה: ${platform}. מוצר/שירות: ${offer}. קהל יעד: ${audience}. בעיה שנפתרת: ${problem}. סגנון: ${tone}. CTA: ${cta}. כתוב רק את התסריט עצמו בעברית, ללא הסברים נוספים.`,
+      message: `[DIRECT_GENERATE] כתוב תסריט מודעה מלא לפלטפורמה: ${platform}. מוצר/שירות: ${offer}. קהל יעד: ${audience}. בעיה שנפתרת: ${problem}. סגנון: ${tone}. CTA: ${cta}. כתוב רק את התסריט עצמו בעברית, ישיר וממיר, ללא הסברים נוספים.`,
       history: [],
     });
     const text = result.reply || '';
@@ -1586,7 +1662,7 @@ async function generateLandingPage() {
   if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '✨ צור מבנה דף נחיתה'; return; }
   try {
     const result = await api('POST', 'campaigner-chat', {
-      message: `תכנן מבנה מפורט לדף נחיתה ממיר בעברית. מוצר/שירות: ${offer}. קהל יעד: ${audience}. מטרת הדף: ${goal}. ההבטחה המרכזית: ${promise}. פרט כל section בדף: headline, sub-headline, CTA, הוכחה חברתית, FAQ וכו'. כתוב רק את המבנה עצמו.`,
+      message: `[DIRECT_GENERATE] תכנן מבנה מפורט לדף נחיתה ממיר בעברית. מוצר/שירות: ${offer}. קהל יעד: ${audience}. מטרת הדף: ${goal}. ההבטחה המרכזית: ${promise}. פרט כל section בדף: headline, sub-headline, CTA, הוכחה חברתית, FAQ וכו'. כתוב רק את המבנה עצמו.`,
       history: [],
     });
     const text = result.reply || '';
@@ -1600,6 +1676,37 @@ async function generateLandingPage() {
     toast(err.message || 'שגיאה ביצירת מבנה', 'error');
   } finally {
     btn.disabled = false; btn.textContent = '✨ צור מבנה דף נחיתה';
+  }
+}
+
+async function generateAdCreative() {
+  const btn = document.getElementById('ai-gen-creative-btn');
+  const resBox = document.getElementById('ai-result-creative');
+  const resText = document.getElementById('ai-result-creative-text');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = 'יוצר...';
+  const platform = document.getElementById('creative-platform')?.value || 'facebook';
+  const type     = document.getElementById('creative-type')?.value || 'conversion';
+  const offer    = document.getElementById('creative-offer')?.value.trim() || '';
+  const audience = document.getElementById('creative-audience')?.value.trim() || '';
+  const deal     = document.getElementById('creative-deal')?.value.trim() || '';
+  if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '🖼️ צור מודעה'; return; }
+  const typeLabels = { awareness: 'חשיפה', lead: 'לידים', conversion: 'המרה', retargeting: 'ריטרגטינג' };
+  try {
+    const result = await api('POST', 'campaigner-chat', {
+      message: `[DIRECT_AD] כתוב מודעה מוכנה לפלטפורמה: ${platform}, סוג: ${typeLabels[type]||type}. מוצר/שירות: ${offer}. קהל יעד: ${audience}. הצעה/מבצע: ${deal||'לא צוין'}. כתוב בפורמט:\n**כותרת:** [כותרת קצרה מושכת]\n**תיאור:** [תיאור 2-3 שורות]\n**קריאה לפעולה:** [CTA חד]\n**וריאציה 2 — כותרת:** [אלטרנטיבה]\nבעברית, ישיר וממיר.`,
+      history: [],
+    });
+    const text = result.reply || '';
+    if (resBox) resBox.style.display = '';
+    if (resText) resText.textContent = text;
+    const saveBtn = document.getElementById('ai-save-creative-btn');
+    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_creative', 'מודעה מוכנה', text); }
+    toast('המודעה נוצרה!', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה ביצירת מודעה', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '🖼️ צור מודעה';
   }
 }
 
@@ -1644,7 +1751,7 @@ async function renderMarketingAssets() {
   renderShell(`
     <div class="page-header flex items-center justify-between">
       <div>
-        <h1 class="page-title">🎯 נכסים שיווקיים</h1>
+        <h1 class="page-title">📊 ניתוח קמפיינים</h1>
         <p class="page-subtitle">נהל ונתח את הקמפיינים הפעילים שלך</p>
       </div>
       ${canCreate
@@ -1690,9 +1797,10 @@ async function renderMarketingAssets() {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 async function renderSettings() {
+  // Settings is now minimal — only profile + data actions
   renderShell(`
     <div class="page-header">
-      <h1 class="page-title">הגדרות</h1>
+      <h1 class="page-title">⚙️ הגדרות חשבון</h1>
     </div>
     <div class="flex flex-col gap-6">
       <div class="card">
@@ -1704,39 +1812,14 @@ async function renderSettings() {
           </div>
           <div class="form-group">
             <label class="form-label">אימייל</label>
-            <input class="form-input" type="email" id="profile-email" value="${state.profile?.email || state.user?.email || ''}" />
+            <input class="form-input" type="email" id="profile-email" value="${state.profile?.email || state.user?.email || ''}" readonly style="opacity:0.65;cursor:not-allowed" />
           </div>
           <button type="submit" class="btn btn-primary" style="width:auto">שמור שינויים</button>
         </form>
       </div>
-
       <div class="card">
-        <div class="card-title">📬 צור קשר / תמיכה</div>
-        <p class="text-sm text-muted mb-4">שאלה, בעיה טכנית, או בקשה לתכונה? נשמח לעזור.</p>
-        <form onsubmit="submitContactForm(event)">
-          <div class="form-group">
-            <label class="form-label">נושא</label>
-            <select class="form-input" id="contact-subject">
-              <option value="תמיכה טכנית">תמיכה טכנית</option>
-              <option value="שאלה על חיוב">שאלה על חיוב / תשלום</option>
-              <option value="בקשת תכונה">בקשת תכונה חדשה</option>
-              <option value="דיווח על באג">דיווח על באג</option>
-              <option value="אחר">אחר</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">הודעה</label>
-            <textarea class="form-input" id="contact-message" rows="4" placeholder="תאר את הבעיה או השאלה שלך..."></textarea>
-          </div>
-          <button type="submit" class="btn btn-primary" id="contact-submit-btn" style="width:auto">
-            שלח פנייה
-          </button>
-        </form>
-      </div>
-
-      <div class="card">
-        <div class="card-title">פרטיות ונתונים (GDPR)</div>
-        <p class="text-sm text-muted mb-4">הורד עותק של כל הנתונים שלנו עליך.</p>
+        <div class="card-title">פרטיות ונתונים</div>
+        <p class="text-sm text-muted mb-3">לשאלות בנוגע לנתונים או לביטול — <button onclick="navigate('support')" class="btn btn-sm btn-secondary" style="display:inline;padding:0.2rem 0.5rem">פנה לתמיכה</button></p>
         <div class="flex gap-2">
           <button class="btn btn-secondary" onclick="exportData()">📥 ייצוא נתונים</button>
           <button class="btn btn-danger"    onclick="deleteAccount()">🗑 מחיקת חשבון</button>
@@ -1744,6 +1827,89 @@ async function renderSettings() {
       </div>
     </div>
   `);
+}
+
+// ── Support page ──────────────────────────────────────────────────────────────
+function renderSupport() {
+  const log = getSysLog();
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">💬 תמיכה</h1>
+      <p class="page-subtitle">שאלה, בעיה, או בקשה לתכונה — נחזור תוך יום עסקים</p>
+    </div>
+    <div class="flex flex-col gap-6">
+      <div class="card">
+        <div class="card-title">שלח פנייה</div>
+        <div class="support-chat-log" id="support-chat-log">
+          ${log.length === 0
+            ? '<div class="text-sm text-muted" style="padding:0.75rem 0">עדיין לא נשלחו פניות.</div>'
+            : log.map(m => `
+              <div class="support-chat-msg ${m.role === 'user' ? 'support-msg-user' : 'support-msg-system'}">
+                <div class="support-msg-label">${m.role === 'user' ? (state.profile?.name || 'אתה') : '🤝 CampaignAI'}</div>
+                <div class="support-msg-body">${m.text}</div>
+                <div class="support-msg-time">${new Date(m.ts).toLocaleString('he-IL')}</div>
+              </div>`).join('')}
+        </div>
+        <div class="support-chat-input-row">
+          <select class="form-input" id="support-subject" style="max-width:200px;flex-shrink:0">
+            <option value="תמיכה טכנית">תמיכה טכנית</option>
+            <option value="שאלה על חיוב">חיוב / תשלום</option>
+            <option value="בקשת תכונה">בקשת תכונה</option>
+            <option value="דיווח על באג">דיווח על באג</option>
+            <option value="אחר">אחר</option>
+          </select>
+          <textarea class="form-input" id="support-message" rows="2"
+            placeholder="כתוב את הפנייה שלך כאן..."
+            onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();sendSupportMessage()}"
+            style="flex:1;resize:none"></textarea>
+          <button class="btn btn-primary" id="support-send-btn" onclick="sendSupportMessage()" style="flex-shrink:0;width:auto">שלח</button>
+        </div>
+        <div class="text-xs text-muted mt-2">Enter + Ctrl לשליחה מהירה</div>
+      </div>
+    </div>
+  `);
+  const log2 = document.getElementById('support-chat-log');
+  if (log2) log2.scrollTop = log2.scrollHeight;
+}
+
+// ── System log (localStorage — visible on support page) ──────────────────────
+function getSysLog() {
+  try { return JSON.parse(localStorage.getItem('sys_log_' + (state.user?.id||'anon')) || '[]'); } catch { return []; }
+}
+function addSysLog(role, text) {
+  try {
+    const key = 'sys_log_' + (state.user?.id||'anon');
+    const log = getSysLog();
+    log.push({ role, text, ts: Date.now() });
+    localStorage.setItem(key, JSON.stringify(log.slice(-50)));
+  } catch {}
+}
+
+async function sendSupportMessage() {
+  const btn = document.getElementById('support-send-btn');
+  const msgEl = document.getElementById('support-message');
+  const subject = document.getElementById('support-subject')?.value || 'פנייה';
+  const message = msgEl?.value.trim() || '';
+  if (!message) { toast('נא למלא הודעה', 'error'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'שולח...'; }
+  addSysLog('user', `[${subject}] ${message}`);
+  try {
+    await api('POST', 'contact', {
+      name:    state.profile?.name || '',
+      email:   state.profile?.email || state.user?.email || '',
+      subject,
+      message,
+    });
+    addSysLog('system', 'קיבלנו את הפנייה שלך! נחזור אליך בהקדם תוך יום עסקים.');
+    toast('הפנייה נשלחה! נחזור אליך בהקדם.', 'success');
+    if (msgEl) msgEl.value = '';
+  } catch (err) {
+    addSysLog('system', `שגיאה בשליחה: ${err.message || 'נסה שנית'}`);
+    toast(err.message || 'שגיאה בשליחת הפנייה', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'שלח'; }
+    renderSupport(); // refresh chat log
+  }
 }
 
 async function submitContactForm(e) {
@@ -1825,20 +1991,21 @@ async function renderAdmin() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
   let overview = null, usersData = null;
-  try {
-    [overview, usersData] = await Promise.all([
-      api('GET', 'admin-overview'),
-      api('GET', 'admin-users?limit=100&page=1'),
-    ]);
-  } catch (err) {
-    renderShell(`<div class="page-header"><h1 class="page-title">שגיאה</h1><p class="text-muted">${err.message}</p></div>`);
-    return;
-  }
+  [overview, usersData] = await Promise.all([
+    api('GET', 'admin-overview').catch(e => { console.error('[admin] overview failed:', e.message); return null; }),
+    api('GET', 'admin-users?limit=100&page=1').catch(e => { console.error('[admin] users failed:', e.message); return null; }),
+  ]);
 
   const fmt    = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
   const pct    = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
   const curr   = n => n == null ? '—' : '₪' + (n / 100).toFixed(0);
   const pBadge = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
+
+  if (!overview && !usersData) {
+    renderShell(`<div class="page-header"><h1 class="page-title">🛡️ לוח ניהול</h1></div>
+      <div class="card"><div class="text-sm text-muted">לא ניתן לטעון נתוני ניהול כרגע. בדוק שהחשבון מוגדר כאדמין בסופאבייס ושה-env vars של האדמין מוגדרים.</div></div>`);
+    return;
+  }
 
   const allUsers    = usersData?.users || [];
   const pending     = allUsers.filter(u => u.paymentStatus === 'pending');
@@ -1989,7 +2156,7 @@ function resolveInitialPage() {
   if (params.has('success') || params.has('canceled') || params.has('session_id')) return 'billing';
   if (params.has('connected') || (params.has('error') && window.location.search)) return 'integrations';
   const hash = window.location.hash.replace('#', '');
-  const validPages = ['dashboard', 'business_profile', 'ai_creation', 'marketing_assets', 'campaigns', 'integrations', 'billing', 'settings', 'admin'];
+  const validPages = ['dashboard', 'business_profile', 'ai_creation', 'marketing_assets', 'campaigns', 'integrations', 'billing', 'settings', 'support', 'admin'];
   if (hash && validPages.includes(hash)) return hash;
   return 'dashboard';
 }
@@ -1998,42 +2165,46 @@ async function boot() {
   const initialPage = resolveInitialPage();
   let bootCompleted = false;
 
-  await fetch(window.__SUPABASE_URL__ + '/rest/v1/', {
+  // Warm up Supabase without blocking boot
+  fetch(window.__SUPABASE_URL__ + '/rest/v1/', {
     headers: { 'apikey': window.__SUPABASE_ANON_KEY__ }
   }).catch(() => {});
 
   sb.auth.onAuthStateChange(async (event, session) => {
-    bootCompleted = true;  // first auth event received — boot is complete
+    bootCompleted = true;
     if (!session) { renderAuth(); return; }
 
     state.user        = session.user;
     state.accessToken = session.access_token;
 
+    // Show shell instantly with spinner — don't block on DB
+    state.profile      = {};
+    state.subscription = { plan: 'free' };
+    state.campaigns    = [];
+    if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
+      state.currentPage = initialPage;
+    }
+    render();
+    initCampaignerChat();
+
+    // Load profile + subscription + campaigns in background, then refresh
     try {
-      const [profile, sub] = await Promise.all([
+      const [profile, sub, campsRes] = await Promise.all([
         sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(r => r.data),
         sb.from('subscriptions').select('plan,status,payment_status').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
+        sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id).then(r => r.data),
       ]);
-      state.profile      = profile || {};
-      state.subscription = sub    || { plan: 'free' };
-
-      const { data: camps } = await sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id);
-      state.campaigns = camps || [];
+      state.profile      = profile    || {};
+      state.subscription = sub        || { plan: 'free' };
+      state.campaigns    = campsRes   || [];
     } catch {
-      state.profile      = {};
-      state.subscription = { plan: 'free' };
-      state.campaigns    = [];
-    } finally {
-      if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
-        state.currentPage = initialPage;
-      }
-      render();
-      initCampaignerChat();   // mount chat widget once user is authenticated
+      // keep defaults set above
     }
+    // Re-render nav to show plan badge + name once data is loaded
+    const pageContent = document.getElementById('page-content');
+    if (pageContent) render(); // silent re-render to update sidebar
   });
 
-  // Only redirect to auth if Supabase never responded (network issue / no session cookie)
-  // NOT triggered by page-level loading spinners during normal navigation
   setTimeout(() => {
     if (!bootCompleted && document.querySelector('.loading-screen')) renderAuth();
   }, 8000);
@@ -2162,6 +2333,7 @@ function renderQuickActions(actions) {
 
 function handleQuickAction(btn) {
   const text = btn.textContent;
+  if (text === '💬 פנה לתמיכה') { navigate('support'); toggleChat(); return; }
   const input = document.getElementById('chat-input');
   if (input) { input.value = text; input.style.height = 'auto'; }
   submitChatMessage();
@@ -2311,9 +2483,9 @@ function clearChatHistory() {
   }
   chatState.quickActions = [
     'נתח ביצועי קמפיינים קיימים',
-    'בצע חקר שוק וניתוח מתחרים',
     'מה ה-CTR הממוצע שלי ב-30 יום האחרונים?',
     'אילו קמפיינים כדאי לעצור עכשיו?',
+    '💬 פנה לתמיכה',
   ];
   renderQuickActions(chatState.quickActions);
 }
@@ -2348,5 +2520,8 @@ window.submitChatMessage     = submitChatMessage;
 window.clearChatHistory      = clearChatHistory;
 window.handleQuickAction     = handleQuickAction;
 window.submitContactForm     = submitContactForm;
+window.generateAdCreative    = generateAdCreative;
+window.sendSupportMessage    = sendSupportMessage;
+window.renderSupport         = renderSupport;
 
 boot();

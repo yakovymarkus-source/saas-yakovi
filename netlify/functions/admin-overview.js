@@ -35,26 +35,27 @@ exports.handler = async (event) => {
       jobsRes,
       providerHealthRes,
     ] = await Promise.all([
-      getMrrSnapshot(sb),
-      getMrrTrend(sb, 30),
-      getSignupTrend(sb, 30),
-      getChurnRate(sb),
-      getConversionRate(sb),
-      getNewSignups(sb, 24),
-      getFailedPayments(sb, 24),
-      getTotalUsers(sb),
-      sb.from('sync_jobs').select('status').in('status', ['queued', 'running', 'failed']),
-      sb.from('provider_health').select('*'),
+      getMrrSnapshot(sb).catch(() => ({ mrr: 0, breakdown: {}, activeCount: 0, trialingCount: 0 })),
+      getMrrTrend(sb, 30).catch(() => []),
+      getSignupTrend(sb, 30).catch(() => []),
+      getChurnRate(sb).catch(() => ({ rate: 0 })),
+      getConversionRate(sb).catch(() => ({ rate: 0 })),
+      getNewSignups(sb, 24).catch(() => 0),
+      getFailedPayments(sb, 24).catch(() => 0),
+      getTotalUsers(sb).catch(() => 0),
+      sb.from('sync_jobs').select('status').in('status', ['queued', 'running', 'failed']).catch(() => ({ data: [] })),
+      sb.from('provider_health').select('*').catch(() => ({ data: [] })),
     ]);
 
     // Aggregate job stats
-    const jobs = jobsRes.data || [];
+    const jobs = jobsRes?.data || [];
     const pendingJobs = jobs.filter(j => j.status === 'queued').length;
     const runningJobs = jobs.filter(j => j.status === 'running').length;
     const since24h    = new Date(Date.now() - 86400 * 1000).toISOString();
-    const { count: failedJobs24h } = await sb.from('sync_jobs')
+    const failedJobsRes = await sb.from('sync_jobs')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'failed').gte('updated_at', since24h);
+      .eq('status', 'failed').gte('updated_at', since24h).catch(() => ({ count: 0 }));
+    const failedJobs24h = failedJobsRes?.count || 0;
 
     await writeRequestLog(buildLogPayload(context, 'info', 'admin_overview_read', {}));
 
@@ -71,10 +72,10 @@ exports.handler = async (event) => {
       mrrTrend,
       signupTrend,
       systemHealth: {
-        providerHealth:  providerHealthRes.data || [],
+        providerHealth:  providerHealthRes?.data || [],
         pendingJobs,
         runningJobs,
-        failedJobs24h: failedJobs24h || 0,
+        failedJobs24h,
       },
     }, context.requestId);
   } catch (error) {

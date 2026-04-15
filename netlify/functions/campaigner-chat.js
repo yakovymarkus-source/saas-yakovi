@@ -1004,6 +1004,35 @@ exports.handler = async (event) => {
     }
     sanitiseText(message); // reject XSS patterns before reaching business logic
 
+    // ── Direct generation mode (from AI creation form — bypasses intent/beginner layers) ──
+    if (message.startsWith('[DIRECT_AD]') || message.startsWith('[DIRECT_GENERATE]')) {
+      const rawPrompt = message.replace(/^\[(DIRECT_AD|DIRECT_GENERATE)\]\s*/, '');
+      const directContext = await buildContext(user.id);
+      // Try AI first, fallback to structured template
+      const aiResult = await orchestrate(
+        CAPABILITIES.AD_COPY,
+        { businessProfile: directContext.businessProfile || {}, rawPrompt },
+        { userId: user.id },
+      );
+      if (aiResult.ok && aiResult.content?.variants?.length) {
+        const vars = aiResult.content.variants;
+        let reply = `✍️ **${vars.length} וריאציות מודעה:**\n\n`;
+        reply += vars.map((v, i) => `**וריאציה ${i+1}:**\n${v.headline ? `**כותרת:** ${v.headline}\n` : ''}${v.body ? `**תיאור:** ${v.body}\n` : ''}${v.cta ? `**CTA:** ${v.cta}` : ''}`).join('\n\n---\n\n');
+        return ok({ reply, quickActions: ['שמור תוצאה', 'שנה את הסגנון', 'צור וריאציה נוספת'] }, context.requestId);
+      }
+      // Fallback: use rawPrompt as Claude prompt via LANDING_PAGE capability (free-form)
+      const fallbackResult = await orchestrate(
+        CAPABILITIES.LANDING_PAGE,
+        { businessProfile: directContext.businessProfile || {}, rawPrompt },
+        { userId: user.id },
+      );
+      if (fallbackResult.ok && fallbackResult.content?.content) {
+        return ok({ reply: fallbackResult.content.content, quickActions: [] }, context.requestId);
+      }
+      // Last resort: echo a structured placeholder from the prompt
+      return ok({ reply: `✍️ תוצאת ה-AI:\n\n${rawPrompt}\n\n_הערה: לקבלת תוצאה מותאמת אישית, הגדר OPENAI_API_KEY או ANTHROPIC_API_KEY בהגדרות הסביבה של Netlify._`, quickActions: [] }, context.requestId);
+    }
+
     // Build context from DB
     const chatContext = await buildContext(user.id);
     chatContext.message = message;   // thread raw message so generators can read it
