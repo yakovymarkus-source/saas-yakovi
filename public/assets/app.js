@@ -31,12 +31,15 @@ let state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 const routes = {
-  dashboard:    renderDashboard,
-  campaigns:    renderCampaigns,
-  integrations: renderIntegrations,
-  billing:      renderBilling,
-  settings:     renderSettings,
-  admin:        renderAdmin,
+  dashboard:        renderDashboard,
+  business_profile: renderBusinessProfile,
+  ai_creation:      renderAICreation,
+  marketing_assets: renderMarketingAssets,
+  campaigns:        renderCampaigns,
+  integrations:     renderIntegrations,
+  billing:          renderBilling,
+  settings:         renderSettings,
+  admin:            renderAdmin,
 };
 
 // ── Plan definitions (mirrors billing.js PLANS) ───────────────────────────────
@@ -53,6 +56,7 @@ function getPlanLabel(plan)  { return PLAN_LIMITS[plan]?.label || plan.toUpperCa
 function navigate(page, params = {}) {
   state.currentPage = page;
   Object.assign(state, params);
+  window.location.hash = page;
   render();
 }
 
@@ -198,21 +202,26 @@ function renderAuth() {
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function renderShell(content) {
   const navItems = [
-    { id: 'dashboard',    icon: '📊', label: 'דשבורד' },
-    { id: 'campaigns',    icon: '🎯', label: 'נכסים שיווקיים' },
-    { id: 'integrations', icon: '🔌', label: 'אינטגרציות' },
-    { id: 'billing',      icon: '💳', label: 'חיוב' },
-    { id: 'settings',     icon: '⚙️', label: 'הגדרות' },
+    { id: 'dashboard',        icon: '📊', label: 'דשבורד' },
+    { id: 'business_profile', icon: '🏢', label: 'פרופיל עסקי' },
+    { id: 'ai_creation',      icon: '✨', label: 'יצירה עם AI' },
+    { id: 'marketing_assets', icon: '🎯', label: 'נכסים שיווקיים' },
+    { id: 'integrations',     icon: '🔌', label: 'אינטגרציות' },
+    { id: 'billing',          icon: '💳', label: 'חיוב' },
+    { id: 'settings',         icon: '⚙️', label: 'הגדרות' },
     ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול' }] : []),
   ];
-  const initials  = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
+  const initials    = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
   const sidebarPlan = state.subscription?.plan || 'free';
+  const isPending   = state.subscription?.payment_status === 'pending';
+  const bellCount   = isPending ? 1 : 0;
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
         <div class="sidebar-logo">
           <div class="sidebar-logo-badge">🧠</div>
           Campaign<span>AI</span>
+          ${bellCount > 0 ? `<button class="sidebar-bell" onclick="navigate('billing')" title="התראות ממתינות">🔔<span class="sidebar-bell-badge">${bellCount}</span></button>` : ''}
         </div>
         <nav class="sidebar-nav">
           ${navItems.map(n => `
@@ -1163,6 +1172,148 @@ async function submitClaim() {
   }
 }
 
+// ── Business Profile ──────────────────────────────────────────────────────────
+async function renderBusinessProfile() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  let bp = {};
+  try {
+    bp = await api('GET', 'business-profile') || {};
+  } catch {}
+
+  const v = (k, fallback = '') => {
+    const val = bp[k];
+    return val == null ? fallback : String(val).replace(/"/g, '&quot;');
+  };
+  const score = bp.completion_score != null ? bp.completion_score : (bp.completionScore != null ? bp.completionScore : null);
+  const scorePct = score != null ? Math.round(score) : null;
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">🏢 פרופיל עסקי</h1>
+        <p class="page-subtitle">מידע זה משמש את ה-AI ליצירת תוכן מדויק עבורך</p>
+      </div>
+      ${scorePct != null ? `
+      <div style="text-align:center">
+        ${renderDonutSVG(scorePct, 100)}
+        <div class="text-xs text-muted mt-1">השלמת פרופיל</div>
+      </div>` : ''}
+    </div>
+
+    <form onsubmit="saveBusinessProfile(event)">
+      <div class="card mb-4">
+        <div class="card-title">פרטי העסק</div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">שם העסק</label>
+            <input class="form-input" id="bp-business_name" value="${v('business_name')}" placeholder="לדוגמה: קליניקת ד&quot;ר כהן" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">קטגוריה / ענף</label>
+            <input class="form-input" id="bp-category" value="${v('category')}" placeholder="לדוגמה: בריאות, נדל&quot;ן, e-commerce" />
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-title">מה אתם מוכרים <span class="required-star">*</span></div>
+        <div class="form-group">
+          <label class="form-label">ההצעה / המוצר / השירות</label>
+          <textarea class="form-input" id="bp-offer" rows="3" placeholder="תארו בפירוט את מה שאתם מציעים ללקוחות">${v('offer')}</textarea>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">מחיר (מספר) <span class="required-star">*</span></label>
+            <input class="form-input" id="bp-price_amount" type="number" min="0" value="${v('price_amount')}" placeholder="לדוגמה: 297" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">מודל תמחור <span class="required-star">*</span></label>
+            <select class="form-input" id="bp-pricing_model">
+              <option value="">בחרו מודל</option>
+              ${['חד פעמי','מנוי חודשי','מנוי שנתי','תשלום לפי שימוש','פרויקט','שעתי'].map(o =>
+                `<option value="${o}" ${v('pricing_model') === o ? 'selected' : ''}>${o}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-title">הלקוח האידיאלי</div>
+        <div class="form-group">
+          <label class="form-label">קהל יעד <span class="required-star">*</span></label>
+          <textarea class="form-input" id="bp-target_audience" rows="2" placeholder="מי הלקוח האידיאלי שלכם? גיל, מקצוע, מצב, תחומי עניין">${v('target_audience')}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">הבעיה שאתם פותרים <span class="required-star">*</span></label>
+          <textarea class="form-input" id="bp-problem_solved" rows="2" placeholder="מה הכאב / הבעיה שהלקוח חווה לפני שהוא קונה מכם?">${v('problem_solved')}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">התוצאה הרצויה <span class="required-star">*</span></label>
+          <textarea class="form-input" id="bp-desired_outcome" rows="2" placeholder="איפה הלקוח רוצה להיות לאחר שיקנה מכם?">${v('desired_outcome')}</textarea>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-title">אסטרטגיה שיווקית</div>
+        <div class="form-group">
+          <label class="form-label">מטרה עיקרית <span class="required-star">*</span></label>
+          <select class="form-input" id="bp-primary_goal">
+            <option value="">בחרו מטרה</option>
+            ${['גיוס לידים','מכירה ישירה','הגברת מודעות','שמירת לקוחות','הגדלת ROAS'].map(o =>
+              `<option value="${o}" ${v('primary_goal') === o ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">מנגנון ייחודי (USP)</label>
+            <input class="form-input" id="bp-unique_mechanism" value="${v('unique_mechanism')}" placeholder="מה הופך אתכם לייחודיים?" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">ההבטחה המרכזית</label>
+            <input class="form-input" id="bp-main_promise" value="${v('main_promise')}" placeholder="המשפט שמביא לידים" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">תקציב חודשי לפרסום (₪)</label>
+          <input class="form-input" id="bp-monthly_budget" type="number" min="0" value="${v('monthly_budget')}" placeholder="לדוגמה: 5000" />
+        </div>
+      </div>
+
+      <div class="flex gap-3" style="margin-bottom:2rem">
+        <button type="submit" class="btn btn-primary" style="width:auto;padding:0.75rem 2.5rem" id="bp-save-btn">
+          שמור פרופיל עסקי
+        </button>
+      </div>
+    </form>
+  `);
+}
+
+async function saveBusinessProfile(e) {
+  e.preventDefault();
+  const btn = document.getElementById('bp-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'שומר...'; }
+  const fields = ['business_name','category','offer','price_amount','pricing_model',
+                  'target_audience','problem_solved','desired_outcome','primary_goal',
+                  'unique_mechanism','main_promise','monthly_budget'];
+  const payload = {};
+  fields.forEach(f => {
+    const el = document.getElementById('bp-' + f);
+    if (!el) return;
+    const val = el.value.trim();
+    if (val !== '') {
+      payload[f] = (f === 'price_amount' || f === 'monthly_budget') ? Number(val) : val;
+    }
+  });
+  try {
+    await api('PUT', 'business-profile', payload);
+    toast('הפרופיל העסקי נשמר בהצלחה!', 'success');
+    navigate('business_profile');
+  } catch (err) {
+    toast(err.message || 'שגיאה בשמירה', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'שמור פרופיל עסקי'; }
+  }
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 async function renderSettings() {
   renderShell(`
@@ -1394,17 +1545,22 @@ function resolveInitialPage() {
   const params = new URLSearchParams(window.location.search);
   if (params.has('success') || params.has('canceled') || params.has('session_id')) return 'billing';
   if (params.has('connected') || (params.has('error') && window.location.search)) return 'integrations';
+  const hash = window.location.hash.replace('#', '');
+  const validPages = ['dashboard', 'business_profile', 'ai_creation', 'marketing_assets', 'campaigns', 'integrations', 'billing', 'settings', 'admin'];
+  if (hash && validPages.includes(hash)) return hash;
   return 'dashboard';
 }
 
 async function boot() {
   const initialPage = resolveInitialPage();
+  let bootCompleted = false;
 
   await fetch(window.__SUPABASE_URL__ + '/rest/v1/', {
     headers: { 'apikey': window.__SUPABASE_ANON_KEY__ }
   }).catch(() => {});
 
   sb.auth.onAuthStateChange(async (event, session) => {
+    bootCompleted = true;  // first auth event received — boot is complete
     if (!session) { renderAuth(); return; }
 
     state.user        = session.user;
@@ -1433,8 +1589,10 @@ async function boot() {
     }
   });
 
+  // Only redirect to auth if Supabase never responded (network issue / no session cookie)
+  // NOT triggered by page-level loading spinners during normal navigation
   setTimeout(() => {
-    if (document.querySelector('.loading-screen')) renderAuth();
+    if (!bootCompleted && document.querySelector('.loading-screen')) renderAuth();
   }, 8000);
 
   keepAlive();
@@ -1720,6 +1878,7 @@ function clearChatHistory() {
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
+window.saveBusinessProfile   = saveBusinessProfile;
 window.showAddCampaignModal  = showAddCampaignModal;
 window.addCampaign           = addCampaign;
 window.runAnalysis           = runAnalysis;
