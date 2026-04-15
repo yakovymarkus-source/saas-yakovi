@@ -848,8 +848,25 @@ async function renderIntegrations() {
 
   // Handle OAuth redirect result
   const params = new URLSearchParams(window.location.search);
-  if (params.get('connected')) toast(`${params.get('connected')} חובר בהצלחה! 🎉`, 'success');
-  if (params.get('error'))     toast(`שגיאה: ${params.get('error')}`, 'error');
+  const INTEGRATION_NAMES = { google_ads: 'Google Ads', ga4: 'Google Analytics', meta: 'Meta Ads' };
+  const OAUTH_ERRORS = {
+    google_not_configured:  'חיבור Google לא מופעל — צור קשר עם התמיכה',
+    google_denied:          'ביטלת את החיבור ל-Google',
+    google_missing_params:  'שגיאה בחיבור Google — נסה שנית',
+    google_exchange_failed: 'חיבור Google נכשל — נסה שנית',
+    google_save_failed:     'שמירת חיבור Google נכשלה — נסה שנית',
+    google_invalid_state:   'בקשת חיבור Google לא תקינה — נסה שנית',
+    meta_not_configured:    'חיבור Meta לא מופעל — צור קשר עם התמיכה',
+    meta_denied:            'ביטלת את החיבור ל-Meta',
+    meta_missing_params:    'שגיאה בחיבור Meta — נסה שנית',
+    meta_exchange_failed:   'חיבור Meta נכשל — נסה שנית',
+    meta_save_failed:       'שמירת חיבור Meta נכשלה — נסה שנית',
+    meta_invalid_state:     'בקשת חיבור Meta לא תקינה — נסה שנית',
+  };
+  const connectedParam = params.get('connected');
+  const errorParam     = params.get('error');
+  if (connectedParam) toast(`${INTEGRATION_NAMES[connectedParam] || connectedParam} חובר בהצלחה! 🎉`, 'success');
+  if (errorParam)     toast(OAUTH_ERRORS[errorParam] || `שגיאה בחיבור: ${errorParam}`, 'error');
   window.history.replaceState({}, '', window.location.pathname);
 
   const integrationDefs = [
@@ -1342,6 +1359,23 @@ async function saveBusinessProfile(e) {
   }
 }
 
+// ── AI Saved Works (localStorage) ─────────────────────────────────────────────
+function loadAISavedWorks() {
+  try {
+    const key = 'ai_saved_works_' + (state.user?.id || 'anon');
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  } catch { return []; }
+}
+function saveAIWork(type, title, content) {
+  try {
+    const key = 'ai_saved_works_' + (state.user?.id || 'anon');
+    const works = loadAISavedWorks();
+    works.unshift({ id: Date.now(), type, title, content, created_at: new Date().toISOString() });
+    localStorage.setItem(key, JSON.stringify(works.slice(0, 50)));
+    toast('נשמר בהצלחה!', 'success');
+  } catch { toast('שגיאה בשמירה', 'error'); }
+}
+
 // ── AI Creation ───────────────────────────────────────────────────────────────
 // Form-based creative asset generator — NOT the chat widget.
 // Sub-tabs: ad_script | landing_page | saved
@@ -1354,12 +1388,8 @@ async function renderAICreation() {
   let bp = {};
   try { bp = await api('GET', 'business-profile') || {}; } catch {}
 
-  // Load saved assets
-  let saved = [];
-  try {
-    const res = await api('GET', 'ai-assets');
-    saved = Array.isArray(res) ? res : (res?.assets || []);
-  } catch {}
+  // Load saved assets from localStorage (no backend endpoint needed)
+  const saved = loadAISavedWorks();
 
   _renderAICreationShell(bp, saved);
 }
@@ -1414,7 +1444,10 @@ function _renderAICreationShell(bp, saved) {
         <div id="ai-result-ad" style="display:none" class="card mt-4" style="background:#f8fafc">
           <div class="flex items-center justify-between mb-2">
             <div class="card-title" style="margin:0">התסריט שלך</div>
-            <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-ad-text')">📋 העתק</button>
+            <div class="flex gap-2">
+              <button id="ai-save-ad-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
+              <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-ad-text')">📋 העתק</button>
+            </div>
           </div>
           <div id="ai-result-ad-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
         </div>
@@ -1455,7 +1488,10 @@ function _renderAICreationShell(bp, saved) {
         <div id="ai-result-lp" style="display:none" class="card mt-4" style="background:#f8fafc">
           <div class="flex items-center justify-between mb-2">
             <div class="card-title" style="margin:0">מבנה דף הנחיתה</div>
-            <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-lp-text')">📋 העתק</button>
+            <div class="flex gap-2">
+              <button id="ai-save-lp-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
+              <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-lp-text')">📋 העתק</button>
+            </div>
           </div>
           <div id="ai-result-lp-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
         </div>
@@ -1526,6 +1562,9 @@ async function generateAdScript() {
     const text = result.reply || '';
     if (resBox) resBox.style.display = '';
     if (resText) resText.textContent = text;
+    // Show save button
+    const saveBtn = document.getElementById('ai-save-ad-btn');
+    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_script', 'תסריט מודעה', text); }
     toast('התסריט נוצר!', 'success');
   } catch (err) {
     toast(err.message || 'שגיאה ביצירת תסריט', 'error');
@@ -1553,6 +1592,9 @@ async function generateLandingPage() {
     const text = result.reply || '';
     if (resBox) resBox.style.display = '';
     if (resText) resText.textContent = text;
+    // Show save button
+    const saveBtn = document.getElementById('ai-save-lp-btn');
+    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('landing_page', 'מבנה דף נחיתה', text); }
     toast('המבנה נוצר!', 'success');
   } catch (err) {
     toast(err.message || 'שגיאה ביצירת מבנה', 'error');
@@ -1594,12 +1636,7 @@ async function renderMarketingAssets() {
   } catch {}
 
   // Check if user has any landing pages saved (to decide whether to show leads)
-  let hasLandingPages = false;
-  try {
-    const res = await api('GET', 'ai-assets');
-    const assets = Array.isArray(res) ? res : (res?.assets || []);
-    hasLandingPages = assets.some(a => a.type === 'landing_page');
-  } catch {}
+  const hasLandingPages = loadAISavedWorks().some(a => a.type === 'landing_page');
 
   const plan = state.subscription?.plan || 'free';
   const canCreate = getPlanLimits(plan).campaignLimit !== 0;
@@ -1659,7 +1696,7 @@ async function renderSettings() {
     </div>
     <div class="flex flex-col gap-6">
       <div class="card">
-        <div class="card-title">פרופיל</div>
+        <div class="card-title">פרופיל משתמש</div>
         <form onsubmit="saveProfile(event)">
           <div class="form-group">
             <label class="form-label">שם מלא</label>
@@ -1667,11 +1704,36 @@ async function renderSettings() {
           </div>
           <div class="form-group">
             <label class="form-label">אימייל</label>
-            <input class="form-input" type="email" id="profile-email" value="${state.profile?.email || ''}" />
+            <input class="form-input" type="email" id="profile-email" value="${state.profile?.email || state.user?.email || ''}" />
           </div>
           <button type="submit" class="btn btn-primary" style="width:auto">שמור שינויים</button>
         </form>
       </div>
+
+      <div class="card">
+        <div class="card-title">📬 צור קשר / תמיכה</div>
+        <p class="text-sm text-muted mb-4">שאלה, בעיה טכנית, או בקשה לתכונה? נשמח לעזור.</p>
+        <form onsubmit="submitContactForm(event)">
+          <div class="form-group">
+            <label class="form-label">נושא</label>
+            <select class="form-input" id="contact-subject">
+              <option value="תמיכה טכנית">תמיכה טכנית</option>
+              <option value="שאלה על חיוב">שאלה על חיוב / תשלום</option>
+              <option value="בקשת תכונה">בקשת תכונה חדשה</option>
+              <option value="דיווח על באג">דיווח על באג</option>
+              <option value="אחר">אחר</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">הודעה</label>
+            <textarea class="form-input" id="contact-message" rows="4" placeholder="תאר את הבעיה או השאלה שלך..."></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" id="contact-submit-btn" style="width:auto">
+            שלח פנייה
+          </button>
+        </form>
+      </div>
+
       <div class="card">
         <div class="card-title">פרטיות ונתונים (GDPR)</div>
         <p class="text-sm text-muted mb-4">הורד עותק של כל הנתונים שלנו עליך.</p>
@@ -1682,6 +1744,33 @@ async function renderSettings() {
       </div>
     </div>
   `);
+}
+
+async function submitContactForm(e) {
+  e.preventDefault();
+  const btn = document.getElementById('contact-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'שולח...'; }
+  const subject = document.getElementById('contact-subject')?.value || 'פנייה';
+  const message = document.getElementById('contact-message')?.value.trim() || '';
+  if (!message) {
+    toast('נא למלא הודעה', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'שלח פנייה'; }
+    return;
+  }
+  try {
+    await api('POST', 'contact', {
+      name:    state.profile?.name || '',
+      email:   state.profile?.email || state.user?.email || '',
+      subject,
+      message,
+    });
+    toast('הפנייה נשלחה! נחזור אליך בהקדם.', 'success');
+    document.getElementById('contact-message').value = '';
+    if (btn) { btn.disabled = false; btn.textContent = 'שלח פנייה'; }
+  } catch (err) {
+    toast(err.message || 'שגיאה בשליחת הפנייה', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'שלח פנייה'; }
+  }
 }
 
 async function saveProfile(e) {
@@ -2258,5 +2347,6 @@ window.toggleChat            = toggleChat;
 window.submitChatMessage     = submitChatMessage;
 window.clearChatHistory      = clearChatHistory;
 window.handleQuickAction     = handleQuickAction;
+window.submitContactForm     = submitContactForm;
 
 boot();
