@@ -53,7 +53,6 @@ const routes = {
   settings:         renderSettings,
   admin:            renderAdmin,
   updates:          renderUpdates,
-  support:          renderSupport,
 };
 
 // ── Progressive unlock helper ─────────────────────────────────────────────────
@@ -267,7 +266,6 @@ function renderShell(content) {
         { id: 'integrations', icon: '🔌', label: 'אינטגרציות', always: true },
         { id: 'billing',      icon: '💳', label: 'חיוב',        always: true },
         { id: 'settings',     icon: '⚙️', label: 'הגדרות',      always: true },
-        { id: 'support',      icon: '💬', label: 'תמיכה',        always: true },
         ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול', always: true }] : []),
       ],
     },
@@ -924,7 +922,14 @@ async function showCampaignDetail(campaignId) {
     analyses        = analysisRes.data  || [];
     recommendations = recoRes.data      || [];
     latestVerdict   = decisionRes.data?.[0] || null;
-  } catch {}
+  } catch (err) {
+    renderShell(`<div class="card" style="text-align:center;padding:3rem 2rem;color:#ef4444">
+      <div style="font-size:2rem;margin-bottom:.5rem">⚠️</div>
+      <p>${err.message || 'שגיאה בטעינת הקמפיין'}</p>
+      <button class="btn btn-secondary mt-4" onclick="navigate('campaigns')">← חזור לרשימה</button>
+    </div>`);
+    return;
+  }
 
   const latest = analyses[0];
   const verdictLabel = {
@@ -2235,12 +2240,29 @@ function initCampaignerChat() {
       <div class="chat-avatar">🧠</div>
       <div class="chat-header-info">
         <div class="chat-header-name">Campaigner AI</div>
-        <div class="chat-header-sub">מנתח נתוני פרסום בזמן אמת</div>
+        <div class="chat-header-sub">ייעוץ שיווקי · תמיכה</div>
       </div>
       <div class="chat-status-dot" title="מחובר"></div>
       <div class="chat-header-actions">
+        <button class="chat-header-btn" onclick="chatShowSupport()" title="פנייה לתמיכה" style="font-size:.95rem">📩</button>
         <button class="chat-header-btn" onclick="clearChatHistory()" title="נקה שיחה">🗑</button>
         <button class="chat-header-btn" onclick="toggleChat()" title="סגור">✕</button>
+      </div>
+    </div>
+    <div id="chat-support-form" style="display:none;padding:.75rem 1rem;background:#f8f7ff;border-bottom:1px solid #e0e7ff">
+      <div style="font-size:.82rem;font-weight:600;color:#4338ca;margin-bottom:.5rem">📩 שלח פנייה לתמיכה</div>
+      <select id="cs-type" style="width:100%;margin-bottom:.4rem;padding:.35rem .5rem;border:1px solid #c7d2fe;border-radius:.375rem;font-size:.82rem;direction:rtl">
+        <option value="question">שאלה</option>
+        <option value="bug">באג / תקלה</option>
+        <option value="feature_request">רעיון לשיפור</option>
+        <option value="feedback">פידבק</option>
+      </select>
+      <input id="cs-title" placeholder="נושא הפנייה" style="width:100%;margin-bottom:.4rem;padding:.35rem .5rem;border:1px solid #c7d2fe;border-radius:.375rem;font-size:.82rem;direction:rtl;box-sizing:border-box">
+      <textarea id="cs-desc" placeholder="תאר את הנושא בפירוט..." rows="3" style="width:100%;margin-bottom:.5rem;padding:.35rem .5rem;border:1px solid #c7d2fe;border-radius:.375rem;font-size:.82rem;direction:rtl;resize:none;box-sizing:border-box"></textarea>
+      <div id="cs-error" style="color:#ef4444;font-size:.78rem;margin-bottom:.35rem;display:none"></div>
+      <div style="display:flex;gap:.5rem">
+        <button onclick="chatSubmitSupport()" style="flex:1;padding:.4rem .75rem;background:#6366f1;color:white;border:none;border-radius:.375rem;font-size:.82rem;cursor:pointer;font-weight:600">שלח</button>
+        <button onclick="document.getElementById('chat-support-form').style.display='none'" style="padding:.4rem .75rem;background:#e0e7ff;color:#4338ca;border:none;border-radius:.375rem;font-size:.82rem;cursor:pointer">ביטול</button>
       </div>
     </div>
     <div class="chat-messages" id="chat-messages">
@@ -2663,6 +2685,43 @@ async function submitSupportTicket(e) {
   }
 }
 
+function chatShowSupport() {
+  const form = document.getElementById('chat-support-form');
+  if (!form) return;
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+  if (form.style.display === 'block') {
+    document.getElementById('cs-title')?.focus();
+  }
+}
+
+async function chatSubmitSupport() {
+  const type  = document.getElementById('cs-type')?.value?.trim();
+  const title = document.getElementById('cs-title')?.value?.trim();
+  const desc  = document.getElementById('cs-desc')?.value?.trim();
+  const errEl = document.getElementById('cs-error');
+  const btn   = document.querySelector('#chat-support-form button[onclick="chatSubmitSupport()"]');
+
+  errEl.style.display = 'none';
+
+  if (!title || title.length < 3)  { errEl.textContent = 'כותרת קצרה מדי — לפחות 3 תווים'; errEl.style.display = 'block'; return; }
+  if (!desc  || desc.length  < 10) { errEl.textContent = 'תיאור קצר מדי — לפחות 10 תווים'; errEl.style.display = 'block'; return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = 'שולח...'; }
+
+  try {
+    await api('POST', 'submit-ticket', { type: type || 'question', title, description: desc });
+    document.getElementById('chat-support-form').style.display = 'none';
+    document.getElementById('cs-title').value = '';
+    document.getElementById('cs-desc').value  = '';
+    toast('הפנייה נשלחה בהצלחה ✓', 'success');
+  } catch (err) {
+    errEl.textContent = err.message || 'שגיאה בשליחה';
+    errEl.style.display = 'block';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'שלח'; }
+  }
+}
+
 // ── Business Profile ──────────────────────────────────────────────────────────
 async function renderBusinessProfile() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
@@ -2800,8 +2859,8 @@ async function saveBizProfile(e) {
   e.preventDefault();
   const errEl = document.getElementById('bp-error');
   errEl.style.display = 'none';
-  const btn = e.submitter;
-  btn.disabled = true; btn.textContent = 'שומר...';
+  const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'שומר...'; }
 
   const fields = {};
   const offer   = document.getElementById('bp-offer')?.value?.trim();
@@ -2823,7 +2882,7 @@ async function saveBizProfile(e) {
   if (!fields.offer && !state.businessProfile) {
     errEl.textContent = 'ספר לנו מה אתה מוכר כדי להתחיל';
     errEl.style.display = 'block';
-    btn.disabled = false; btn.textContent = 'שמור';
+    if (btn) { btn.disabled = false; btn.textContent = 'שמור'; }
     return;
   }
 
@@ -2848,7 +2907,7 @@ async function saveBizProfile(e) {
   } catch (err) {
     errEl.textContent = err.message || 'שגיאה בשמירה';
     errEl.style.display = 'block';
-    btn.disabled = false; btn.textContent = 'שמור';
+    if (btn) { btn.disabled = false; btn.textContent = 'שמור'; }
   }
 }
 
@@ -2916,13 +2975,13 @@ async function renderLandingPages() {
         const date  = new Date(a.created_at).toLocaleDateString('he-IL');
         const title = a.title || a.asset_type || 'דף נחיתה';
         return `
-        <div class="card" style="cursor:default;position:relative">
+        <div class="card" style="cursor:${a.preview_url ? 'pointer' : 'default'};position:relative" ${a.preview_url ? `onclick="window.open('${a.preview_url}','_blank')"` : ''}>
           <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:.75rem">
             <span style="font-weight:600;font-size:.95rem;flex:1;padding-left:.5rem">${title}</span>
             <span style="font-size:.75rem;padding:.2rem .6rem;border-radius:9999px;background:${color}20;color:${color};border:1px solid ${color}40;flex-shrink:0">${label}</span>
           </div>
           <div class="text-muted" style="font-size:.8rem;margin-bottom:1rem">${date}${a.parent_id ? ' · וריאציה' : ''}</div>
-          <div style="display:flex;gap:.5rem">
+          <div style="display:flex;gap:.5rem" onclick="event.stopPropagation()">
             ${a.preview_url ? `<a href="${a.preview_url}" target="_blank" class="btn btn-sm btn-secondary" style="text-decoration:none">צפה בדף</a>` : ''}
             <button class="btn btn-sm btn-secondary" onclick="createVariation('${a.id}','${title.replace(/'/g,"\\'")}')">
               + וריאציה
@@ -3810,6 +3869,8 @@ window.submitChatMessage     = submitChatMessage;
 window.clearChatHistory      = clearChatHistory;
 window.handleQuickAction     = handleQuickAction;
 window.submitSupportTicket   = submitSupportTicket;
+window.chatShowSupport       = chatShowSupport;
+window.chatSubmitSupport     = chatSubmitSupport;
 window.saveBizProfile        = saveBizProfile;
 window.openLandingPageCreator = openLandingPageCreator;
 window.createVariation       = createVariation;

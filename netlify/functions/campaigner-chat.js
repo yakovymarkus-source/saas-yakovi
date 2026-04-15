@@ -1116,7 +1116,7 @@ async function generateLandingPageResponse(context) {
 
     return {
       reply,
-      quickActions: ['הורד ZIP', 'צור קריאייטיב ויזואלי', 'כתוב קופי מודעה', 'נתח ביצועים'],
+      quickActions: ['כתוב קופי למודעה', 'נתח ביצועים', 'חשב כלכלת יחידה', 'הצג המלצות'],
       assetId:    saved.assetId,
       previewUrl: saved.previewUrl,
       expiresAt:  saved.expiresAt,

@@ -9,6 +9,10 @@
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
 
+# ── campaigner-chat needs extra time for AI generation ────────────────────────
+[functions."campaigner-chat"]
+  timeout = 26
+
 # ── Raw body for Stripe webhook ───────────────────────────────────────────────
 [functions."billing-webhook"]
   included_files = []
