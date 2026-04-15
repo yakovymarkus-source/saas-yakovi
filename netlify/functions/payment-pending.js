@@ -34,7 +34,11 @@ exports.handler = async (event) => {
     const sb = getAdminClient();
 
     // Upsert subscription with payment_status='pending'
-    await sb.rpc('set_payment_pending', { p_user_id: user.id, p_plan: plan });
+    const { error: rpcError } = await sb.rpc('set_payment_pending', { p_user_id: user.id, p_plan: plan });
+    if (rpcError) {
+      console.error('[payment-pending] set_payment_pending RPC failed:', rpcError.message);
+      throw new AppError({ code: 'DB_WRITE_FAILED', userMessage: 'שגיאה בעדכון המנוי', devMessage: `set_payment_pending RPC: ${rpcError.message}`, status: 500 });
+    }
 
     await writeAudit({ userId: user.id, action: 'payment.pending', targetType: 'subscription', targetId: user.id, metadata: { plan }, ip: context.ip, requestId: context.requestId });
 
@@ -46,13 +50,15 @@ exports.handler = async (event) => {
 
     // Notify admin
     const adminEmail = getEnv().ADMIN_EMAIL;
-    if (adminEmail) {
+    if (!adminEmail) {
+      console.error('[payment-pending] ADMIN_EMAIL not configured — admin will NOT receive payment notification. Set ADMIN_EMAIL in Netlify environment variables.');
+    } else {
       await sendAdminPaymentAlert({
         adminEmail,
         userEmail: profile?.email || user.email,
         userName:  profile?.name,
         plan,
-      }).catch(e => console.warn('[payment-pending] admin alert failed:', e.message));
+      }).catch(e => console.error('[payment-pending] admin alert email failed:', e.message));
     }
 
     await writeRequestLog(buildLogPayload(context, 'info', 'payment_pending_set', {

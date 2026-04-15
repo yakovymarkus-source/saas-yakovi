@@ -28,14 +28,20 @@ exports.handler = async (event) => {
   const env      = getEnv();
   const appUrl   = env.APP_URL;
 
+  // Early env var check — fail fast with a clear error instead of a generic exchange failure
+  if (!process.env.GOOGLE_OAUTH_CLIENT_ID || !process.env.GOOGLE_OAUTH_CLIENT_SECRET) {
+    console.error('[oauth-google] Missing required env vars: GOOGLE_OAUTH_CLIENT_ID and/or GOOGLE_OAUTH_CLIENT_SECRET. Set them in Netlify environment variables.');
+    return redirect(`${appUrl}/?error=google_not_configured`);
+  }
+
   // User denied access
   if (errorParam) {
     await writeRequestLog(buildLogPayload(context, 'warn', 'google_oauth_denied', { error: errorParam }));
-    return redirect(`${appUrl}/settings/integrations?error=google_denied`);
+    return redirect(`${appUrl}/?error=google_denied`);
   }
 
   if (!code || !state) {
-    return redirect(`${appUrl}/settings/integrations?error=google_missing_params`);
+    return redirect(`${appUrl}/?error=google_missing_params`);
   }
 
   let userId;

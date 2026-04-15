@@ -1211,7 +1211,8 @@ async function renderBusinessProfile() {
     const val = bp[k];
     return val == null ? fallback : String(val).replace(/"/g, '&quot;');
   };
-  const score = bp.completion_score != null ? bp.completion_score : (bp.completionScore != null ? bp.completionScore : null);
+  // Backend returns: bp.completion.pct (nested) and bp.completion_score (flat alias)
+  const score = bp.completion?.pct ?? bp.completion_score ?? bp.completionScore ?? null;
   const scorePct = score != null ? Math.round(score) : null;
 
   renderShell(`
@@ -1332,7 +1333,7 @@ async function saveBusinessProfile(e) {
     }
   });
   try {
-    await api('PUT', 'business-profile', payload);
+    await api('POST', 'business-profile', payload);
     toast('הפרופיל העסקי נשמר בהצלחה!', 'success');
     navigate('business_profile');
   } catch (err) {

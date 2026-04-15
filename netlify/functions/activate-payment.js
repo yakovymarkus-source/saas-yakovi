@@ -34,8 +34,19 @@ exports.handler = async (event) => {
 
     const sb = getAdminClient();
 
-    // Activate subscription
-    await sb.rpc('activate_payment', { p_user_id: userId, p_plan: plan });
+    // Activate subscription — check for RPC-level errors
+    const { error: rpcError } = await sb.rpc('activate_payment', { p_user_id: userId, p_plan: plan });
+    if (rpcError) {
+      console.error('[activate-payment] activate_payment RPC failed:', rpcError.message);
+      throw new AppError({ code: 'PAYMENT_ACTIVATION_FAILED', userMessage: 'פעולת ההפעלה נכשלה', devMessage: `activate_payment RPC: ${rpcError.message}`, status: 500 });
+    }
+
+    // Verify subscription was actually updated
+    const { data: updatedSub } = await sb.from('subscriptions').select('status,payment_status').eq('user_id', userId).maybeSingle();
+    if (!updatedSub || updatedSub.payment_status !== 'verified') {
+      console.error('[activate-payment] subscription row not updated after RPC — user_id:', userId);
+      throw new AppError({ code: 'PAYMENT_VERIFICATION_FAILED', userMessage: 'לא ניתן לאמת את ההפעלה', devMessage: 'Subscription row not updated after RPC', status: 500 });
+    }
 
     await writeAudit({ userId: admin.id, action: 'payment.activate', targetType: 'user', targetId: userId, metadata: { plan }, ip: context.ip, requestId: context.requestId });
 
@@ -50,7 +61,9 @@ exports.handler = async (event) => {
         to:        profile.email,
         name:      profile.name,
         planLabel: PLANS[plan]?.label || plan,
-      }).catch(e => console.warn('[activate-payment] email failed:', e.message));
+      }).catch(e => console.error('[activate-payment] activation email failed:', e.message));
+    } else {
+      console.error('[activate-payment] no email found for user:', userId, '— activation email not sent');
     }
 
     await writeRequestLog(buildLogPayload(context, 'info', 'payment_activated', {

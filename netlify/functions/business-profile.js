@@ -72,9 +72,16 @@ function validateFields(raw) {
 function buildResponse(profile) {
   const { pct, missingRequired, missingEnrichment } = scoreCompletion(profile);
   return {
-    profile:    profile || null,
-    completion: { pct, missingRequired, missingEnrichment },
-    nextQuestion: buildNextProfileQuestion(missingRequired, missingEnrichment),
+    // Spread profile fields so the frontend can read them directly
+    ...(profile || {}),
+    // Nested completion object (used by chat / internal logic)
+    completion:       { pct, missingRequired, missingEnrichment },
+    // Flat aliases — frontend reads bp.completion_score or bp.completionScore
+    completion_score: pct,
+    completionScore:  pct,
+    missingRequired,
+    missingEnrichment,
+    nextQuestion:     buildNextProfileQuestion(missingRequired, missingEnrichment),
   };
 }
 
