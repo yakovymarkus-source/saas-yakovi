@@ -5,20 +5,19 @@
 [build.environment]
   NODE_VERSION = "20"
 
-# ── Function timeouts ─────────────────────────────────────────────────────────
-# campaigner-chat needs extra time for AI generation
+# Function timeouts
 [functions."campaigner-chat"]
   timeout = 26
 
-# ── Scheduled functions ────────────────────────────────────────────────────────
+# Scheduled functions
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
 
-# ── Raw body for Stripe webhook ───────────────────────────────────────────────
+# Raw body for Stripe webhook
 [functions."billing-webhook"]
   included_files = []
 
-# ── SPA fallback routing ───────────────────────────────────────────────────────
+# SPA fallback routing
 [[redirects]]
   from   = "/api/*"
   to     = "/.netlify/functions/:splat"
@@ -34,10 +33,8 @@
   to     = "/index.html"
   status = 200
 
-# ── CORS for Netlify Functions ────────────────────────────────────────────────
-# Belt-and-suspenders: http.js already sets these headers in every response.
-# This ensures they appear even if a function crashes before returning.
-# billing-webhook is intentionally excluded — it must accept Stripe's servers.
+# CORS headers for Netlify Functions
+# billing-webhook is excluded - it must accept Stripe servers
 [[headers]]
   for = "/.netlify/functions/*"
   [headers.values]
@@ -46,7 +43,7 @@
     Access-Control-Allow-Headers = "Content-Type, Authorization, X-Request-ID"
     Access-Control-Max-Age       = "86400"
 
-# ── Security headers ───────────────────────────────────────────────────────────
+# Security headers
 [[headers]]
   for = "/admin/*"
   [headers.values]
@@ -66,7 +63,7 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# index.html must never be cached — always fresh so new ?v=HASH query strings reach the browser
+# index.html must never be cached
 [[headers]]
   for = "/index.html"
   [headers.values]
