@@ -771,6 +771,12 @@ function markLocalNotificationsRead() {
   refreshBellBadge();
 }
 
+function clearPersonalNotifications() {
+  localStorage.removeItem(LOCAL_NOTIF_KEY);
+  state.localNotifCount = 0;
+  refreshBellBadge();
+}
+
 function refreshBellBadge() {
   const total = (state.updatesCount || 0) + (state.localNotifCount || 0);
   const btn   = document.querySelector('[data-bell-btn]');
