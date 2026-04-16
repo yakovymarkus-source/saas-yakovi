@@ -2073,6 +2073,29 @@ async function renderSettings() {
   `);
 }
 
+// ── Landing Pages (alias for Marketing Assets) ────────────────────────────────
+function renderLandingPages() { return renderMarketingAssets(); }
+
+// ── Stub pages — not yet implemented ──────────────────────────────────────────
+function renderRecommendations() {
+  renderShell(`<div class="page-header"><h1 class="page-title">💡 המלצות</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
+}
+async function renderPerformance() {
+  renderShell(`<div class="page-header"><h1 class="page-title">📈 ביצועים</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
+}
+async function renderEconomics() {
+  renderShell(`<div class="page-header"><h1 class="page-title">💰 כלכלה</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
+}
+function renderCopyGenerator() {
+  renderShell(`<div class="page-header"><h1 class="page-title">✍️ קופירייטינג</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
+}
+function renderAbTests() {
+  renderShell(`<div class="page-header"><h1 class="page-title">🧪 A/B בדיקות</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
+}
+function renderUpdates() {
+  renderShell(`<div class="page-header"><h1 class="page-title">🔔 עדכונים</h1><p class="page-subtitle">אין עדכונים חדשים כרגע</p></div>`);
+}
+
 // ── Support page ──────────────────────────────────────────────────────────────
 function renderSupport() {
   const log = getSysLog();
