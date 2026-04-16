@@ -2,6 +2,9 @@
  * inject-env.js — Build step: replace %%VAR%% placeholders in index.html
  * with real Netlify environment variable values.
  *
+ * Also injects %%ASSET_HASH%% — an 8-char content hash of app.js+app.css —
+ * so browsers always load the latest assets after a deploy (cache-busting).
+ *
  * Run automatically by netlify.toml [build] command.
  * Safe to run locally with a .env file loaded (via dotenv or export).
  */
@@ -12,26 +15,7 @@ const fs     = require('node:fs');
 const path   = require('node:path');
 const crypto = require('node:crypto');
 
-// ── Build hash — short SHA based on content of all JS/CSS assets ──────────────
-function buildHash() {
-  const assetDir   = path.resolve(__dirname, '..', 'public');
-  const assetFiles = [
-    'assets/app.js', 'assets/app.css', 'assets/chat.css',
-    'admin/app.js',  'admin/app.css',
-  ];
-  const h = crypto.createHash('sha256');
-  for (const f of assetFiles) {
-    const full = path.join(assetDir, f);
-    if (fs.existsSync(full)) h.update(fs.readFileSync(full));
-  }
-  return h.digest('hex').slice(0, 10);
-}
-
-const BUILD_HASH = buildHash();
-process.stdout.write(`[inject-env] Build hash: ${BUILD_HASH}\n`);
-
 const VARS = {
-  BUILD_HASH: BUILD_HASH,
   SUPABASE_URL:          process.env.SUPABASE_URL          || '',
   SUPABASE_ANON_KEY:     process.env.SUPABASE_ANON_KEY     || '',
   GOOGLE_OAUTH_CLIENT_ID:process.env.GOOGLE_OAUTH_CLIENT_ID|| '',
@@ -48,8 +32,20 @@ const HTML_FILES = [
   path.resolve(__dirname, '..', 'public', 'admin', 'index.html'),
 ];
 
-// Admin page only needs these vars (BUILD_HASH always included for both)
-const ADMIN_VARS = new Set(['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'BUILD_HASH']);
+// Admin page only needs these two vars
+const ADMIN_VARS = new Set(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
+
+// Compute an 8-char hash of app.js + app.css for cache-busting
+const ASSETS_DIR = path.resolve(__dirname, '..', 'public', 'assets');
+const assetHash = (() => {
+  const h = crypto.createHash('md5');
+  for (const f of ['app.js', 'app.css', 'chat.css']) {
+    const fp = path.join(ASSETS_DIR, f);
+    if (fs.existsSync(fp)) h.update(fs.readFileSync(fp));
+  }
+  return h.digest('hex').slice(0, 8);
+})();
+process.stdout.write(`[inject-env] Asset hash: ${assetHash}\n`);
 
 let allMissing = new Set();
 
@@ -57,11 +53,14 @@ for (const HTML_FILE of HTML_FILES) {
   const isAdmin = HTML_FILE.includes('admin');
   let html = fs.readFileSync(HTML_FILE, 'utf8');
 
+  // Inject asset hash for cache-busting
+  html = html.replaceAll('%%ASSET_HASH%%', assetHash);
+
   for (const [key, value] of Object.entries(VARS)) {
     if (isAdmin && !ADMIN_VARS.has(key)) continue;
     const safe = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     html = html.replaceAll(`%%${key}%%`, safe);
-    if (!value && key !== 'BUILD_HASH') allMissing.add(key);
+    if (!value) allMissing.add(key);
   }
 
   fs.writeFileSync(HTML_FILE, html, 'utf8');

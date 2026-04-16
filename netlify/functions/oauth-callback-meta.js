@@ -30,6 +30,12 @@ exports.handler = async (event) => {
     REDIRECT_URI: REDIRECT_URI(),
   });
 
+  // Early env var check — fail fast with a clear error instead of a generic exchange failure
+  if (!process.env.META_APP_ID || !process.env.META_APP_SECRET) {
+    console.error('[oauth-meta] Missing required env vars: META_APP_ID and/or META_APP_SECRET. Set them in Netlify environment variables.');
+    return redirect(`${appUrl}/?error=meta_not_configured`);
+  }
+
   if (errorParam) {
     await writeRequestLog(buildLogPayload(context, 'warn', 'meta_oauth_denied', { error: errorParam }));
     return redirect(`${appUrl}/settings/integrations?error=meta_denied`);

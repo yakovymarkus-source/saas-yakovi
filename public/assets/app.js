@@ -51,6 +51,7 @@ const routes = {
   integrations:     renderIntegrations,
   billing:          renderBilling,
   settings:         renderSettings,
+  support:          renderSupport,
   admin:            renderAdmin,
   updates:          renderUpdates,
 };
@@ -91,18 +92,28 @@ function navigate(page, params = {}) {
 // Netlify Functions validate this token and look up the user's own OAuth credentials.
 // No .env API keys are ever exposed to or used by the frontend.
 async function api(method, path, body) {
-  const token = state.accessToken || '';
-  const res = await fetch(`${CONFIG.apiBase}/${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
-  return json.data ?? json;
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 25000);
+  try {
+    const token = state.accessToken || '';
+    const res = await fetch(`${CONFIG.apiBase}/${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
+    return json.data ?? json;
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('הבקשה ארכה יותר מדי — נסה שנית');
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -266,6 +277,7 @@ function renderShell(content) {
         { id: 'integrations', icon: '🔌', label: 'אינטגרציות', always: true },
         { id: 'billing',      icon: '💳', label: 'חיוב',        always: true },
         { id: 'settings',     icon: '⚙️', label: 'הגדרות',      always: true },
+        { id: 'support',      icon: '💬', label: 'תמיכה',        always: true },
         ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול', always: true }] : []),
       ],
     },
@@ -285,14 +297,15 @@ function renderShell(content) {
 
   const initials    = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
   const sidebarPlan = state.subscription?.plan || 'free';
-  const bellCount   = (state.updatesCount || 0) + (state.localNotifCount || 0);
-
+  const isPending   = state.subscription?.payment_status === 'pending';
+  const bellCount   = (state.updatesCount || 0) + (state.localNotifCount || 0) + (isPending ? 1 : 0);
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
         <div class="sidebar-logo">
           <div class="sidebar-logo-badge">🧠</div>
           Campaign<span>AI</span>
+          ${bellCount > 0 ? `<button class="sidebar-bell" onclick="navigate('billing')" title="התראות ממתינות">🔔<span class="sidebar-bell-badge">${bellCount}</span></button>` : ''}
         </div>
         <nav class="sidebar-nav">
           ${navSections.map(renderNavSection).join('')}
@@ -576,10 +589,15 @@ function renderLiveStatsContent() {
       const p    = providers[integ.provider] || { label: integ.provider, icon: '🔗' };
       const data = state.liveStats[integ.provider];
       if (!data) {
+        // Trigger background load if not already loading
+        if (!state.liveStatsLoading) loadLiveStats().then(() => {
+          const c = document.getElementById('live-stats-container');
+          if (c) c.innerHTML = renderLiveStatsContent();
+        });
         return `
           <div class="stat-card" style="min-width:0">
             <div class="stat-label">${p.icon} ${p.label}</div>
-            <div class="text-muted text-xs">לא נטען</div>
+            <div class="text-muted text-xs">⏳ טוען...</div>
           </div>`;
       }
       if (data.error) {
@@ -653,16 +671,10 @@ function renderScoreBadge(score) {
 
 // ── Campaigns ─────────────────────────────────────────────────────────────────
 async function renderCampaigns() {
-  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
-  try {
-    const { data } = await sb.from('campaigns').select('*').eq('owner_user_id', state.user.id).order('created_at', { ascending: false });
-    state.campaigns = data || [];
-  } catch {}
-
   renderShell(`
     <div class="page-header flex items-center justify-between">
       <div>
-        <h1 class="page-title">קמפיינים</h1>
+        <h1 class="page-title">📊 קמפיינים</h1>
         <p class="page-subtitle">נהל ונתח את הנכסים השיווקיים שלך</p>
       </div>
       <button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ נכס חדש</button>
@@ -943,10 +955,26 @@ async function showCampaignDetail(campaignId) {
   const scoreLabels = { traffic: 'תנועה', ctr: 'CTR', conversion: 'המרה', roas: 'ROAS', coverage: 'כיסוי' };
   const vl = latestVerdict ? (verdictLabel[latestVerdict.verdict] || { text: latestVerdict.verdict, cls: 'badge-gray' }) : null;
 
+  // Bar chart for scores
+  function scoreBar(label, value) {
+    const pct = Math.max(0, Math.min(100, value || 0));
+    const color = pct >= 70 ? '#22c55e' : pct >= 45 ? '#f59e0b' : '#ef4444';
+    return `<div style="margin-bottom:0.6rem">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-sm font-semibold" style="color:#374151">${label}</span>
+        <span class="text-sm font-bold" style="color:${color}">${pct}/100</span>
+      </div>
+      <div style="background:#e2e8f0;border-radius:999px;height:10px;overflow:hidden">
+        <div style="width:${pct}%;background:${color};height:100%;border-radius:999px;transition:width 0.6s ease"></div>
+      </div>
+    </div>`;
+  }
+
   const scoresHtml = latest?.scores ? `
-    <div class="stats-grid" style="margin-bottom:1rem">
+    <div class="card mt-4">
+      <div class="card-title">ציוני ביצועים</div>
       ${Object.entries(latest.scores).filter(([k]) => k !== 'overall').map(([k, v]) =>
-        `<div class="stat-card"><div class="stat-label">${scoreLabels[k] || k}</div><div class="stat-value" style="font-size:1.25rem">${v}/100</div></div>`
+        scoreBar(scoreLabels[k] || k, v)
       ).join('')}
     </div>` : '';
 
@@ -1075,8 +1103,25 @@ async function renderIntegrations() {
 
   // Handle OAuth redirect result
   const params = new URLSearchParams(window.location.search);
-  if (params.get('connected')) toast(`${params.get('connected')} חובר בהצלחה! 🎉`, 'success');
-  if (params.get('error'))     toast(`שגיאה: ${params.get('error')}`, 'error');
+  const INTEGRATION_NAMES = { google_ads: 'Google Ads', ga4: 'Google Analytics', meta: 'Meta Ads' };
+  const OAUTH_ERRORS = {
+    google_not_configured:  'חיבור Google לא מופעל — צור קשר עם התמיכה',
+    google_denied:          'ביטלת את החיבור ל-Google',
+    google_missing_params:  'שגיאה בחיבור Google — נסה שנית',
+    google_exchange_failed: 'חיבור Google נכשל — נסה שנית',
+    google_save_failed:     'שמירת חיבור Google נכשלה — נסה שנית',
+    google_invalid_state:   'בקשת חיבור Google לא תקינה — נסה שנית',
+    meta_not_configured:    'חיבור Meta לא מופעל — צור קשר עם התמיכה',
+    meta_denied:            'ביטלת את החיבור ל-Meta',
+    meta_missing_params:    'שגיאה בחיבור Meta — נסה שנית',
+    meta_exchange_failed:   'חיבור Meta נכשל — נסה שנית',
+    meta_save_failed:       'שמירת חיבור Meta נכשלה — נסה שנית',
+    meta_invalid_state:     'בקשת חיבור Meta לא תקינה — נסה שנית',
+  };
+  const connectedParam = params.get('connected');
+  const errorParam     = params.get('error');
+  if (connectedParam) toast(`${INTEGRATION_NAMES[connectedParam] || connectedParam} חובר בהצלחה! 🎉`, 'success');
+  if (errorParam)     toast(OAUTH_ERRORS[errorParam] || `שגיאה בחיבור: ${errorParam}`, 'error');
   window.history.replaceState({}, '', window.location.pathname);
 
   const integrationDefs = [
@@ -1330,16 +1375,45 @@ async function confirmPayment() {
   if (btn) { btn.disabled = true; btn.textContent = 'שולח...'; }
   try {
     const plan = window._pendingPlan || 'early_bird';
-    const res = await api('POST', 'payment-pending', { plan });
-    // Subscription is now active — update local state
-    state.subscription = { plan, status: 'active', payment_status: 'verified' };
+    await api('POST', 'payment-pending', { plan });
+    if (state.subscription) {
+      state.subscription.payment_status = 'pending';
+    } else {
+      state.subscription = { plan, payment_status: 'pending' };
+    }
     clearBootCache(); // force fresh data on next load
-    toast(res?.message || 'החשבון הופעל! ברוך הבא 🎉', 'success');
-    setTimeout(() => { navigate('dashboard'); }, 1200);
+    toast('הבקשה התקבלה! מחפש אישור תשלום...', 'success');
+    setTimeout(() => navigate('billing'), 500);
+    pollPaymentActivation();
   } catch (err) {
     toast(err.message || 'שגיאה — נסו שנית', 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'שילמתי, הפעילו לי את החשבון'; }
   }
+}
+
+// Poll subscription status every 10s for up to 5 min after payment-pending
+function pollPaymentActivation() {
+  let attempts = 0;
+  const maxAttempts = 30; // 30 × 10s = 5 min
+  const poll = async () => {
+    attempts++;
+    try {
+      const { data: sub } = await sb.from('subscriptions')
+        .select('plan,status,payment_status')
+        .eq('user_id', state.user?.id)
+        .maybeSingle();
+      if (sub && sub.payment_status === 'verified') {
+        state.subscription = sub;
+        toast('🎉 התשלום אושר! החשבון שלך הופעל.', 'success');
+        navigate('dashboard');
+        return;
+      }
+    } catch {}
+    if (attempts < maxAttempts) {
+      setTimeout(poll, 10000);
+    }
+  };
+  setTimeout(poll, 10000);
 }
 
 // ── Payment claim — safety-net for users who closed the browser ──────────────
@@ -1395,10 +1469,11 @@ async function submitClaim() {
     } else {
       state.subscription = { plan, payment_status: 'pending', status: 'active' };
     }
+    pollPaymentActivation();
     if (inner) inner.innerHTML = `
       <div style="font-size:2.5rem;margin-bottom:1rem">✅</div>
       <h3 style="font-size:1.05rem;font-weight:700;margin-bottom:0.5rem">הבקשה התקבלה!</h3>
-      <p style="font-size:0.875rem;color:#64748b">החשבון יופעל תוך דקות לאחר אישור התשלום.<br>תקבלו אימייל אישור.</p>
+      <p style="font-size:0.875rem;color:#64748b">אנחנו בודקים את התשלום ברקע — תקבלו עדכון ברגע שיאושר.<br>תקבלו גם אימייל אישור.</p>
       <button onclick="document.getElementById('claim-overlay').remove();navigate('billing')" class="btn btn-primary" style="margin-top:1.25rem">
         הבנתי
       </button>`;
@@ -1413,15 +1488,567 @@ async function submitClaim() {
   }
 }
 
-// ── Settings ──────────────────────────────────────────────────────────────────
-async function renderSettings() {
+// ── Business Profile ──────────────────────────────────────────────────────────
+async function renderBusinessProfile() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  let bp = {};
+  try {
+    bp = await api('GET', 'business-profile') || {};
+  } catch {}
+
+  const v = (k, fallback = '') => {
+    const val = bp[k];
+    return val == null ? fallback : String(val).replace(/"/g, '&quot;');
+  };
+  // Backend returns: bp.completion.pct (nested) and bp.completion_score (flat alias)
+  const score = bp.completion?.pct ?? bp.completion_score ?? bp.completionScore ?? null;
+  const scorePct = score != null ? Math.round(score) : null;
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">🏢 פרופיל עסקי</h1>
+        <p class="page-subtitle">מידע זה משמש את ה-AI ליצירת תוכן מדויק עבורך</p>
+      </div>
+      ${scorePct != null ? `
+      <div style="text-align:center">
+        ${renderDonutSVG(scorePct, 100)}
+        <div class="text-xs text-muted mt-1">השלמת פרופיל</div>
+      </div>` : ''}
+    </div>
+
+    <form onsubmit="saveBusinessProfile(event)">
+      <div class="card mb-4">
+        <div class="card-title">פרטי העסק</div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">שם העסק</label>
+            <input class="form-input" id="bp-business_name" value="${v('business_name')}" placeholder="לדוגמה: קליניקת ד&quot;ר כהן" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">קטגוריה / ענף</label>
+            <input class="form-input" id="bp-category" value="${v('category')}" placeholder="לדוגמה: בריאות, נדל&quot;ן, e-commerce" />
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-title">מה אתם מוכרים <span class="required-star">*</span></div>
+        <div class="form-group">
+          <label class="form-label">ההצעה / המוצר / השירות</label>
+          <textarea class="form-input" id="bp-offer" rows="3" placeholder="תארו בפירוט את מה שאתם מציעים ללקוחות">${v('offer')}</textarea>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">מחיר (מספר) <span class="required-star">*</span></label>
+            <input class="form-input" id="bp-price_amount" type="number" min="0" value="${v('price_amount')}" placeholder="לדוגמה: 297" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">מודל תמחור <span class="required-star">*</span></label>
+            <select class="form-input" id="bp-pricing_model">
+              <option value="">בחרו מודל</option>
+              ${['חד פעמי','מנוי חודשי','מנוי שנתי','תשלום לפי שימוש','פרויקט','שעתי'].map(o =>
+                `<option value="${o}" ${v('pricing_model') === o ? 'selected' : ''}>${o}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-title">הלקוח האידיאלי</div>
+        <div class="form-group">
+          <label class="form-label">קהל יעד <span class="required-star">*</span></label>
+          <textarea class="form-input" id="bp-target_audience" rows="2" placeholder="מי הלקוח האידיאלי שלכם? גיל, מקצוע, מצב, תחומי עניין">${v('target_audience')}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">הבעיה שאתם פותרים <span class="required-star">*</span></label>
+          <textarea class="form-input" id="bp-problem_solved" rows="2" placeholder="מה הכאב / הבעיה שהלקוח חווה לפני שהוא קונה מכם?">${v('problem_solved')}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">התוצאה הרצויה <span class="required-star">*</span></label>
+          <textarea class="form-input" id="bp-desired_outcome" rows="2" placeholder="איפה הלקוח רוצה להיות לאחר שיקנה מכם?">${v('desired_outcome')}</textarea>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-title">אסטרטגיה שיווקית</div>
+        <div class="form-group">
+          <label class="form-label">מטרה עיקרית <span class="required-star">*</span></label>
+          <select class="form-input" id="bp-primary_goal">
+            <option value="">בחרו מטרה</option>
+            ${['גיוס לידים','מכירה ישירה','הגברת מודעות','שמירת לקוחות','הגדלת ROAS'].map(o =>
+              `<option value="${o}" ${v('primary_goal') === o ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">מנגנון ייחודי (USP)</label>
+            <input class="form-input" id="bp-unique_mechanism" value="${v('unique_mechanism')}" placeholder="מה הופך אתכם לייחודיים?" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">ההבטחה המרכזית</label>
+            <input class="form-input" id="bp-main_promise" value="${v('main_promise')}" placeholder="המשפט שמביא לידים" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">תקציב חודשי לפרסום (₪)</label>
+          <input class="form-input" id="bp-monthly_budget" type="number" min="0" value="${v('monthly_budget')}" placeholder="לדוגמה: 5000" />
+        </div>
+      </div>
+
+      <div class="flex gap-3" style="margin-bottom:2rem">
+        <button type="submit" class="btn btn-primary" style="width:auto;padding:0.75rem 2.5rem" id="bp-save-btn">
+          שמור פרופיל עסקי
+        </button>
+      </div>
+    </form>
+  `);
+}
+
+async function saveBusinessProfile(e) {
+  e.preventDefault();
+  const btn = document.getElementById('bp-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'שומר...'; }
+  const fields = ['business_name','category','offer','price_amount','pricing_model',
+                  'target_audience','problem_solved','desired_outcome','primary_goal',
+                  'unique_mechanism','main_promise','monthly_budget'];
+  const payload = {};
+  fields.forEach(f => {
+    const el = document.getElementById('bp-' + f);
+    if (!el) return;
+    const val = el.value.trim();
+    if (val !== '') {
+      payload[f] = (f === 'price_amount' || f === 'monthly_budget') ? Number(val) : val;
+    }
+  });
+  try {
+    await api('POST', 'business-profile', payload);
+    toast('הפרופיל העסקי נשמר בהצלחה!', 'success');
+    navigate('business_profile');
+  } catch (err) {
+    toast(err.message || 'שגיאה בשמירה', 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'שמור פרופיל עסקי'; }
+  }
+}
+
+// ── AI Saved Works (localStorage) ─────────────────────────────────────────────
+function loadAISavedWorks() {
+  try {
+    const key = 'ai_saved_works_' + (state.user?.id || 'anon');
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  } catch { return []; }
+}
+function saveAIWork(type, title, content) {
+  try {
+    const key = 'ai_saved_works_' + (state.user?.id || 'anon');
+    const works = loadAISavedWorks();
+    works.unshift({ id: Date.now(), type, title, content, created_at: new Date().toISOString() });
+    localStorage.setItem(key, JSON.stringify(works.slice(0, 50)));
+    toast('נשמר בהצלחה!', 'success');
+  } catch { toast('שגיאה בשמירה', 'error'); }
+}
+
+// ── AI Creation ───────────────────────────────────────────────────────────────
+// Form-based creative asset generator — NOT the chat widget.
+// Sub-tabs: ad_script | landing_page | saved
+let aiCreationTab = 'ad_script';
+
+async function renderAICreation() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  // Load business profile for pre-fill hints
+  let bp = {};
+  try { bp = await api('GET', 'business-profile') || {}; } catch {}
+
+  // Load saved assets from localStorage (no backend endpoint needed)
+  const saved = loadAISavedWorks();
+
+  _renderAICreationShell(bp, saved);
+}
+
+function _renderAICreationShell(bp, saved) {
+  const tab = aiCreationTab;
+  const hint = bp.offer ? `הצעה נוכחית: ${bp.offer.slice(0, 60)}...` : '';
+
+  const tabContent = {
+    ad_script: `
+      <div class="card">
+        <div class="card-title">✍️ בנה תסריט למודעה</div>
+        <p class="text-sm text-muted mb-4">מלא את הפרטים ו-AI יכתוב תסריט מלא בעברית מותאם לפלטפורמה</p>
+        ${hint ? `<div class="text-xs text-muted mb-3" style="background:#f1f5f9;padding:0.5rem 0.75rem;border-radius:0.5rem">${hint}</div>` : ''}
+        <div class="form-group">
+          <label class="form-label">פלטפורמה</label>
+          <select class="form-input" id="ai-platform">
+            <option value="facebook">פייסבוק / אינסטגרם</option>
+            <option value="google">Google Ads</option>
+            <option value="youtube">יוטיוב (וידאו)</option>
+            <option value="tiktok">TikTok</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">המוצר / שירות</label>
+          <input class="form-input" id="ai-offer" value="${(bp.offer||'').replace(/"/g,'&quot;').slice(0,120)}" placeholder="מה אתם מוכרים?" />
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">קהל יעד</label>
+            <input class="form-input" id="ai-audience" value="${(bp.target_audience||'').replace(/"/g,'&quot;').slice(0,80)}" placeholder="למי הפרסומת?" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">הבעיה שנפתרת</label>
+            <input class="form-input" id="ai-problem" value="${(bp.problem_solved||'').replace(/"/g,'&quot;').slice(0,80)}" placeholder="מה הכאב של הלקוח?" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">סגנון תסריט</label>
+          <select class="form-input" id="ai-tone">
+            <option value="emotional">רגשי / סיפורי</option>
+            <option value="direct">ישיר ועניני (AIDA)</option>
+            <option value="social_proof">הוכחה חברתית</option>
+            <option value="problem_solution">בעיה–פתרון</option>
+            <option value="curiosity">סקרנות / קליק-בייט חוקי</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">קריאה לפעולה (CTA)</label>
+          <input class="form-input" id="ai-cta" placeholder="לדוגמה: השאר פרטים, קנה עכשיו, קבל הצעת מחיר" />
+        </div>
+        <div id="ai-result-ad" style="display:none" class="card mt-4" style="background:#f8fafc">
+          <div class="flex items-center justify-between mb-2">
+            <div class="card-title" style="margin:0">התסריט שלך</div>
+            <div class="flex gap-2">
+              <button id="ai-save-ad-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
+              <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-ad-text')">📋 העתק</button>
+            </div>
+          </div>
+          <div id="ai-result-ad-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
+        </div>
+        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
+          id="ai-gen-ad-btn" onclick="generateAdScript()">
+          ✨ צור תסריט
+        </button>
+      </div>`,
+
+    landing_page: `
+      <div class="card">
+        <div class="card-title">🏗️ תכנן מבנה לדף נחיתה</div>
+        <p class="text-sm text-muted mb-4">AI יבנה תכנית מפורטת לדף נחיתה ממיר בעברית, כולל headline, כפתורי CTA, וסעיפים</p>
+        ${hint ? `<div class="text-xs text-muted mb-3" style="background:#f1f5f9;padding:0.5rem 0.75rem;border-radius:0.5rem">${hint}</div>` : ''}
+        <div class="form-group">
+          <label class="form-label">מוצר / שירות</label>
+          <textarea class="form-input" id="lp-offer" rows="2" placeholder="תארו מה המוצר ומה ההצעה שלכם">${(bp.offer||'').replace(/</g,'&lt;')}</textarea>
+        </div>
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">קהל יעד</label>
+            <input class="form-input" id="lp-audience" value="${(bp.target_audience||'').replace(/"/g,'&quot;').slice(0,80)}" placeholder="מי הגולש שמגיע לדף?" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">מטרת הדף</label>
+            <select class="form-input" id="lp-goal">
+              <option value="lead_gen">איסוף לידים</option>
+              <option value="direct_sale">מכירה ישירה</option>
+              <option value="webinar">הרשמה לוובינר</option>
+              <option value="consultation">קביעת פגישה</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">ההבטחה / ה-USP המרכזי</label>
+          <input class="form-input" id="lp-promise" value="${(bp.main_promise||'').replace(/"/g,'&quot;')}" placeholder="מה ההבטחה שתגרום לגולש להישאר?" />
+        </div>
+        <div id="ai-result-lp" style="display:none" class="card mt-4" style="background:#f8fafc">
+          <div class="flex items-center justify-between mb-2">
+            <div class="card-title" style="margin:0">מבנה דף הנחיתה</div>
+            <div class="flex gap-2">
+              <button id="ai-save-lp-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
+              <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-lp-text')">📋 העתק</button>
+            </div>
+          </div>
+          <div id="ai-result-lp-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
+        </div>
+        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
+          id="ai-gen-lp-btn" onclick="generateLandingPage()">
+          ✨ צור מבנה דף נחיתה
+        </button>
+      </div>`,
+
+    ad_creative: `
+      <div class="card">
+        <div class="card-title">🖼️ צור מודעה מוכנה</div>
+        <p class="text-sm text-muted mb-4">AI יכתוב מודעה מוכנה לפרסום — כותרת, תיאור וקריאה לפעולה — מותאמת לפלטפורמה</p>
+        ${hint ? `<div class="text-xs text-muted mb-3" style="background:#f1f5f9;padding:0.5rem 0.75rem;border-radius:0.5rem">${hint}</div>` : ''}
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">פלטפורמה</label>
+            <select class="form-input" id="creative-platform">
+              <option value="facebook">פייסבוק</option>
+              <option value="instagram">אינסטגרם</option>
+              <option value="google">Google Ads</option>
+              <option value="tiktok">TikTok</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">סוג מודעה</label>
+            <select class="form-input" id="creative-type">
+              <option value="awareness">מודעת חשיפה</option>
+              <option value="lead">לידים</option>
+              <option value="conversion">המרה</option>
+              <option value="retargeting">ריטרגטינג</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">המוצר / שירות</label>
+          <input class="form-input" id="creative-offer" value="${(bp.offer||'').replace(/"/g,'&quot;').slice(0,120)}" placeholder="מה אתם מוכרים?" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">קהל יעד</label>
+          <input class="form-input" id="creative-audience" value="${(bp.target_audience||'').replace(/"/g,'&quot;').slice(0,80)}" placeholder="מי הקהל שתפנו?" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">ההצעה / מבצע</label>
+          <input class="form-input" id="creative-deal" value="${(bp.main_promise||'').replace(/"/g,'&quot;')}" placeholder="למשל: ניסיון חינם 14 יום, הנחה 30%" />
+        </div>
+        <div id="ai-result-creative" style="display:none" class="card mt-4" style="background:#f8fafc">
+          <div class="flex items-center justify-between mb-2">
+            <div class="card-title" style="margin:0">המודעה שלך</div>
+            <div class="flex gap-2">
+              <button id="ai-save-creative-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
+              <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-creative-text')">📋 העתק</button>
+            </div>
+          </div>
+          <div id="ai-result-creative-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
+        </div>
+        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
+          id="ai-gen-creative-btn" onclick="generateAdCreative()">
+          🖼️ צור מודעה
+        </button>
+      </div>`,
+
+    saved: `
+      <div class="card">
+        <div class="card-title">📁 עבודות שמורות</div>
+        ${saved.length === 0
+          ? `<div class="empty-state">
+               <div class="empty-state-icon">📄</div>
+               <h3 class="empty-state-title">אין עבודות שמורות עדיין</h3>
+               <p class="empty-state-desc">צרו תסריט או מבנה דף נחיתה — הם יישמרו כאן</p>
+             </div>`
+          : saved.map(w => `
+              <div class="saved-work-item">
+                <div class="saved-work-body">
+                  <div class="saved-work-title">${w.title || w.type || 'נכס שיווקי'}</div>
+                  <div class="saved-work-meta">${w.created_at ? new Date(w.created_at).toLocaleDateString('he-IL') : ''}</div>
+                  <div class="saved-work-preview">${(w.content || '').slice(0, 120)}</div>
+                </div>
+                <button class="btn btn-sm btn-secondary" onclick="expandSavedWork(this, ${JSON.stringify((w.content||'').replace(/'/g,"&#39;"))})">הצג</button>
+              </div>`).join('')}
+      </div>`
+  };
+
   renderShell(`
     <div class="page-header">
-      <h1 class="page-title">הגדרות</h1>
+      <h1 class="page-title">✨ יצירה עם AI</h1>
+      <p class="page-subtitle">בנה נכסים שיווקיים מנצחים ללא תלות בחיבור אינטגרציות</p>
+    </div>
+    <div class="ai-tabs">
+      <button class="ai-tab ${tab==='ad_script'?'active':''}"     onclick="switchAITab('ad_script')">✍️ תסריט מודעה</button>
+      <button class="ai-tab ${tab==='ad_creative'?'active':''}"   onclick="switchAITab('ad_creative')">🖼️ מודעה מוכנה</button>
+      <button class="ai-tab ${tab==='landing_page'?'active':''}"  onclick="switchAITab('landing_page')">🏗️ דף נחיתה</button>
+      <button class="ai-tab ${tab==='saved'?'active':''}"         onclick="switchAITab('saved')">📁 עבודות שמורות</button>
+    </div>
+    ${tabContent[tab] || tabContent.ad_script}
+  `);
+}
+
+function switchAITab(tab) {
+  aiCreationTab = tab;
+  navigate('ai_creation');
+}
+
+async function generateAdScript() {
+  const btn = document.getElementById('ai-gen-ad-btn');
+  const resBox = document.getElementById('ai-result-ad');
+  const resText = document.getElementById('ai-result-ad-text');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = 'יוצר...';
+  const platform = document.getElementById('ai-platform')?.value || 'facebook';
+  const offer    = document.getElementById('ai-offer')?.value.trim() || '';
+  const audience = document.getElementById('ai-audience')?.value.trim() || '';
+  const problem  = document.getElementById('ai-problem')?.value.trim() || '';
+  const tone     = document.getElementById('ai-tone')?.value || 'emotional';
+  const cta      = document.getElementById('ai-cta')?.value.trim() || '';
+  if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '✨ צור תסריט'; return; }
+  try {
+    const result = await api('POST', 'campaigner-chat', {
+      message: `[DIRECT_GENERATE] כתוב תסריט מודעה מלא לפלטפורמה: ${platform}. מוצר/שירות: ${offer}. קהל יעד: ${audience}. בעיה שנפתרת: ${problem}. סגנון: ${tone}. CTA: ${cta}. כתוב רק את התסריט עצמו בעברית, ישיר וממיר, ללא הסברים נוספים.`,
+      history: [],
+    });
+    const text = result.reply || '';
+    if (resBox) resBox.style.display = '';
+    if (resText) resText.textContent = text;
+    // Show save button
+    const saveBtn = document.getElementById('ai-save-ad-btn');
+    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_script', 'תסריט מודעה', text); }
+    toast('התסריט נוצר!', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה ביצירת תסריט', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ צור תסריט';
+  }
+}
+
+async function generateLandingPage() {
+  const btn = document.getElementById('ai-gen-lp-btn');
+  const resBox = document.getElementById('ai-result-lp');
+  const resText = document.getElementById('ai-result-lp-text');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = 'יוצר...';
+  const offer    = document.getElementById('lp-offer')?.value.trim() || '';
+  const audience = document.getElementById('lp-audience')?.value.trim() || '';
+  const goal     = document.getElementById('lp-goal')?.value || 'lead_gen';
+  const promise  = document.getElementById('lp-promise')?.value.trim() || '';
+  if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '✨ צור מבנה דף נחיתה'; return; }
+  try {
+    const result = await api('POST', 'campaigner-chat', {
+      message: `[DIRECT_GENERATE] תכנן מבנה מפורט לדף נחיתה ממיר בעברית. מוצר/שירות: ${offer}. קהל יעד: ${audience}. מטרת הדף: ${goal}. ההבטחה המרכזית: ${promise}. פרט כל section בדף: headline, sub-headline, CTA, הוכחה חברתית, FAQ וכו'. כתוב רק את המבנה עצמו.`,
+      history: [],
+    });
+    const text = result.reply || '';
+    if (resBox) resBox.style.display = '';
+    if (resText) resText.textContent = text;
+    // Show save button
+    const saveBtn = document.getElementById('ai-save-lp-btn');
+    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('landing_page', 'מבנה דף נחיתה', text); }
+    toast('המבנה נוצר!', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה ביצירת מבנה', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '✨ צור מבנה דף נחיתה';
+  }
+}
+
+async function generateAdCreative() {
+  const btn = document.getElementById('ai-gen-creative-btn');
+  const resBox = document.getElementById('ai-result-creative');
+  const resText = document.getElementById('ai-result-creative-text');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = 'יוצר...';
+  const platform = document.getElementById('creative-platform')?.value || 'facebook';
+  const type     = document.getElementById('creative-type')?.value || 'conversion';
+  const offer    = document.getElementById('creative-offer')?.value.trim() || '';
+  const audience = document.getElementById('creative-audience')?.value.trim() || '';
+  const deal     = document.getElementById('creative-deal')?.value.trim() || '';
+  if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '🖼️ צור מודעה'; return; }
+  const typeLabels = { awareness: 'חשיפה', lead: 'לידים', conversion: 'המרה', retargeting: 'ריטרגטינג' };
+  try {
+    const result = await api('POST', 'campaigner-chat', {
+      message: `[DIRECT_AD] כתוב מודעה מוכנה לפלטפורמה: ${platform}, סוג: ${typeLabels[type]||type}. מוצר/שירות: ${offer}. קהל יעד: ${audience}. הצעה/מבצע: ${deal||'לא צוין'}. כתוב בפורמט:\n**כותרת:** [כותרת קצרה מושכת]\n**תיאור:** [תיאור 2-3 שורות]\n**קריאה לפעולה:** [CTA חד]\n**וריאציה 2 — כותרת:** [אלטרנטיבה]\nבעברית, ישיר וממיר.`,
+      history: [],
+    });
+    const text = result.reply || '';
+    if (resBox) resBox.style.display = '';
+    if (resText) resText.textContent = text;
+    const saveBtn = document.getElementById('ai-save-creative-btn');
+    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_creative', 'מודעה מוכנה', text); }
+    toast('המודעה נוצרה!', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה ביצירת מודעה', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '🖼️ צור מודעה';
+  }
+}
+
+function copyAIResult(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent || '').then(() => toast('הועתק!', 'success')).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = el.textContent || '';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+    toast('הועתק!', 'success');
+  });
+}
+
+function expandSavedWork(btn, content) {
+  const item = btn.closest('.saved-work-item');
+  if (!item) return;
+  let expanded = item.querySelector('.saved-work-expanded');
+  if (expanded) { expanded.remove(); btn.textContent = 'הצג'; return; }
+  expanded = document.createElement('div');
+  expanded.className = 'saved-work-expanded';
+  expanded.style.cssText = 'margin-top:0.75rem;white-space:pre-wrap;font-size:0.8125rem;line-height:1.65;color:#374151;background:#f8fafc;border-radius:0.5rem;padding:0.75rem';
+  expanded.textContent = content;
+  item.querySelector('.saved-work-body').appendChild(expanded);
+  btn.textContent = 'סגור';
+}
+
+// ── Marketing Assets ──────────────────────────────────────────────────────────
+async function renderMarketingAssets() {
+  // Check if user has any landing pages saved (to decide whether to show leads)
+  const hasLandingPages = loadAISavedWorks().some(a => a.type === 'landing_page');
+
+  const plan = state.subscription?.plan || 'free';
+  const canCreate = getPlanLimits(plan).campaignLimit !== 0;
+
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">📊 ניתוח קמפיינים</h1>
+        <p class="page-subtitle">נהל ונתח את הקמפיינים הפעילים שלך</p>
+      </div>
+      ${canCreate
+        ? `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ נכס חדש</button>`
+        : `<button class="btn btn-secondary" style="width:auto" onclick="navigate('billing')">שדרג ליצירה →</button>`}
+    </div>
+
+    <div class="campaign-list">
+      ${state.campaigns.length > 0 ? state.campaigns.map(c => `
+        <div class="campaign-item" onclick="showCampaignDetail('${c.id}')">
+          <div>
+            <div class="campaign-name">${c.name}</div>
+            <div class="campaign-meta">נוצר: ${new Date(c.created_at).toLocaleDateString('he-IL')}</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-sm btn-primary" data-analysis-btn="${c.id}" onclick="event.stopPropagation();runAnalysis('${c.id}')">הרץ ניתוח</button>
+          </div>
+        </div>`).join('') : `
+        <div class="card">
+          <div class="empty-state">
+            <div class="empty-state-icon">🎯</div>
+            <h3 class="empty-state-title">עדיין אין נכסים שיווקיים</h3>
+            <p class="empty-state-desc">לחצו על "+ נכס חדש" כדי להוסיף קמפיין לניתוח</p>
+            ${!canCreate
+              ? `<button class="btn btn-gradient" style="width:auto" onclick="navigate('billing')">שדרג ליצירת נכסים →</button>`
+              : `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ צור נכס ראשון</button>`}
+          </div>
+        </div>`}
+    </div>
+
+    ${hasLandingPages ? `
+    <div class="card mt-4">
+      <div class="card-title">📋 לידים</div>
+      <p class="text-sm text-muted">לידים שנאספו מדפי הנחיתה שלך יופיעו כאן</p>
+      <div class="empty-state" style="padding:1.5rem 0">
+        <div class="empty-state-icon">📥</div>
+        <h3 class="empty-state-title">אין לידים עדיין</h3>
+        <p class="empty-state-desc">פרסם את דף הנחיתה שלך כדי להתחיל לאסוף לידים</p>
+      </div>
+    </div>` : ''}
+  `);
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+async function renderSettings() {
+  // Settings is now minimal — only profile + data actions
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">⚙️ הגדרות חשבון</h1>
     </div>
     <div class="flex flex-col gap-6">
       <div class="card">
-        <div class="card-title">פרופיל</div>
+        <div class="card-title">פרופיל משתמש</div>
         <form onsubmit="saveProfile(event)">
           <div class="form-group">
             <label class="form-label">שם מלא</label>
@@ -1429,14 +2056,14 @@ async function renderSettings() {
           </div>
           <div class="form-group">
             <label class="form-label">אימייל</label>
-            <input class="form-input" type="email" id="profile-email" value="${state.profile?.email || ''}" />
+            <input class="form-input" type="email" id="profile-email" value="${state.profile?.email || state.user?.email || ''}" readonly style="opacity:0.65;cursor:not-allowed" />
           </div>
           <button type="submit" class="btn btn-primary" style="width:auto">שמור שינויים</button>
         </form>
       </div>
       <div class="card">
-        <div class="card-title">פרטיות ונתונים (GDPR)</div>
-        <p class="text-sm text-muted mb-4">הורד עותק של כל הנתונים שלנו עליך.</p>
+        <div class="card-title">פרטיות ונתונים</div>
+        <p class="text-sm text-muted mb-3">לשאלות בנוגע לנתונים או לביטול — <button onclick="navigate('support')" class="btn btn-sm btn-secondary" style="display:inline;padding:0.2rem 0.5rem">פנה לתמיכה</button></p>
         <div class="flex gap-2">
           <button class="btn btn-secondary" onclick="exportData()">📥 ייצוא נתונים</button>
           <button class="btn btn-danger"    onclick="deleteAccount()">🗑 מחיקת חשבון</button>
@@ -1445,6 +2072,90 @@ async function renderSettings() {
     </div>
   `);
 }
+
+// ── Support page ──────────────────────────────────────────────────────────────
+function renderSupport() {
+  const log = getSysLog();
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">💬 תמיכה</h1>
+      <p class="page-subtitle">שאלה, בעיה, או בקשה לתכונה — נחזור תוך יום עסקים</p>
+    </div>
+    <div class="flex flex-col gap-6">
+      <div class="card">
+        <div class="card-title">שלח פנייה</div>
+        <div class="support-chat-log" id="support-chat-log">
+          ${log.length === 0
+            ? '<div class="text-sm text-muted" style="padding:0.75rem 0">עדיין לא נשלחו פניות.</div>'
+            : log.map(m => `
+              <div class="support-chat-msg ${m.role === 'user' ? 'support-msg-user' : 'support-msg-system'}">
+                <div class="support-msg-label">${m.role === 'user' ? (state.profile?.name || 'אתה') : '🤝 CampaignAI'}</div>
+                <div class="support-msg-body">${m.text}</div>
+                <div class="support-msg-time">${new Date(m.ts).toLocaleString('he-IL')}</div>
+              </div>`).join('')}
+        </div>
+        <div class="support-chat-input-row">
+          <select class="form-input" id="support-subject" style="max-width:200px;flex-shrink:0">
+            <option value="תמיכה טכנית">תמיכה טכנית</option>
+            <option value="שאלה על חיוב">חיוב / תשלום</option>
+            <option value="בקשת תכונה">בקשת תכונה</option>
+            <option value="דיווח על באג">דיווח על באג</option>
+            <option value="אחר">אחר</option>
+          </select>
+          <textarea class="form-input" id="support-message" rows="2"
+            placeholder="כתוב את הפנייה שלך כאן..."
+            onkeydown="if(event.key==='Enter'&&(event.ctrlKey||event.metaKey)){event.preventDefault();sendSupportMessage()}"
+            style="flex:1;resize:none"></textarea>
+          <button class="btn btn-primary" id="support-send-btn" onclick="sendSupportMessage()" style="flex-shrink:0;width:auto">שלח</button>
+        </div>
+        <div class="text-xs text-muted mt-2">Enter + Ctrl לשליחה מהירה</div>
+      </div>
+    </div>
+  `);
+  const log2 = document.getElementById('support-chat-log');
+  if (log2) log2.scrollTop = log2.scrollHeight;
+}
+
+// ── System log (localStorage — visible on support page) ──────────────────────
+function getSysLog() {
+  try { return JSON.parse(localStorage.getItem('sys_log_' + (state.user?.id||'anon')) || '[]'); } catch { return []; }
+}
+function addSysLog(role, text) {
+  try {
+    const key = 'sys_log_' + (state.user?.id||'anon');
+    const log = getSysLog();
+    log.push({ role, text, ts: Date.now() });
+    localStorage.setItem(key, JSON.stringify(log.slice(-50)));
+  } catch {}
+}
+
+async function sendSupportMessage() {
+  const btn = document.getElementById('support-send-btn');
+  const msgEl = document.getElementById('support-message');
+  const subject = document.getElementById('support-subject')?.value || 'פנייה';
+  const message = msgEl?.value.trim() || '';
+  if (!message) { toast('נא למלא הודעה', 'error'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'שולח...'; }
+  addSysLog('user', `[${subject}] ${message}`);
+  try {
+    await api('POST', 'contact', {
+      name:    state.profile?.name || '',
+      email:   state.profile?.email || state.user?.email || '',
+      subject,
+      message,
+    });
+    addSysLog('system', 'קיבלנו את הפנייה שלך! נחזור אליך בהקדם תוך יום עסקים.');
+    toast('הפנייה נשלחה! נחזור אליך בהקדם.', 'success');
+    if (msgEl) msgEl.value = '';
+  } catch (err) {
+    addSysLog('system', `שגיאה בשליחה: ${err.message || 'נסה שנית'}`);
+    toast(err.message || 'שגיאה בשליחת הפנייה', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'שלח'; }
+    renderSupport(); // refresh chat log
+  }
+}
+
 
 async function saveProfile(e) {
   e.preventDefault();
@@ -1491,29 +2202,75 @@ async function deleteAccount() {
 }
 
 // ── Admin Dashboard ───────────────────────────────────────────────────────────
+let adminUserFilter = 'all';
+
 async function renderAdmin() {
   if (!state.profile?.is_admin) { navigate('dashboard'); return; }
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
-  let overview = null, usersData = null, pendingData = null;
-  try {
-    [overview, usersData, pendingData] = await Promise.all([
-      api('GET', 'admin-overview'),
-      api('GET', 'admin-users?limit=20&page=1'),
-      api('GET', 'admin-users?limit=50&page=1').then(d =>
-        ({ users: (d.users || []).filter(u => u.paymentStatus === 'pending') })
-      ).catch(() => ({ users: [] })),
-    ]);
-  } catch (err) {
-    renderShell(`<div class="page-header"><h1 class="page-title">שגיאה</h1><p class="text-muted">${err.message}</p></div>`);
+  let overview = null, usersData = null;
+  [overview, usersData] = await Promise.all([
+    api('GET', 'admin-overview').catch(e => { console.error('[admin] overview failed:', e.message); return null; }),
+    api('GET', 'admin-users?limit=100&page=1').catch(e => { console.error('[admin] users failed:', e.message); return null; }),
+  ]);
+
+  const fmt    = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
+  const pct    = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
+  const curr   = n => n == null ? '—' : '₪' + (n / 100).toFixed(0);
+  const pBadge = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
+
+  if (!overview && !usersData) {
+    renderShell(`<div class="page-header"><h1 class="page-title">🛡️ לוח ניהול</h1></div>
+      <div class="card"><div class="text-sm text-muted">לא ניתן לטעון נתוני ניהול כרגע. בדוק שהחשבון מוגדר כאדמין בסופאבייס ושה-env vars של האדמין מוגדרים.</div></div>`);
     return;
   }
 
-  const fmt      = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
-  const pct      = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
-  const curr     = n => n == null ? '—' : '₪' + (n / 100).toFixed(0);
-  const pBadge   = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
-  const pending  = pendingData?.users || [];
+  const allUsers    = usersData?.users || [];
+  const pending     = allUsers.filter(u => u.paymentStatus === 'pending');
+  const freeUsers   = allUsers.filter(u => u.plan === 'free' && u.paymentStatus !== 'pending');
+  const paidUsers   = allUsers.filter(u => u.plan !== 'free');
+  const earlyBirds  = allUsers.filter(u => u.plan === 'early_bird');
+  const proUsers    = allUsers.filter(u => u.plan === 'pro' || u.plan === 'agency');
+
+  const filterMap = {
+    all:        allUsers,
+    pending:    pending,
+    free:       freeUsers,
+    early_bird: earlyBirds,
+    pro:        proUsers,
+  };
+  const filtered = filterMap[adminUserFilter] || allUsers;
+
+  function usersTable(users) {
+    if (!users.length) return '<p class="text-muted text-sm" style="padding:1rem">אין משתמשים בקטגוריה זו</p>';
+    return `<div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+        <thead>
+          <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">אימייל</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">שם</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">תוכנית</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">נכסים</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">הצטרף</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">פעולה</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${users.map(u => `
+            <tr style="border-bottom:1px solid #f1f5f9${u.paymentStatus === 'pending' ? ';background:#fffbeb' : ''}">
+              <td style="padding:0.5rem 0.75rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.65rem">admin</span>' : ''}${u.paymentStatus === 'pending' ? ' <span class="badge badge-yellow" style="font-size:0.65rem">⏳ pending</span>' : ''}</td>
+              <td style="padding:0.5rem 0.75rem">${u.name || '—'}</td>
+              <td style="padding:0.5rem 0.75rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
+              <td style="padding:0.5rem 0.75rem">${u.campaignCount ?? '—'}</td>
+              <td style="padding:0.5rem 0.75rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
+              <td style="padding:0.5rem 0.75rem">${u.paymentStatus === 'pending'
+                ? `<button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>`
+                : ''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
 
   renderShell(`
     <div class="page-header flex items-center justify-between">
@@ -1541,40 +2298,24 @@ async function renderAdmin() {
     </div>` : ''}
 
     <div class="stats-grid" style="margin-bottom:1.5rem">
-      <div class="stat-card">
-        <div class="stat-label">MRR</div>
-        <div class="stat-value">${curr(overview?.mrr)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">סה"כ משתמשים</div>
-        <div class="stat-value">${fmt(overview?.totalUsers)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">הרשמות 24ש'</div>
-        <div class="stat-value">${fmt(overview?.newSignups24h)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Churn</div>
-        <div class="stat-value">${pct(overview?.churnRate)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">המרה לתשלום</div>
-        <div class="stat-value">${pct(overview?.conversionRate)}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">תשלומים כושלים 24ש'</div>
+      <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value">${curr(overview?.mrr)}</div></div>
+      <div class="stat-card"><div class="stat-label">סה"כ משתמשים</div><div class="stat-value">${fmt(overview?.totalUsers)}</div></div>
+      <div class="stat-card"><div class="stat-label">הרשמות 24ש'</div><div class="stat-value">${fmt(overview?.newSignups24h)}</div></div>
+      <div class="stat-card"><div class="stat-label">Churn</div><div class="stat-value">${pct(overview?.churnRate)}</div></div>
+      <div class="stat-card"><div class="stat-label">המרה לתשלום</div><div class="stat-value">${pct(overview?.conversionRate)}</div></div>
+      <div class="stat-card"><div class="stat-label">תשלומים כושלים 24ש'</div>
         <div class="stat-value" style="${(overview?.failedPayments24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.failedPayments24h)}</div>
       </div>
     </div>
 
     <div class="analysis-card" style="margin-bottom:1.5rem">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold">בריאות מערכת</h3>
-      </div>
+      <div class="flex items-center justify-between mb-3"><h3 class="font-semibold">בריאות מערכת</h3></div>
       <div style="display:flex;gap:2rem;flex-wrap:wrap">
         <div><span class="text-muted text-sm">עבודות ממתינות</span><br><strong>${fmt(overview?.systemHealth?.pendingJobs)}</strong></div>
         <div><span class="text-muted text-sm">עבודות פועלות</span><br><strong>${fmt(overview?.systemHealth?.runningJobs)}</strong></div>
-        <div><span class="text-muted text-sm">עבודות נכשלות 24ש'</span><br><strong style="${(overview?.systemHealth?.failedJobs24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.systemHealth?.failedJobs24h)}</strong></div>
+        <div><span class="text-muted text-sm">עבודות נכשלות 24ש'</span><br>
+          <strong style="${(overview?.systemHealth?.failedJobs24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.systemHealth?.failedJobs24h)}</strong>
+        </div>
       </div>
     </div>
 
@@ -1632,6 +2373,11 @@ function buildAdminUserSections(usersData, pBadge) {
     '<h3 class="font-semibold mb-3" style="color:#64748b">🆓 גרסה חינמית (' + freeUsers.length + ')</h3>' +
     buildTable(freeUsers, false) + '</div>';
   return html;
+}
+
+function filterAdminUsers(filter) {
+  adminUserFilter = filter;
+  renderAdmin();
 }
 
 async function activateUserPayment(userId, plan) {
@@ -2018,10 +2764,22 @@ function escHtml(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── Main render ───────────────────────────────────────────────────────────────
+// ── Main render (with queue to prevent concurrent renders) ────────────────────
+let _renderRunning = false;
+let _renderQueued  = false;
+
 async function render() {
-  const fn = routes[state.currentPage] || renderDashboard;
-  await fn();
+  if (_renderRunning) { _renderQueued = true; return; }
+  _renderRunning = true;
+  try {
+    do {
+      _renderQueued = false;
+      const fn = routes[state.currentPage] || renderDashboard;
+      await fn();
+    } while (_renderQueued);
+  } finally {
+    _renderRunning = false;
+  }
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
@@ -2067,10 +2825,25 @@ function clearBootCache() {
 
 async function boot() {
   const initialPage = resolveInitialPage();
+  let bootCompleted = false;
+
+  // Warm up Supabase without blocking boot
+  fetch(window.__SUPABASE_URL__ + '/rest/v1/', {
+    headers: { 'apikey': window.__SUPABASE_ANON_KEY__ }
+  }).catch(() => {});
 
   sb.auth.onAuthStateChange(async (event, session) => {
+    bootCompleted = true;
+
     // INITIAL_SESSION with null session = JWT refresh in progress — do NOT flash login screen
     if (event === 'INITIAL_SESSION' && !session) return;
+
+    // Token refresh — just update the token silently, no re-render needed
+    if (event === 'TOKEN_REFRESHED') {
+      if (session) state.accessToken = session.access_token;
+      return;
+    }
+
     if (!session) {
       clearBootCache();
       renderAuth();
@@ -2093,34 +2866,38 @@ async function boot() {
         state.currentPage = initialPage;
       }
       render();                // ← page appears instantly
-      initCampaignerChat();
+      initSupportChat();
     } else {
       // No cache — show shell with spinner only; Step 2 will render the real page.
       // Do NOT call render() here — it triggers page API calls and creates a
       // double-render race condition with Step 2.
       state.profile         = {};
       state.subscription    = { plan: 'free' };
+      state.campaigns       = [];
+      state.integrations    = [];
       state.unlockedScreens = new Set(['dashboard', 'business-profile', 'landing-pages']);
       // Respect hash routing even in no-cache path
       if (initialPage !== 'dashboard') state.currentPage = initialPage;
       renderShell('<div style="height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem"><div class="spinner"></div><p style="color:#64748b;font-size:0.9rem;">טוען...</p></div>');
-      initCampaignerChat();
+      initSupportChat();
     }
 
     // ── Step 2: fetch fresh data in background ────────────────────────────────
     try {
-      const [profile, sub, onboardingRes, bpRes, campsRes] = await Promise.all([
+      const [profile, sub, onboardingRes, bpRes, campsRes, intRes] = await Promise.all([
         sb.from('profiles').select('*').eq('id', session.user.id).maybeSingle().then(r => r.data),
         sb.from('subscriptions').select('plan,status,payment_status').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
         sb.from('onboarding_progress').select('steps,current_step').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
         sb.from('business_profiles').select('*').eq('user_id', session.user.id).maybeSingle().then(r => r.data),
-        sb.from('campaigns').select('id,name').eq('owner_user_id', session.user.id).then(r => r.data),
+        sb.from('campaigns').select('id,name,created_at').eq('owner_user_id', session.user.id).order('created_at', { ascending: false }).then(r => r.data),
+        api('GET', 'integration-connect').catch(() => []),
       ]);
 
       state.profile         = profile  || {};
       state.subscription    = sub      || { plan: 'free' };
       state.businessProfile = bpRes    || null;
       state.campaigns       = campsRes || [];
+      state.integrations    = Array.isArray(intRes) ? intRes : [];
 
       const steps = onboardingRes?.steps || {
         profile_started: !!(bpRes?.offer || bpRes?.business_name),
@@ -2155,7 +2932,6 @@ async function boot() {
           state.currentPage = initialPage;
         }
         render();
-        initCampaignerChat();
       } else {
         // Silently update nav in case subscription/onboarding changed
         const navEl = document.querySelector('.sidebar-nav');
@@ -2179,22 +2955,22 @@ async function boot() {
           state.currentPage = initialPage;
         }
         render();
-        initCampaignerChat();
       }
     }
+    // Re-render once with all data loaded (only if we skipped cache)
   });
 
   setTimeout(() => {
-    if (document.querySelector('.loading-screen') && !state.user) renderAuth();
+    if (!bootCompleted && document.querySelector('.loading-screen')) renderAuth();
   }, 8000);
 
   keepAlive();
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  CAMPAIGNER AI — Chat Widget
-//  Floats bottom-left. Feeds live stats from get-ads-data cache to the
-//  decision engine and returns specific, data-driven Hebrew responses.
+//  Support Chat Widget — floating bottom-right
+//  Replaces the old AI chat. Users send support messages here.
+//  Message history is stored in localStorage (same as support page).
 // ══════════════════════════════════════════════════════════════════════════════
 
 const chatState = {
@@ -2209,43 +2985,58 @@ const chatState = {
   ],
 };
 
-// ── Markdown-lite renderer ────────────────────────────────────────────────────
-function renderMarkdown(text) {
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/_(.+?)_/g, '<em>$1</em>')
-    .replace(/\n/g, '<br>');
+// ── Build support log HTML from localStorage ──────────────────────────────────
+function renderSupportLog() {
+  const log = getSysLog();
+  if (!log.length) {
+    return `
+      <div class="chat-welcome">
+        <div class="chat-welcome-icon">💬</div>
+        <h3>תמיכה ושאלות</h3>
+        <p>שלום! שלח לנו הודעה ונחזור אליך בהקדם תוך יום עסקים.</p>
+      </div>`;
+  }
+  const initials = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
+  return log.map(m => `
+    <div class="chat-msg ${m.role === 'user' ? 'user' : 'assistant'}">
+      <div class="chat-msg-icon">${m.role === 'user' ? initials : '💬'}</div>
+      <div class="chat-msg-bubble">${m.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+    </div>`).join('');
+}
+
+// ── Refresh the log in the open chat panel ────────────────────────────────────
+function refreshChatLog() {
+  const msgs = document.getElementById('chat-messages');
+  if (!msgs) return;
+  msgs.innerHTML = renderSupportLog();
+  requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
 }
 
 // ── Build / inject widget DOM ─────────────────────────────────────────────────
-function initCampaignerChat() {
+function initSupportChat() {
   if (document.getElementById('chat-trigger')) return; // already mounted
 
-  // Floating trigger button
   const trigger = document.createElement('button');
   trigger.id = 'chat-trigger';
-  trigger.setAttribute('aria-label', 'פתח Campaigner AI');
-  trigger.innerHTML = '<span>🧠</span><span class="chat-badge" id="chat-badge"></span>';
+  trigger.setAttribute('aria-label', 'פתח תמיכה');
+  trigger.innerHTML = '<span>💬</span>';
   trigger.onclick = toggleChat;
   document.body.appendChild(trigger);
 
-  // Chat panel
   const panel = document.createElement('div');
   panel.id = 'chat-panel';
   panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-label', 'Campaigner AI');
+  panel.setAttribute('aria-label', 'תמיכה');
   panel.innerHTML = `
     <div class="chat-header">
-      <div class="chat-avatar">🧠</div>
+      <div class="chat-avatar">💬</div>
       <div class="chat-header-info">
-        <div class="chat-header-name">Campaigner AI</div>
-        <div class="chat-header-sub">ייעוץ שיווקי · תמיכה</div>
+        <div class="chat-header-name">תמיכה</div>
+        <div class="chat-header-sub">ייעוץ שיווקי · נחזור אליך תוך יום עסקים</div>
       </div>
-      <div class="chat-status-dot" title="מחובר"></div>
+      <div class="chat-status-dot" title="זמין"></div>
       <div class="chat-header-actions">
         <button class="chat-header-btn" onclick="chatShowSupport()" title="פנייה לתמיכה" style="font-size:.95rem">📩</button>
-        <button class="chat-header-btn" onclick="clearChatHistory()" title="נקה שיחה">🗑</button>
         <button class="chat-header-btn" onclick="toggleChat()" title="סגור">✕</button>
       </div>
     </div>
@@ -2265,41 +3056,36 @@ function initCampaignerChat() {
         <button onclick="document.getElementById('chat-support-form').style.display='none'" style="padding:.4rem .75rem;background:#e0e7ff;color:#4338ca;border:none;border-radius:.375rem;font-size:.82rem;cursor:pointer">ביטול</button>
       </div>
     </div>
-    <div class="chat-messages" id="chat-messages">
-      <div class="chat-welcome">
-        <div class="chat-welcome-icon">🧠</div>
-        <h3>Campaigner AI</h3>
-        <p>שלום! אני הייעוץ האסטרטגי שלך. שאל אותי על ביצועי קמפיינים, תקציב, CTR, ROI, חקר שוק וכל שאלה שיווקית. לבניית נכסים (דפי נחיתה, קריאייטיב, קופי) — עבור ל<strong>מחולל התכנים</strong> בתפריט.</p>
-        <div class="chat-knowledge-badge">
-          <span class="chat-knowledge-dot"></span>
-          מנוע ידע שיווקי פעיל
-        </div>
-      </div>
-    </div>
-    <div class="chat-quick-actions" id="chat-quick-actions"></div>
+    <div class="chat-messages" id="chat-messages"></div>
     <div class="chat-input-bar">
+      <select class="chat-support-select" id="chat-support-subject">
+        <option value="תמיכה טכנית">תמיכה טכנית</option>
+        <option value="שאלה על חיוב">חיוב</option>
+        <option value="בקשת תכונה">בקשת תכונה</option>
+        <option value="דיווח על באג">דיווח באג</option>
+        <option value="אחר">אחר</option>
+      </select>
       <textarea
         class="chat-input"
-        id="chat-input"
-        placeholder="שאל על ביצועים, תקציב, CTR..."
+        id="chat-support-input"
+        placeholder="כתוב הודעה..."
         rows="1"
         maxlength="2000"
       ></textarea>
-      <button class="chat-send-btn" id="chat-send-btn" onclick="submitChatMessage()" title="שלח">➤</button>
+      <button class="chat-send-btn" id="chat-send-btn" onclick="submitSupportChat()" title="שלח">➤</button>
     </div>`;
   document.body.appendChild(panel);
 
-  // Auto-resize textarea
-  const textarea = document.getElementById('chat-input');
-  textarea.addEventListener('input', () => {
-    textarea.style.height = 'auto';
-    textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
-  });
-  textarea.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitChatMessage(); }
-  });
-
-  renderQuickActions(chatState.quickActions);
+  const textarea = document.getElementById('chat-support-input');
+  if (textarea) {
+    textarea.addEventListener('input', () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
+    });
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitSupportChat(); }
+    });
+  }
 }
 
 // ── Toggle open/close ─────────────────────────────────────────────────────────
@@ -2307,159 +3093,49 @@ function toggleChat() {
   chatState.open = !chatState.open;
   const panel   = document.getElementById('chat-panel');
   const trigger = document.getElementById('chat-trigger');
-  const badge   = document.getElementById('chat-badge');
   if (panel) panel.classList.toggle('open', chatState.open);
   if (trigger) trigger.innerHTML = chatState.open
     ? '<span style="font-size:1.1rem">✕</span>'
-    : '<span>🧠</span><span class="chat-badge" id="chat-badge"></span>';
+    : '<span>💬</span>';
   if (chatState.open) {
-    scrollChatToBottom();
-    document.getElementById('chat-input')?.focus();
+    refreshChatLog();
+    document.getElementById('chat-support-input')?.focus();
   }
 }
 
-// ── Render quick action chips ─────────────────────────────────────────────────
-function renderQuickActions(actions) {
-  const container = document.getElementById('chat-quick-actions');
-  if (!container) return;
-  container.innerHTML = (actions || []).map(a =>
-    `<button class="chat-quick-btn" onclick="handleQuickAction(this)">${a}</button>`
-  ).join('');
-}
-
-function handleQuickAction(btn) {
-  const text = btn.textContent;
-  const input = document.getElementById('chat-input');
-  if (input) { input.value = text; input.style.height = 'auto'; }
-  submitChatMessage();
-}
-
-// ── Append message bubble ─────────────────────────────────────────────────────
-function appendChatBubble(role, content, animate = false) {
-  const msgs = document.getElementById('chat-messages');
-  if (!msgs) return;
-
-  const initials = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
-  const icon = role === 'user' ? initials : '🧠';
-
-  const wrapper = document.createElement('div');
-  wrapper.className = `chat-msg ${role}`;
-  wrapper.innerHTML = `
-    <div class="chat-msg-icon">${icon}</div>
-    <div class="chat-msg-bubble" id="bubble-${Date.now()}"></div>`;
-  msgs.appendChild(wrapper);
-
-  const bubble = wrapper.querySelector('.chat-msg-bubble');
-  if (animate && role === 'assistant') {
-    typewriterEffect(bubble, content);
-  } else {
-    bubble.innerHTML = renderMarkdown(content);
-  }
-  scrollChatToBottom();
-  return bubble;
-}
-
-// ── Typewriter (simulated streaming) ─────────────────────────────────────────
-function typewriterEffect(el, text) {
-  const words  = text.split(' ');
-  let current  = '';
-  let idx      = 0;
-
-  function tick() {
-    if (idx >= words.length) { el.innerHTML = renderMarkdown(text); return; }
-    current += (idx > 0 ? ' ' : '') + words[idx++];
-    el.innerHTML = renderMarkdown(current) + '<span style="opacity:.4">▋</span>';
-    scrollChatToBottom();
-    setTimeout(tick, 18 + Math.random() * 22);
-  }
-  tick();
-}
-
-// ── Typing indicator ──────────────────────────────────────────────────────────
-function showTypingIndicator() {
-  const msgs = document.getElementById('chat-messages');
-  if (!msgs) return;
-  const el = document.createElement('div');
-  el.className = 'chat-typing';
-  el.id = 'chat-typing';
-  el.innerHTML = `
-    <div class="chat-typing-icon">🧠</div>
-    <div class="chat-typing-bubble">
-      <span style="font-size:0.75rem;color:#6366f1">הסוכן מנתח את הנתונים...</span>
-      <div class="chat-typing-dots"><span></span><span></span><span></span></div>
-    </div>`;
-  msgs.appendChild(el);
-  scrollChatToBottom();
-}
-function hideTypingIndicator() {
-  document.getElementById('chat-typing')?.remove();
-}
-
-// ── Scroll helper ─────────────────────────────────────────────────────────────
-function scrollChatToBottom() {
-  const msgs = document.getElementById('chat-messages');
-  if (msgs) requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
-}
-
-// ── Submit message ────────────────────────────────────────────────────────────
-async function submitChatMessage() {
-  const input = document.getElementById('chat-input');
-  const sendBtn = document.getElementById('chat-send-btn');
-  const message = input?.value.trim();
-  if (!message || chatState.loading) return;
-
-  // Clear input
-  input.value = '';
-  input.style.height = 'auto';
-
-  // Add user bubble
-  appendChatBubble('user', message);
-  chatState.history.push({ role: 'user', content: message });
-
-  // Disable input while loading
-  chatState.loading = true;
-  if (sendBtn) sendBtn.disabled = true;
-  showTypingIndicator();
-
-  // Hide quick actions while processing
-  const qa = document.getElementById('chat-quick-actions');
-  if (qa) qa.style.display = 'none';
-
+// ── Submit support message from chat widget ───────────────────────────────────
+async function submitSupportChat() {
+  const btn     = document.getElementById('chat-send-btn');
+  const msgEl   = document.getElementById('chat-support-input');
+  const subject = document.getElementById('chat-support-subject')?.value || 'פנייה';
+  const message = msgEl?.value.trim() || '';
+  if (!message) { toast('נא לכתוב הודעה', 'error'); return; }
+  if (btn) { btn.disabled = true; }
+  // Optimistically show message in log
+  addSysLog('user', `[${subject}] ${message}`);
+  if (msgEl) { msgEl.value = ''; msgEl.style.height = 'auto'; }
+  refreshChatLog();
   try {
-    const result = await api('POST', 'campaigner-chat', {
+    await api('POST', 'contact', {
+      name:    state.profile?.name    || '',
+      email:   state.profile?.email   || state.user?.email || '',
+      subject,
       message,
-      history: chatState.history.slice(-6), // send last 3 exchanges for context
     });
-
-    hideTypingIndicator();
-
-    const reply = result.reply || 'לא הצלחתי לקבל תשובה. נסה שוב.';
-    appendChatBubble('assistant', reply, true /* animate */);
-    chatState.history.push({ role: 'assistant', content: reply });
-
-    // Update quick actions from response
-    if (result.quickActions?.length) {
-      chatState.quickActions = result.quickActions;
-    }
-
+    addSysLog('system', 'קיבלנו את הפנייה שלך! נחזור אליך בהקדם תוך יום עסקים.');
+    toast('הפנייה נשלחה!', 'success');
   } catch (err) {
-    hideTypingIndicator();
-    const errMsg = err.message?.includes('NOT_CONNECTED')
-      ? 'חבר קודם אינטגרציה כדי שאוכל לנתח את הנתונים שלך.'
-      : `שגיאה: ${err.message || 'נסה שוב'}`;
-    appendChatBubble('assistant', errMsg, true);
-    chatState.history.push({ role: 'assistant', content: errMsg });
+    addSysLog('system', `שגיאה: ${err.message || 'נסה שנית'}`);
+    toast(err.message || 'שגיאה בשליחה', 'error');
   } finally {
-    chatState.loading = false;
-    if (sendBtn) sendBtn.disabled = false;
-    if (input)   input.focus();
-    // Restore quick actions
-    if (qa) qa.style.display = '';
-    renderQuickActions(chatState.quickActions);
-    scrollChatToBottom();
+    if (btn) btn.disabled = false;
+    refreshChatLog();
+    // Sync support page if open
+    if (state.currentPage === 'support') renderSupport();
   }
 }
 
+<<<<<<< HEAD
 // ── Clear chat history ────────────────────────────────────────────────────────
 function clearChatHistory() {
   chatState.history = [];
@@ -3837,9 +4513,20 @@ async function concludeAbTest(testId) {
   }
 }
 
+=======
+>>>>>>> origin/main
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
+window.saveBusinessProfile   = saveBusinessProfile;
+window.switchAITab           = switchAITab;
+window.generateAdScript      = generateAdScript;
+window.generateLandingPage   = generateLandingPage;
+window.generateAdCreative    = generateAdCreative;
+window.copyAIResult          = copyAIResult;
+window.expandSavedWork       = expandSavedWork;
+window.filterAdminUsers      = filterAdminUsers;
+window.pollPaymentActivation = pollPaymentActivation;
 window.showAddCampaignModal  = showAddCampaignModal;
 window.addCampaign           = addCampaign;
 window.runAnalysis                = runAnalysis;
@@ -3866,6 +4553,7 @@ window.leadsExportCSV        = leadsExportCSV;
 window.leadsCopy             = leadsCopy;
 window.leadsLoadAll          = leadsLoadAll;
 window.toggleChat            = toggleChat;
+<<<<<<< HEAD
 window.submitChatMessage     = submitChatMessage;
 window.clearChatHistory      = clearChatHistory;
 window.handleQuickAction     = handleQuickAction;
@@ -3886,5 +4574,10 @@ window.openNewAbTest         = openNewAbTest;
 window.closeAbModal          = closeAbModal;
 window.submitAbTest          = submitAbTest;
 window.concludeAbTest        = concludeAbTest;
+=======
+window.submitSupportChat     = submitSupportChat;
+window.sendSupportMessage    = sendSupportMessage;
+window.renderSupport         = renderSupport;
+>>>>>>> origin/main
 
 boot();

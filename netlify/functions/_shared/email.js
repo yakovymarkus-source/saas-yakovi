@@ -14,7 +14,8 @@ async function sendEmail({ to, subject, html, replyTo }) {
   const replyToAddr = replyTo || process.env.EMAIL_REPLY_TO || from;
 
   if (!apiKey) {
-    console.warn('[email] RESEND_API_KEY not set — skipping email send');
+    // Log as error — this should be visible in Netlify function logs
+    console.error('[email] RESEND_API_KEY not configured — email not sent. Set RESEND_API_KEY in Netlify environment variables.');
     return null;
   }
 
@@ -29,7 +30,7 @@ async function sendEmail({ to, subject, html, replyTo }) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.error(`[email] Send failed (${res.status}):`, body);
+    console.error(`[email] Resend API error (${res.status}): ${body} — to: ${to}, subject: ${subject}`);
     return null;
   }
   return res.json();
@@ -136,8 +137,28 @@ ${WRAPPER_CLOSE}`,
 }
 
 // שמור לשימוש פנימי / אדמין
-async function sendActivationEmail({ to }) {
-  return sendBillingConfirmation({ to });
+async function sendActivationEmail({ to, name, planLabel }) {
+  const greeting = name ? `שלום ${name},` : 'שלום,';
+  const planLine = planLabel ? `<p><strong>תוכנית:</strong> ${planLabel}</p>` : '';
+  return sendEmail({
+    to,
+    subject: 'החשבון שלך הופעל — אפשר להתחיל',
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">החשבון הופעל ✔️</h2>
+<p>${greeting}</p>
+<p>התשלום שלך אומת והחשבון הופעל בהצלחה.</p>
+${planLine}
+<p style="margin:16px 0 8px;"><strong>מה זה אומר בפועל?</strong></p>
+<ul style="padding-right:20px;margin:0 0 16px;">
+  <li>גישה מלאה לכל הכלים</li>
+  <li>יצירת תסריטי מודעות ודפי נחיתה</li>
+  <li>ניתוח ביצועי קמפיינים בזמן אמת</li>
+</ul>
+${btn(APP_URL(), 'כניסה למערכת')}
+<p>מכאן — זה כבר תלוי בך.</p>
+<p style="margin-top:24px;">— צוות CampaignAI</p>
+${WRAPPER_CLOSE}`,
+  });
 }
 
 async function sendAdminPaymentAlert({ adminEmail, userEmail, userName, plan }) {

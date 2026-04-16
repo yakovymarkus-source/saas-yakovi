@@ -5,6 +5,10 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# ── Function timeouts ─────────────────────────────────────────────────────────
+[functions."campaigner-chat"]
+  timeout = 26
+
 # ── Scheduled functions ────────────────────────────────────────────────────────
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
@@ -64,3 +68,9 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# index.html must never be cached — always fresh so new ?v=HASH query strings reach the browser
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

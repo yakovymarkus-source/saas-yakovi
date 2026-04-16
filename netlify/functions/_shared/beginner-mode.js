@@ -182,7 +182,7 @@ function generateBeginnerOverride(state, intent, message, context) {
         return { reply: ms.redirect(name), quickActions: ms.quickActions };
       }
       // Everything else (overview, recs, trends, copy, business, economics,
-      // landing, creative, visual, test, integrations) — let normal flow run
+      // landing_page, test, integrations) — let normal flow run
       return null;
     }
 
