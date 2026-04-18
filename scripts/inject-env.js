@@ -62,8 +62,9 @@ for (const HTML_FILE of HTML_FILES) {
   const isAdmin = HTML_FILE.includes('admin');
   let html = fs.readFileSync(HTML_FILE, 'utf8');
 
-  // Inject asset hash for cache-busting
+  // Inject asset hash for cache-busting (placeholder on first run, existing hash on subsequent runs)
   html = html.replaceAll('%%ASSET_HASH%%', assetHash);
+  html = html.replace(/(\?v=)[a-f0-9]{8}/g, `$1${assetHash}`);
 
   for (const [key, value] of Object.entries(VARS)) {
     if (isAdmin && !ADMIN_VARS.has(key)) continue;
