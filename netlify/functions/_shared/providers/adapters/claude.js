@@ -17,17 +17,6 @@
 
 const { AdapterError, CAPABILITIES } = require('../contract');
 
-// Local dev: load .env if key is missing (netlify dev sometimes skips it)
-if (!process.env.ANTHROPIC_API_KEY) {
-  const fs = require('node:fs'), path = require('node:path');
-  const envPath = path.resolve(__dirname, '../../../../../.env');
-  if (fs.existsSync(envPath)) {
-    for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-      const m = line.match(/^([A-Z0-9_]+)=(.+)$/);
-      if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
-    }
-  }
-}
 
 const SUPPORTED_CAPABILITIES = [
   CAPABILITIES.LANDING_PAGE,
