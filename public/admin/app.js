@@ -287,14 +287,14 @@ async function renderUserDetail() {
         <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #e5e7eb">
           <div class="card-title" style="font-size:.8rem;margin-bottom:.5rem">✏️ שינוי ידני של תוכנית</div>
           <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
-            <select id="plan-select-${targetId}" style="padding:.35rem .6rem;border:1px solid #d1d5db;border-radius:.375rem;font-size:.85rem">
+            <select id="plan-select-${p.id}" style="padding:.35rem .6rem;border:1px solid #d1d5db;border-radius:.375rem;font-size:.85rem">
               <option value="free"       ${sub?.plan==='free'?'selected':''}>Free</option>
               <option value="early_bird" ${sub?.plan==='early_bird'?'selected':''}>Early Bird</option>
               <option value="starter"    ${sub?.plan==='starter'?'selected':''}>Starter</option>
               <option value="pro"        ${sub?.plan==='pro'?'selected':''}>Pro</option>
               <option value="agency"     ${sub?.plan==='agency'?'selected':''}>Agency</option>
             </select>
-            <button class="btn btn-primary" style="padding:.35rem .9rem;font-size:.85rem" onclick="changePlan('${targetId}')">החל</button>
+            <button class="btn btn-primary" style="padding:.35rem .9rem;font-size:.85rem" onclick="changePlan('${p.id}')">החל</button>
           </div>
         </div>
       </div>

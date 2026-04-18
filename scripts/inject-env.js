@@ -44,12 +44,17 @@ const HTML_FILES = [
 // Admin page only needs these two vars
 const ADMIN_VARS = new Set(['SUPABASE_URL', 'SUPABASE_ANON_KEY']);
 
-// Compute an 8-char hash of app.js + app.css for cache-busting
-const ASSETS_DIR = path.resolve(__dirname, '..', 'public', 'assets');
+// Compute an 8-char hash of all frontend JS/CSS for cache-busting
+const ASSETS_DIR  = path.resolve(__dirname, '..', 'public', 'assets');
+const ADMIN_DIR   = path.resolve(__dirname, '..', 'public', 'admin');
 const assetHash = (() => {
   const h = crypto.createHash('md5');
-  for (const f of ['app.js', 'app.css', 'chat.css']) {
-    const fp = path.join(ASSETS_DIR, f);
+  for (const fp of [
+    path.join(ASSETS_DIR, 'app.js'),
+    path.join(ASSETS_DIR, 'app.css'),
+    path.join(ASSETS_DIR, 'chat.css'),
+    path.join(ADMIN_DIR,  'app.js'),
+  ]) {
     if (fs.existsSync(fp)) h.update(fs.readFileSync(fp));
   }
   return h.digest('hex').slice(0, 8);
@@ -64,7 +69,7 @@ for (const HTML_FILE of HTML_FILES) {
 
   // Inject asset hash for cache-busting (placeholder on first run, existing hash on subsequent runs)
   html = html.replaceAll('%%ASSET_HASH%%', assetHash);
-  html = html.replace(/(\?v=)[a-f0-9]{8}/g, `$1${assetHash}`);
+  html = html.replace(/(\?v=)[a-f0-9]+/g, `$1${assetHash}`);
 
   for (const [key, value] of Object.entries(VARS)) {
     if (isAdmin && !ADMIN_VARS.has(key)) continue;
