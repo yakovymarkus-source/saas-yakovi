@@ -15,6 +15,15 @@ const fs     = require('node:fs');
 const path   = require('node:path');
 const crypto = require('node:crypto');
 
+// Load .env when running locally (netlify dev sets them automatically in CI/prod)
+const envFile = path.resolve(__dirname, '..', '.env');
+if (fs.existsSync(envFile)) {
+  for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) {
+    const m = line.match(/^([A-Z0-9_]+)=(.*)$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+  }
+}
+
 const VARS = {
   SUPABASE_URL:          process.env.SUPABASE_URL          || '',
   SUPABASE_ANON_KEY:     process.env.SUPABASE_ANON_KEY     || '',
