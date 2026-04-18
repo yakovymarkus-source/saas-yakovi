@@ -9,15 +9,16 @@
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
 async function sendEmail({ to, subject, html, replyTo }) {
-  const apiKey   = process.env.RESEND_API_KEY;
-  const from     = process.env.EMAIL_FROM     || 'noreply@yourdomain.com';
-  const replyToAddr = replyTo || process.env.EMAIL_REPLY_TO || from;
-
+  const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    // Log as error — this should be visible in Netlify function logs
-    console.error('[email] RESEND_API_KEY not configured — email not sent. Set RESEND_API_KEY in Netlify environment variables.');
+    console.error('[email] RESEND_API_KEY not set — email skipped');
     return null;
   }
+
+  // campaignbrain.netlify.app cannot be a Resend sender — use the real domain
+  const rawFrom = process.env.EMAIL_FROM || '';
+  const from = rawFrom.includes('netlify.app') ? 'noreply@campaignbrain.app' : (rawFrom || 'noreply@campaignbrain.app');
+  const replyToAddr = replyTo || process.env.EMAIL_REPLY_TO || from;
 
   const res = await fetch(RESEND_API_URL, {
     method: 'POST',
@@ -30,8 +31,8 @@ async function sendEmail({ to, subject, html, replyTo }) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.error(`[email] Resend API error (${res.status}): ${body} — to: ${to}, subject: ${subject}`);
-    return null;
+    console.error(`[email] Resend error ${res.status}: ${body} | from:${from} to:${to}`);
+    throw new Error(`Email send failed (${res.status}): ${body}`);
   }
   return res.json();
 }

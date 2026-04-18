@@ -91,6 +91,31 @@ exports.handler = async (event) => {
         return ok({ targetUserId: targetId, status: 'canceled' }, context.requestId);
       }
 
+      if (action === 'change_plan') {
+        const VALID_PLANS = ['free', 'early_bird', 'starter', 'pro', 'agency'];
+        const newPlan = body.plan;
+        if (!newPlan || !VALID_PLANS.includes(newPlan)) {
+          throw new AppError({ code: 'BAD_REQUEST', userMessage: `תוכנית לא תקינה. ערכים מותרים: ${VALID_PLANS.join(', ')}`, status: 400 });
+        }
+        const isActive = newPlan !== 'free';
+        await sb.from('subscriptions').upsert({
+          user_id:        targetId,
+          plan:           newPlan,
+          status:         isActive ? 'active' : 'canceled',
+          payment_status: isActive ? 'paid'   : 'none',
+          updated_at:     new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+
+        await writeAudit({
+          userId: admin.id, action: 'admin.change_plan',
+          targetId, targetType: 'user',
+          metadata: { newPlan, performedBy: admin.id },
+          ip: context.ip, requestId: context.requestId,
+        });
+        await writeRequestLog(buildLogPayload(context, 'info', 'admin_change_plan', { targetId, newPlan }));
+        return ok({ targetUserId: targetId, plan: newPlan }, context.requestId);
+      }
+
       throw new AppError({ code: 'BAD_REQUEST', userMessage: `Unknown action: ${action}`, status: 400 });
     }
 

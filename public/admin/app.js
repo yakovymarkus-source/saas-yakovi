@@ -283,6 +283,19 @@ async function renderUserDetail() {
           <div class="detail-row"><span class="detail-label">Period end</span><span class="detail-value">${sub.current_period_end?new Date(sub.current_period_end).toLocaleDateString():'—'}</span></div>
           <div class="detail-row"><span class="detail-label">Stripe sub</span><span class="detail-value text-xs" style="font-family:monospace">${sub.stripe_sub_id||'—'}</span></div>`
         :'<div class="text-muted" style="padding:.5rem 0">No subscription</div>'}
+        <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #e5e7eb">
+          <div class="card-title" style="font-size:.8rem;margin-bottom:.5rem">✏️ שינוי ידני של תוכנית</div>
+          <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+            <select id="plan-select-${targetId}" style="padding:.35rem .6rem;border:1px solid #d1d5db;border-radius:.375rem;font-size:.85rem">
+              <option value="free"       ${sub?.plan==='free'?'selected':''}>Free</option>
+              <option value="early_bird" ${sub?.plan==='early_bird'?'selected':''}>Early Bird</option>
+              <option value="starter"    ${sub?.plan==='starter'?'selected':''}>Starter</option>
+              <option value="pro"        ${sub?.plan==='pro'?'selected':''}>Pro</option>
+              <option value="agency"     ${sub?.plan==='agency'?'selected':''}>Agency</option>
+            </select>
+            <button class="btn btn-primary" style="padding:.35rem .9rem;font-size:.85rem" onclick="changePlan('${targetId}')">החל</button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="detail-grid">
@@ -335,6 +348,18 @@ async function adminCancelSub(targetId) {
   try {
     await api('POST', 'admin-user', { action: 'cancel_subscription', targetUserId: targetId });
     toast('Subscription canceled', 'success');
+    renderUserDetail();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function changePlan(targetId) {
+  const sel = document.getElementById(`plan-select-${targetId}`);
+  if (!sel) return;
+  const newPlan = sel.value;
+  if (!confirm(`שנה תוכנית ל-${newPlan}?`)) return;
+  try {
+    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: targetId, plan: newPlan });
+    toast(`תוכנית שונתה ל-${newPlan} ✓`, 'success');
     renderUserDetail();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -744,6 +769,7 @@ window.renderUsers          = renderUsers;
 window.renderAudit          = renderAudit;
 window.adminToggle          = adminToggle;
 window.adminCancelSub       = adminCancelSub;
+window.changePlan           = changePlan;
 window.usersState           = usersState;
 window.auditState           = auditState;
 window.renderAdminUpdates   = renderAdminUpdates;

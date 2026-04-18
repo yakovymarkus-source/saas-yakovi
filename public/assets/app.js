@@ -80,11 +80,6 @@ function getPlanLabel(plan)  { return PLAN_LIMITS[plan]?.label || plan.toUpperCa
 
 function navigate(page, params = {}) {
   if (page === 'updates') state.updatesCount = 0;
-  // Restore chat trigger when leaving integrations
-  if (state.currentPage === 'integrations' && page !== 'integrations') {
-    const chatTrigger = document.getElementById('chat-trigger');
-    if (chatTrigger) chatTrigger.style.display = '';
-  }
   state.currentPage = page;
   Object.assign(state, params);
   // Update URL hash so page survives refresh
@@ -1147,9 +1142,6 @@ async function showCampaignDetail(campaignId) {
  * The authorization code and refresh/access tokens NEVER touch the frontend.
  */
 async function renderIntegrations() {
-  // Hide floating support chat on this page
-  const chatTrigger = document.getElementById('chat-trigger');
-  if (chatTrigger) chatTrigger.style.display = 'none';
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
   try {
@@ -3059,7 +3051,6 @@ async function boot() {
         state.currentPage = initialPage;
       }
       render();                // ← page appears instantly
-      initSupportChat();
     } else {
       // No cache — show shell with spinner only; Step 2 will render the real page.
       // Do NOT call render() here — it triggers page API calls and creates a
@@ -3072,7 +3063,6 @@ async function boot() {
       // Respect hash routing even in no-cache path
       if (initialPage !== 'dashboard') state.currentPage = initialPage;
       renderShell('<div style="height:60vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem"><div class="spinner"></div><p style="color:#64748b;font-size:0.9rem;">טוען...</p></div>');
-      initSupportChat();
     }
 
     // ── Step 2: fetch fresh data in background ────────────────────────────────
@@ -3160,173 +3150,6 @@ async function boot() {
   keepAlive();
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  Support Chat Widget — floating bottom-right
-//  Replaces the old AI chat. Users send support messages here.
-//  Message history is stored in localStorage (same as support page).
-// ══════════════════════════════════════════════════════════════════════════════
-
-const chatState = {
-  open:     false,
-  loading:  false,
-  history:  [],          // [{role:'user'|'assistant', content:string}]
-  quickActions: [
-    'בצע חקר שוק וניתוח מתחרים',
-    'נתח ביצועי קמפיינים קיימים',
-    'מה הצעד הבא שמומלץ לי לעשות?',
-    'יש לי שאלה על הקמפיין שלי',
-  ],
-};
-
-// ── Build support log HTML from localStorage ──────────────────────────────────
-function renderSupportLog() {
-  const log = getSysLog();
-  if (!log.length) {
-    return `
-      <div class="chat-welcome">
-        <div class="chat-welcome-icon">💬</div>
-        <h3>תמיכה ושאלות</h3>
-        <p>שלום! שלח לנו הודעה ונחזור אליך בהקדם תוך יום עסקים.</p>
-      </div>`;
-  }
-  const initials = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
-  return log.map(m => `
-    <div class="chat-msg ${m.role === 'user' ? 'user' : 'assistant'}">
-      <div class="chat-msg-icon">${m.role === 'user' ? initials : '💬'}</div>
-      <div class="chat-msg-bubble">${m.text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
-    </div>`).join('');
-}
-
-// ── Refresh the log in the open chat panel ────────────────────────────────────
-function refreshChatLog() {
-  const msgs = document.getElementById('chat-messages');
-  if (!msgs) return;
-  msgs.innerHTML = renderSupportLog();
-  requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
-}
-
-// ── Build / inject widget DOM ─────────────────────────────────────────────────
-function initSupportChat() {
-  if (document.getElementById('chat-trigger')) return; // already mounted
-
-  const trigger = document.createElement('button');
-  trigger.id = 'chat-trigger';
-  trigger.setAttribute('aria-label', 'פתח תמיכה');
-  trigger.innerHTML = '<span>💬</span>';
-  trigger.onclick = toggleChat;
-  document.body.appendChild(trigger);
-
-  const panel = document.createElement('div');
-  panel.id = 'chat-panel';
-  panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-label', 'תמיכה');
-  panel.innerHTML = `
-    <div class="chat-header">
-      <div class="chat-avatar">💬</div>
-      <div class="chat-header-info">
-        <div class="chat-header-name">תמיכה</div>
-        <div class="chat-header-sub">ייעוץ שיווקי · נחזור אליך תוך יום עסקים</div>
-      </div>
-      <div class="chat-status-dot" title="זמין"></div>
-      <div class="chat-header-actions">
-        <button class="chat-header-btn" onclick="chatShowSupport()" title="פנייה לתמיכה" style="font-size:.95rem">📩</button>
-        <button class="chat-header-btn" onclick="toggleChat()" title="סגור">✕</button>
-      </div>
-    </div>
-    <div id="chat-support-form" style="display:none;padding:.75rem 1rem;background:#f8f7ff;border-bottom:1px solid #e0e7ff">
-      <div style="font-size:.82rem;font-weight:600;color:#4338ca;margin-bottom:.5rem">📩 שלח פנייה לתמיכה</div>
-      <select id="cs-type" style="width:100%;margin-bottom:.4rem;padding:.35rem .5rem;border:1px solid #c7d2fe;border-radius:.375rem;font-size:.82rem;direction:rtl">
-        <option value="question">שאלה</option>
-        <option value="bug">באג / תקלה</option>
-        <option value="feature_request">רעיון לשיפור</option>
-        <option value="feedback">פידבק</option>
-      </select>
-      <input id="cs-title" placeholder="נושא הפנייה" style="width:100%;margin-bottom:.4rem;padding:.35rem .5rem;border:1px solid #c7d2fe;border-radius:.375rem;font-size:.82rem;direction:rtl;box-sizing:border-box">
-      <textarea id="cs-desc" placeholder="תאר את הנושא בפירוט..." rows="3" style="width:100%;margin-bottom:.5rem;padding:.35rem .5rem;border:1px solid #c7d2fe;border-radius:.375rem;font-size:.82rem;direction:rtl;resize:none;box-sizing:border-box"></textarea>
-      <div id="cs-error" style="color:#ef4444;font-size:.78rem;margin-bottom:.35rem;display:none"></div>
-      <div style="display:flex;gap:.5rem">
-        <button onclick="chatSubmitSupport()" style="flex:1;padding:.4rem .75rem;background:#6366f1;color:white;border:none;border-radius:.375rem;font-size:.82rem;cursor:pointer;font-weight:600">שלח</button>
-        <button onclick="document.getElementById('chat-support-form').style.display='none'" style="padding:.4rem .75rem;background:#e0e7ff;color:#4338ca;border:none;border-radius:.375rem;font-size:.82rem;cursor:pointer">ביטול</button>
-      </div>
-    </div>
-    <div class="chat-messages" id="chat-messages"></div>
-    <div class="chat-input-bar">
-      <select class="chat-support-select" id="chat-support-subject">
-        <option value="תמיכה טכנית">תמיכה טכנית</option>
-        <option value="שאלה על חיוב">חיוב</option>
-        <option value="בקשת תכונה">בקשת תכונה</option>
-        <option value="דיווח על באג">דיווח באג</option>
-        <option value="אחר">אחר</option>
-      </select>
-      <textarea
-        class="chat-input"
-        id="chat-support-input"
-        placeholder="כתוב הודעה..."
-        rows="1"
-        maxlength="2000"
-      ></textarea>
-      <button class="chat-send-btn" id="chat-send-btn" onclick="submitSupportChat()" title="שלח">➤</button>
-    </div>`;
-  document.body.appendChild(panel);
-
-  const textarea = document.getElementById('chat-support-input');
-  if (textarea) {
-    textarea.addEventListener('input', () => {
-      textarea.style.height = 'auto';
-      textarea.style.height = Math.min(textarea.scrollHeight, 100) + 'px';
-    });
-    textarea.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitSupportChat(); }
-    });
-  }
-}
-
-// ── Toggle open/close ─────────────────────────────────────────────────────────
-function toggleChat() {
-  chatState.open = !chatState.open;
-  const panel   = document.getElementById('chat-panel');
-  const trigger = document.getElementById('chat-trigger');
-  if (panel) panel.classList.toggle('open', chatState.open);
-  if (trigger) trigger.innerHTML = chatState.open
-    ? '<span style="font-size:1.1rem">✕</span>'
-    : '<span>💬</span>';
-  if (chatState.open) {
-    refreshChatLog();
-    document.getElementById('chat-support-input')?.focus();
-  }
-}
-
-// ── Submit support message from chat widget ───────────────────────────────────
-async function submitSupportChat() {
-  const btn     = document.getElementById('chat-send-btn');
-  const msgEl   = document.getElementById('chat-support-input');
-  const subject = document.getElementById('chat-support-subject')?.value || 'פנייה';
-  const message = msgEl?.value.trim() || '';
-  if (!message) { toast('נא לכתוב הודעה', 'error'); return; }
-  if (btn) { btn.disabled = true; }
-  // Optimistically show message in log
-  addSysLog('user', `[${subject}] ${message}`);
-  if (msgEl) { msgEl.value = ''; msgEl.style.height = 'auto'; }
-  refreshChatLog();
-  try {
-    await api('POST', 'contact', {
-      name:    state.profile?.name    || '',
-      email:   state.profile?.email   || state.user?.email || '',
-      subject,
-      message,
-    });
-    addSysLog('system', 'קיבלנו את הפנייה שלך! נחזור אליך בהקדם תוך יום עסקים.');
-    toast('הפנייה נשלחה!', 'success');
-  } catch (err) {
-    addSysLog('system', `שגיאה: ${err.message || 'נסה שנית'}`);
-    toast(err.message || 'שגיאה בשליחה', 'error');
-  } finally {
-    if (btn) btn.disabled = false;
-    refreshChatLog();
-    // Sync support page if open
-    if (state.currentPage === 'support') renderSupport();
-  }
-}
 
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
@@ -3369,8 +3192,6 @@ window.leadsCloseDetail      = leadsCloseDetail;
 window.leadsExportCSV        = leadsExportCSV;
 window.leadsCopy             = leadsCopy;
 window.leadsLoadAll          = leadsLoadAll;
-window.toggleChat            = toggleChat;
-window.submitSupportChat     = submitSupportChat;
 window.sendSupportMessage    = sendSupportMessage;
 window.renderSupport         = renderSupport;
 
