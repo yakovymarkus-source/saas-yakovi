@@ -195,6 +195,9 @@ function renderAuth() {
           </div>
           <div id="auth-error" class="form-error" style="display:none"></div>
           <button type="submit" class="btn btn-primary mt-4" id="auth-submit">כניסה</button>
+          <p style="text-align:center;margin-top:0.75rem;font-size:0.85rem">
+            <a href="#" id="forgot-pw-link" style="color:var(--brand);text-decoration:none">שכחתי סיסמה</a>
+          </p>
         </form>
       </div>
     </div>
@@ -208,6 +211,17 @@ function renderAuth() {
       document.getElementById('name-group').style.display = mode === 'signup' ? '' : 'none';
       document.getElementById('auth-submit').textContent  = mode === 'signup' ? 'הרשמה' : 'כניסה';
     });
+  });
+
+  document.getElementById('forgot-pw-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('auth-email').value.trim();
+    if (!email) { alert('הכנס אימייל קודם'); return; }
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin + '/#reset-password'
+    });
+    if (error) alert('שגיאה: ' + error.message);
+    else alert('נשלח מייל איפוס סיסמה ל-' + email);
   });
 
   document.getElementById('auth-form').addEventListener('submit', async (e) => {
