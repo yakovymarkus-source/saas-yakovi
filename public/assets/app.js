@@ -38,24 +38,30 @@ let state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 const routes = {
-  dashboard:        renderDashboard,
-  'business-profile': renderBusinessProfile,
-  'ai-creation':    renderAICreation,
-  'landing-pages':  renderLandingPages,
-  recommendations:  renderRecommendations,
-  performance:      renderPerformance,
-  economics:        renderEconomics,
-  copy:             renderCopyGenerator,
-  'ab-tests':       renderAbTests,
-  campaigns:        renderCampaigns,
-  leads:            renderLeads,
-  integrations:     renderIntegrations,
-  billing:          renderBilling,
-  settings:         renderSettings,
-  support:          renderSupport,
-  admin:            renderAdmin,
-  updates:          renderUpdates,
+  dashboard:          renderDashboard,
+  'ai-creation':      renderAICreation,
+  'landing-pages':    renderLandingPages,
+  campaigns:          renderCampaigns,
+  leads:              renderLeads,
+  insights:           renderInsights,
+  settings:           renderSettings,
+  support:            renderSupport,
+  admin:              renderAdmin,
+  updates:            renderUpdates,
+  // Legacy routes redirect into consolidated pages
+  'business-profile': () => renderSettings('business'),
+  integrations:       () => renderSettings('integrations'),
+  billing:            () => renderSettings('billing'),
+  recommendations:    () => renderInsights('recommendations'),
+  performance:        () => renderInsights('performance'),
+  economics:          () => renderInsights('economics'),
+  'ab-tests':         () => renderInsights('abtests'),
+  copy:               () => renderInsights('copy'),
 };
+
+// ── Tab state (var = accessible from inline onclick) ──────────────────────────
+var settingsTab = 'business';
+var insightsTab = 'performance';
 
 // ── Progressive unlock helper ─────────────────────────────────────────────────
 function computeUnlockedScreens(steps) {
@@ -281,80 +287,52 @@ function renderAuth() {
 
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function renderShell(content) {
-  const u = state.unlockedScreens;
+  const SETTINGS_PAGES = ['settings','business-profile','integrations','billing'];
+  const INSIGHTS_PAGES = ['insights','recommendations','performance','economics','ab-tests','copy'];
 
-  // Nav sections — grouped with dividers
-  const navSections = [
-    {
-      items: [
-        { id: 'business-profile', icon: '🏢', label: 'פרופיל עסקי', always: true },
-        { id: 'dashboard',        icon: '📊', label: 'דשבורד',       always: true },
-      ],
-    },
-    {
-      header: 'יצירה בAI',
-      items: [
-        { id: 'ai-creation',   icon: '🤖', label: 'מחולל תכנים',  always: true },
-        { id: 'landing-pages', icon: '🚀', label: 'דפי נחיתה',    always: true, sub: true },
-        { id: 'copy',          icon: '✍️', label: 'פוסטים וקופי', unlock: 'copy',          sub: true },
-      ].filter(n => n.always || u.has(n.unlock)),
-    },
-    {
-      header: 'ניתוח וביצועים',
-      items: [
-        { id: 'recommendations', icon: '💡', label: 'המלצות',       unlock: 'recommendations' },
-        { id: 'performance',     icon: '📈', label: 'ביצועים',      unlock: 'performance' },
-        { id: 'ab-tests',        icon: '🧪', label: 'A/B Tests',    unlock: 'ab-tests' },
-        { id: 'economics',       icon: '💰', label: 'כלכלת יחידה', unlock: 'economics' },
-      ].filter(n => u.has(n.unlock)),
-    },
-    {
-      header: 'קמפיינים ולידים',
-      items: [
-        { id: 'campaigns', icon: '🎯', label: 'קמפיינים', always: true },
-        { id: 'leads',     icon: '📥', label: 'לידים',    unlock: 'leads' },
-      ],
-    },
-    {
-      items: [
-        { id: 'integrations', icon: '🔌', label: 'אינטגרציות', always: true },
-        { id: 'billing',      icon: '💳', label: 'חיוב',        always: true },
-        { id: 'settings',     icon: '⚙️', label: 'הגדרות',      always: true },
-        { id: 'support',      icon: '💬', label: 'תמיכה',        always: true },
-        ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול', always: true, badge: state.supportCount || 0 }] : []),
-      ],
-    },
-  ];
-
-  const renderNavSection = s => {
-    if (!s.items.length) return '';
-    return `
-      ${s.header ? `<div style="font-size:0.62rem;font-weight:700;letter-spacing:0.09em;color:rgba(255,255,255,0.38);text-transform:uppercase;padding:0.8rem 1rem 0.2rem;margin-top:0.4rem;">${s.header}</div>` : ''}
-      ${s.items.map(n => `
-        <div class="nav-item ${state.currentPage === n.id ? 'active' : ''}" data-page="${n.id}"
-             style="${n.sub ? 'padding-right:2rem;font-size:0.84rem;opacity:0.85;' : ''}">
-          <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
-          ${n.badge > 0 ? `<span style="margin-right:auto;background:#ef4444;color:#fff;font-size:0.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px">${n.badge > 99 ? '99+' : n.badge}</span>` : ''}
-        </div>`).join('')}
-    `;
+  const isActive = id => {
+    if (id === 'settings') return SETTINGS_PAGES.includes(state.currentPage);
+    if (id === 'insights') return INSIGHTS_PAGES.includes(state.currentPage);
+    return state.currentPage === id;
   };
+
+  const mainNav = [
+    { id: 'dashboard',   icon: '📊', label: 'דשבורד' },
+    { id: 'ai-creation', icon: '🤖', label: 'צור נכסים בAI' },
+    { id: 'campaigns',   icon: '🎯', label: 'קמפיינים' },
+    { id: 'leads',       icon: '📥', label: 'לידים' },
+    { id: 'insights',    icon: '📈', label: 'תובנות' },
+    { id: 'settings',    icon: '⚙️', label: 'הגדרות' },
+  ];
 
   const initials    = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
   const sidebarPlan = state.subscription?.plan || 'free';
   const isPending   = state.subscription?.payment_status === 'pending';
   const bellCount   = (state.updatesCount || 0) + (state.localNotifCount || 0) + (isPending ? 1 : 0);
+
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
         <div class="sidebar-logo">
           <div class="sidebar-logo-badge">🧠</div>
           Campaign<span>AI</span>
-          ${bellCount > 0 ? `<button class="sidebar-bell" onclick="navigate('billing')" title="התראות ממתינות">🔔<span class="sidebar-bell-badge">${bellCount}</span></button>` : ''}
         </div>
         <nav class="sidebar-nav">
-          ${navSections.map(renderNavSection).join('')}
+          ${mainNav.map(n => `
+            <div class="nav-item ${isActive(n.id) ? 'active' : ''}" data-page="${n.id}">
+              <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
+            </div>`).join('')}
+          ${state.profile?.is_admin ? `
+            <div style="height:1px;background:rgba(255,255,255,0.1);margin:0.75rem 1rem;"></div>
+            <div class="nav-item ${isActive('admin') ? 'active' : ''}" data-page="admin">
+              <span class="nav-icon">🛡️</span><span class="nav-label">ניהול</span>
+              ${state.supportCount > 0 ? `<span style="margin-right:auto;background:#ef4444;color:#fff;font-size:0.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px">${state.supportCount > 99 ? '99+' : state.supportCount}</span>` : ''}
+            </div>` : ''}
         </nav>
         <div class="sidebar-footer">
+          <button onclick="navigate('support')" style="width:100%;text-align:center;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:rgba(255,255,255,0.7);font-size:0.8rem;padding:0.45rem 0.75rem;cursor:pointer;margin-bottom:0.75rem;">
+            💬 תמיכה
+          </button>
           <div class="flex items-center gap-2">
             <div class="user-avatar">${initials}</div>
             <div style="flex:1;overflow:hidden;min-width:0">
@@ -441,20 +419,26 @@ async function renderDashboard() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
   // Load all data in parallel
-  const [assetsRes, metricsRes, intRes] = await Promise.allSettled([
+  const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+  const [assetsRes, metricsRes, intRes, leadsRes] = await Promise.allSettled([
     sb.from('generated_assets').select('id,asset_type,status,created_at')
       .eq('user_id', state.user.id).order('created_at', { ascending: false }).limit(100),
     sb.from('asset_metrics').select('clicks,conversions,revenue')
       .eq('user_id', state.user.id),
     state.integrations.length ? Promise.resolve({ value: state.integrations })
       : api('GET', 'integration-connect').then(r => Array.isArray(r) ? r : []).catch(() => []),
+    sb.from('leads').select('id,created_at,status')
+      .eq('user_id', state.user.id).order('created_at', { ascending: false }).limit(200),
   ]);
 
   const allAssets    = assetsRes.status === 'fulfilled' ? (assetsRes.value.data || []) : [];
   const allMetrics   = metricsRes.status === 'fulfilled' ? (metricsRes.value.data || []) : [];
+  const allLeads     = leadsRes.status === 'fulfilled'   ? (leadsRes.value.data   || []) : [];
   if (!state.integrations.length && intRes.status === 'fulfilled') {
     state.integrations = intRes.value?.value || intRes.value || [];
   }
+  const leadsToday   = allLeads.filter(l => new Date(l.created_at) >= todayStart).length;
+  const leadsNew     = allLeads.filter(l => l.status === 'new').length;
 
   const plan          = state.subscription?.plan || 'free';
   const paymentStatus = state.subscription?.payment_status || 'none';
@@ -481,7 +465,7 @@ async function renderDashboard() {
       <div class="promo-banner-main">
         <span style="font-size:0.9rem;font-weight:600">🎁 הטבת השקה: מסלול Early Bird ב-₪10 בלבד לכל החיים!</span>
         <button class="btn btn-sm" style="background:white;color:#4f46e5;font-weight:700"
-          onclick="navigate('billing')">שדרגו עכשיו →</button>
+          onclick="settingsTab='billing';navigate('settings')">שדרגו עכשיו →</button>
       </div>
       <div class="promo-banner-sub">
         כבר שילמתם?
@@ -500,33 +484,41 @@ async function renderDashboard() {
     ${_renderOnboardingWidget(steps)}
 
     <div class="stats-grid">
-      <div class="stat-card" onclick="navigate('landing-pages')" style="cursor:pointer">
-        <div class="stat-label">דפים שנוצרו</div>
-        <div class="stat-value">${allAssets.length}</div>
-        <div class="text-xs text-muted">${recent.length} ב-30 יום האחרונים</div>
+      <div class="stat-card" onclick="navigate('leads')" style="cursor:pointer;${leadsToday > 0 ? 'border:2px solid #22c55e;' : ''}">
+        <div class="stat-label">לידים היום</div>
+        <div class="stat-value" style="${leadsToday > 0 ? 'color:#16a34a' : ''}">${leadsToday > 0 ? leadsToday : '—'}</div>
+        <div class="text-xs text-muted">${leadsNew > 0 ? leadsNew + ' חדשים לטיפול' : 'אין לידים חדשים'}</div>
       </div>
-      <div class="stat-card" style="cursor:default">
-        <div class="stat-label">דפים פעילים / מכסה</div>
+      <div class="stat-card" onclick="navigate('campaigns')" style="cursor:pointer">
+        <div class="stat-label">קמפיינים</div>
+        <div class="stat-value">${state.campaigns.length > 0 ? state.campaigns.length : '—'}</div>
+        <div class="text-xs text-muted">${state.campaigns.length > 0 ? 'לחץ לניהול קמפיינים' : 'לחץ ליצירת קמפיין'}</div>
+      </div>
+      <div class="stat-card" onclick="navigate('ai-creation')" style="cursor:pointer">
+        <div class="stat-label">נכסים שיווקיים</div>
         <div style="display:flex;align-items:center;gap:0.75rem;margin-top:0.5rem">
           ${renderDonutSVG(allAssets.length, assetsMax)}
           <div>
-            <div class="stat-value" style="font-size:1.25rem">${published.length}${assetsMax !== Infinity ? ' / ' + assetsMax : ''}</div>
-            <div class="text-xs text-muted" style="margin-top:0.1rem">פורסמו</div>
-            ${assetsMax !== Infinity ? `<div class="usage-bar-track" style="width:72px;margin-top:0.35rem">
-              <div class="usage-bar-fill ${assetsPct >= 90 ? 'danger' : assetsPct >= 70 ? 'warning' : 'normal'}" style="width:${assetsPct}%"></div>
-            </div>` : ''}
+            <div class="stat-value" style="font-size:1.25rem">${allAssets.length}${assetsMax !== Infinity ? ' / ' + assetsMax : ''}</div>
+            <div class="text-xs text-muted" style="margin-top:0.1rem">${recent.length} ב-30 יום</div>
           </div>
         </div>
       </div>
-      <div class="stat-card" onclick="${steps.has_metrics ? "navigate('performance')" : ''}" style="cursor:${steps.has_metrics ? 'pointer' : 'default'}">
-        <div class="stat-label">סה"כ קליקים</div>
+      <div class="stat-card" onclick="navigate('insights')" style="cursor:pointer">
+        <div class="stat-label">ביצועים</div>
         <div class="stat-value">${totalClicks > 0 ? totalClicks.toLocaleString() : '—'}</div>
-        <div class="text-xs text-muted">${totalConv > 0 ? totalConv + ' המרות' : 'הוסף מדדים במסך ביצועים'}</div>
+        <div class="text-xs text-muted">${totalConv > 0 ? totalConv + ' המרות' : connectedCount > 0 ? connectedCount + ' חיבורים פעילים' : 'חבר אינטגרציות'}</div>
       </div>
-      <div class="stat-card" onclick="${steps.has_metrics ? "navigate('performance')" : ''}" style="cursor:${steps.has_metrics ? 'pointer' : 'default'}">
-        <div class="stat-label">הכנסה מדווחת</div>
-        <div class="stat-value">${totalRev > 0 ? '₪' + totalRev.toLocaleString() : '—'}</div>
-        <div class="text-xs text-muted">${connectedCount > 0 ? connectedCount + ' אינטגרציות פעילות' : 'אין אינטגרציות'}</div>
+    </div>
+
+    <div class="card mb-4">
+      <div class="card-title">⚡ פעולות מהירות</div>
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+        <button class="btn btn-primary" style="width:auto" onclick="navigate('ai-creation')">✨ צור נכס חדש</button>
+        <button class="btn btn-secondary" style="width:auto" onclick="navigate('leads')">📥 ניהול לידים</button>
+        <button class="btn btn-secondary" style="width:auto" onclick="navigate('campaigns')">🎯 קמפיינים</button>
+        <button class="btn btn-secondary" style="width:auto" onclick="navigate('insights')">📈 תובנות</button>
+        ${connectedCount === 0 ? `<button class="btn btn-secondary" style="width:auto" onclick="switchSettingsTab('integrations');navigate('settings')">🔌 חבר אינטגרציה</button>` : ''}
       </div>
     </div>
 
@@ -582,10 +574,10 @@ function _renderOnboardingWidget(steps) {
   if (steps.has_metrics) return ''; // fully onboarded — hide widget
 
   const stageItems = [
-    { key: 'profile_started',  label: 'פרופיל עסקי',    page: 'business-profile', done: steps.profile_started },
-    { key: 'first_asset',      label: 'דף נחיתה ראשון', page: 'landing-pages',    done: steps.first_asset,    blocked: !steps.profile_started },
-    { key: 'multiple_assets',  label: '3 דפים / וריאציות', page: 'landing-pages', done: steps.multiple_assets, blocked: !steps.first_asset },
-    { key: 'has_metrics',      label: 'הוספת מדדי ביצועים', page: 'performance',  done: steps.has_metrics,    blocked: !steps.multiple_assets },
+    { key: 'profile_started',  label: 'פרופיל עסקי',       nav: "switchSettingsTab('business');navigate('settings')", done: steps.profile_started },
+    { key: 'first_asset',      label: 'נכס שיווקי ראשון',  nav: "navigate('ai-creation')",   done: steps.first_asset,    blocked: !steps.profile_started },
+    { key: 'multiple_assets',  label: '3 נכסים / וריאציות', nav: "navigate('ai-creation')",  done: steps.multiple_assets, blocked: !steps.first_asset },
+    { key: 'has_metrics',      label: 'חבר אינטגרציה',     nav: "switchSettingsTab('integrations');navigate('settings')", done: steps.has_metrics, blocked: !steps.multiple_assets },
   ];
   const completedCount = stageItems.filter(s => s.done).length;
   const pct = Math.round((completedCount / stageItems.length) * 100);
@@ -601,7 +593,7 @@ function _renderOnboardingWidget(steps) {
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.75rem">
       ${stageItems.map(s => `
-      <div onclick="${!s.done && !s.blocked ? "navigate('" + s.page + "')" : ''}"
+      <div onclick="${!s.done && !s.blocked ? s.nav : ''}"
         style="padding:.75rem;border-radius:.5rem;cursor:${s.done || s.blocked ? 'default' : 'pointer'};
           background:${s.done ? '#f0fdf4' : s.blocked ? '#f8fafc' : '#fff'};
           border:1px solid ${s.done ? '#86efac' : s.blocked ? '#e2e8f0' : '#c7d2fe'}">
@@ -740,7 +732,7 @@ async function renderCampaigns() {
             <h3 class="empty-state-title">עדיין אין נכסים שיווקיים</h3>
             <p class="empty-state-desc">לחצו על "+ נכס חדש" כדי ליצור תסריט מודעה, דף נחיתה, אסטרטגיית פנל ועוד</p>
             ${getPlanLimits(state.subscription?.plan || 'free').campaignLimit === 0
-              ? `<button class="btn btn-gradient" style="width:auto" onclick="navigate('billing')">שדרג ליצירת נכסים →</button>`
+              ? `<button class="btn btn-gradient" style="width:auto" onclick="settingsTab='billing';navigate('settings')">שדרג ליצירת נכסים →</button>`
               : `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ צור נכס ראשון</button>`}
           </div>
         </div>`}
@@ -1355,7 +1347,7 @@ async function disconnectIntegration(provider) {
     await api('DELETE', 'integration-connect', { provider });
     state.integrations = state.integrations.filter(i => i.provider !== provider);
     toast('האינטגרציה נותקה', 'success');
-    navigate('integrations');
+    settingsTab = 'integrations'; navigate('settings');
   } catch (err) {
     toast(err.message || 'שגיאה', 'error');
   }
@@ -1498,7 +1490,7 @@ async function confirmPayment() {
     }
     clearBootCache(); // force fresh data on next load
     toast('הבקשה התקבלה! מחפש אישור תשלום...', 'success');
-    setTimeout(() => navigate('billing'), 500);
+    setTimeout(() => { settingsTab = 'billing'; navigate('settings'); }, 500);
     pollPaymentActivation();
   } catch (err) {
     toast(err.message || 'שגיאה — נסו שנית', 'error');
@@ -1739,7 +1731,8 @@ async function saveBusinessProfile(e) {
   try {
     await api('POST', 'business-profile', payload);
     toast('הפרופיל העסקי נשמר בהצלחה!', 'success');
-    navigate('business_profile');
+    settingsTab = 'business';
+    navigate('settings');
   } catch (err) {
     toast(err.message || 'שגיאה בשמירה', 'error');
     if (btn) { btn.disabled = false; btn.textContent = 'שמור פרופיל עסקי'; }
@@ -1787,6 +1780,35 @@ async function renderAICreation() {
   // Load business profile for pre-fill hints
   let bp = {};
   try { bp = await api('GET', 'business-profile') || {}; } catch {}
+
+  // New user: no business profile → show setup prompt first
+  const hasProfile = !!(bp.business_name || bp.offer);
+  if (!hasProfile) {
+    renderShell(`
+      <div class="page-header">
+        <h1 class="page-title">✨ צור נכסים בAI</h1>
+        <p class="page-subtitle">לפני שמתחילים — צריך להגדיר את העסק שלך כדי שה-AI ידע למי לכתוב</p>
+      </div>
+      <div class="card" style="max-width:520px;margin:2rem auto;text-align:center;padding:2.5rem">
+        <div style="font-size:3rem;margin-bottom:1rem">🏢</div>
+        <h2 style="font-size:1.25rem;font-weight:700;margin-bottom:0.75rem">הגדר את הפרופיל העסקי שלך</h2>
+        <p class="text-sm text-muted" style="margin-bottom:1.5rem;line-height:1.7">
+          ה-AI שלנו יוצר תוכן מותאם אישית בהתבסס על המוצר, הלקוח, והמטרות שלך.<br>
+          לוקח כ-3 דקות — ומשפר את כל התוצאות.
+        </p>
+        <button class="btn btn-primary" style="width:auto;padding:0.75rem 2.5rem"
+          onclick="switchSettingsTab('business');navigate('settings')">
+          הגדר עסק עכשיו →
+        </button>
+        <p style="margin-top:1rem;font-size:0.8rem;color:#94a3b8">
+          <button onclick="_renderAICreationShell({}, loadAISavedWorks())" style="background:none;border:none;color:#94a3b8;cursor:pointer;text-decoration:underline">
+            המשך בלי פרופיל
+          </button>
+        </p>
+      </div>
+    `);
+    return;
+  }
 
   // Load saved assets from localStorage (no backend endpoint needed)
   const saved = loadAISavedWorks();
@@ -2128,7 +2150,7 @@ async function renderMarketingAssets() {
       </div>
       ${canCreate
         ? `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ נכס חדש</button>`
-        : `<button class="btn btn-secondary" style="width:auto" onclick="navigate('billing')">שדרג ליצירה →</button>`}
+        : `<button class="btn btn-secondary" style="width:auto" onclick="settingsTab='billing';navigate('settings')">שדרג ליצירה →</button>`}
     </div>
 
     <div class="campaign-list">
@@ -2148,7 +2170,7 @@ async function renderMarketingAssets() {
             <h3 class="empty-state-title">עדיין אין נכסים שיווקיים</h3>
             <p class="empty-state-desc">לחצו על "+ נכס חדש" כדי להוסיף קמפיין לניתוח</p>
             ${!canCreate
-              ? `<button class="btn btn-gradient" style="width:auto" onclick="navigate('billing')">שדרג ליצירת נכסים →</button>`
+              ? `<button class="btn btn-gradient" style="width:auto" onclick="settingsTab='billing';navigate('settings')">שדרג ליצירת נכסים →</button>`
               : `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ צור נכס ראשון</button>`}
           </div>
         </div>`}
@@ -2168,12 +2190,274 @@ async function renderMarketingAssets() {
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
-async function renderSettings() {
-  // Settings is now minimal — only profile + data actions
-  renderShell(`
-    <div class="page-header">
-      <h1 class="page-title">⚙️ הגדרות חשבון</h1>
-    </div>
+function _settingsTabBar() {
+  const tabs = [
+    { id: 'business',     icon: '🏢', label: 'פרופיל עסקי' },
+    { id: 'integrations', icon: '🔌', label: 'חיבורים' },
+    { id: 'billing',      icon: '💳', label: 'חיוב' },
+    { id: 'account',      icon: '👤', label: 'חשבון' },
+  ];
+  return `<div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1.75rem;overflow-x:auto">
+    ${tabs.map(t => `
+      <button onclick="switchSettingsTab('${t.id}')"
+        style="padding:0.6rem 1.1rem;border:none;border-bottom:2px solid ${settingsTab === t.id ? '#6366f1' : 'transparent'};
+               margin-bottom:-2px;background:none;cursor:pointer;font-size:0.88rem;
+               font-weight:${settingsTab === t.id ? '700' : '500'};
+               color:${settingsTab === t.id ? '#6366f1' : '#64748b'};white-space:nowrap;transition:color 0.15s">
+        ${t.icon} ${t.label}
+      </button>`).join('')}
+  </div>`;
+}
+
+function switchSettingsTab(tab) {
+  settingsTab = tab;
+  renderSettings();
+}
+
+async function renderSettings(tabOverride) {
+  if (tabOverride) settingsTab = tabOverride;
+
+  renderShell(`<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>`);
+
+  // Fetch data needed for active tab
+  let bp = state.businessProfile || {};
+  let ints = state.integrations || [];
+
+  try {
+    if (settingsTab === 'business') {
+      bp = await api('GET', 'business-profile') || {};
+    } else if (settingsTab === 'integrations') {
+      const res = await api('GET', 'integration-connect');
+      ints = Array.isArray(res) ? res : [];
+      state.integrations = ints;
+    }
+  } catch {}
+
+  // Handle OAuth redirect params when landing on integrations tab
+  if (settingsTab === 'integrations') {
+    const params = new URLSearchParams(window.location.search);
+    const INTEGRATION_NAMES = { google_ads: 'Google Ads', ga4: 'Google Analytics', meta: 'Meta Ads' };
+    const OAUTH_ERRORS = {
+      google_not_configured:'חיבור Google לא מופעל',google_denied:'ביטלת את החיבור ל-Google',
+      google_exchange_failed:'חיבור Google נכשל — נסה שנית',google_save_failed:'שמירת חיבור Google נכשלה',
+      meta_not_configured:'חיבור Meta לא מופעל',meta_denied:'ביטלת את החיבור ל-Meta',
+      meta_exchange_failed:'חיבור Meta נכשל — נסה שנית',meta_save_failed:'שמירת חיבור Meta נכשלה',
+    };
+    const connectedParam = params.get('connected');
+    const errorParam     = params.get('error');
+    if (connectedParam) toast(`${INTEGRATION_NAMES[connectedParam] || connectedParam} חובר בהצלחה! 🎉`, 'success');
+    if (errorParam)     toast(OAUTH_ERRORS[errorParam] || `שגיאה בחיבור: ${errorParam}`, 'error');
+    window.history.replaceState({}, '', window.location.pathname);
+  }
+
+  const v = (obj, k, fallback = '') => {
+    const val = obj[k]; return val == null ? fallback : String(val).replace(/"/g, '&quot;');
+  };
+
+  // ── Tab content builders ──────────────────────────────────────────────────────
+  const buildBusinessTab = () => {
+    const score = bp.completion?.pct ?? bp.completion_score ?? null;
+    const scorePct = score != null ? Math.round(score) : null;
+    return `
+      <div class="flex items-center justify-between mb-4">
+        <p class="text-sm text-muted">מידע זה משמש את ה-AI ליצירת תוכן מדויק עבורך</p>
+        ${scorePct != null ? `<div style="text-align:center">${renderDonutSVG(scorePct, 100)}<div class="text-xs text-muted mt-1">השלמה</div></div>` : ''}
+      </div>
+      <form onsubmit="saveBusinessProfile(event)">
+        <div class="card mb-4">
+          <div class="card-title">פרטי העסק</div>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">שם העסק</label>
+              <input class="form-input" id="bp-business_name" value="${v(bp,'business_name')}" placeholder="לדוגמה: קליניקת ד&quot;ר כהן" /></div>
+            <div class="form-group"><label class="form-label">קטגוריה / ענף</label>
+              <input class="form-input" id="bp-category" value="${v(bp,'category')}" placeholder="לדוגמה: בריאות, נדל&quot;ן, e-commerce" /></div>
+          </div>
+        </div>
+        <div class="card mb-4">
+          <div class="card-title">מה אתם מוכרים <span class="required-star">*</span></div>
+          <div class="form-group"><label class="form-label">ההצעה / המוצר / השירות</label>
+            <textarea class="form-input" id="bp-offer" rows="3" placeholder="תארו בפירוט את מה שאתם מציעים ללקוחות">${v(bp,'offer')}</textarea></div>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">מחיר (₪) <span class="required-star">*</span></label>
+              <input class="form-input" id="bp-price_amount" type="number" min="0" value="${v(bp,'price_amount')}" placeholder="לדוגמה: 297" /></div>
+            <div class="form-group"><label class="form-label">מודל תמחור <span class="required-star">*</span></label>
+              <select class="form-input" id="bp-pricing_model">
+                <option value="">בחרו מודל</option>
+                ${['חד פעמי','מנוי חודשי','מנוי שנתי','תשלום לפי שימוש','פרויקט','שעתי'].map(o =>
+                  `<option value="${o}" ${v(bp,'pricing_model') === o ? 'selected' : ''}>${o}</option>`).join('')}
+              </select></div>
+          </div>
+        </div>
+        <div class="card mb-4">
+          <div class="card-title">הלקוח האידיאלי</div>
+          <div class="form-group"><label class="form-label">קהל יעד <span class="required-star">*</span></label>
+            <textarea class="form-input" id="bp-target_audience" rows="2" placeholder="מי הלקוח האידיאלי שלכם?">${v(bp,'target_audience')}</textarea></div>
+          <div class="form-group"><label class="form-label">הבעיה שאתם פותרים <span class="required-star">*</span></label>
+            <textarea class="form-input" id="bp-problem_solved" rows="2" placeholder="מה הכאב / הבעיה שהלקוח חווה?">${v(bp,'problem_solved')}</textarea></div>
+          <div class="form-group"><label class="form-label">התוצאה הרצויה <span class="required-star">*</span></label>
+            <textarea class="form-input" id="bp-desired_outcome" rows="2" placeholder="איפה הלקוח רוצה להיות לאחר שיקנה מכם?">${v(bp,'desired_outcome')}</textarea></div>
+        </div>
+        <div class="card mb-4">
+          <div class="card-title">אסטרטגיה שיווקית</div>
+          <div class="form-group"><label class="form-label">מטרה עיקרית <span class="required-star">*</span></label>
+            <select class="form-input" id="bp-primary_goal">
+              <option value="">בחרו מטרה</option>
+              ${['גיוס לידים','מכירה ישירה','הגברת מודעות','שמירת לקוחות','הגדלת ROAS'].map(o =>
+                `<option value="${o}" ${v(bp,'primary_goal') === o ? 'selected' : ''}>${o}</option>`).join('')}
+            </select></div>
+          <div class="form-grid-2">
+            <div class="form-group"><label class="form-label">מנגנון ייחודי (USP)</label>
+              <input class="form-input" id="bp-unique_mechanism" value="${v(bp,'unique_mechanism')}" placeholder="מה הופך אתכם לייחודיים?" /></div>
+            <div class="form-group"><label class="form-label">ההבטחה המרכזית</label>
+              <input class="form-input" id="bp-main_promise" value="${v(bp,'main_promise')}" placeholder="המשפט שמביא לידים" /></div>
+          </div>
+          <div class="form-group"><label class="form-label">תקציב חודשי לפרסום (₪)</label>
+            <input class="form-input" id="bp-monthly_budget" type="number" min="0" value="${v(bp,'monthly_budget')}" placeholder="לדוגמה: 5000" /></div>
+        </div>
+        <div class="flex gap-3" style="margin-bottom:2rem">
+          <button type="submit" class="btn btn-primary" style="width:auto;padding:0.75rem 2.5rem" id="bp-save-btn">שמור פרופיל עסקי</button>
+        </div>
+      </form>`;
+  };
+
+  const buildIntegrationsTab = () => {
+    const connectedMap = new Map(ints.map(i => [i.provider, i]));
+    const statusBadge = integ => {
+      const s = integ?.connection_status;
+      if (s === 'active')   return `<span class="badge badge-green">פעיל ✓</span>`;
+      if (s === 'error')    return `<span class="badge badge-red">שגיאה</span>`;
+      if (s === 'expired')  return `<span class="badge badge-gray">פג תוקף</span>`;
+      if (s === 'revoked')  return `<span class="badge badge-gray">בוטל</span>`;
+      return '';
+    };
+    const integrationDefs = [
+      { provider: 'google_ads', name: 'Google Ads',         icon: '🟢', desc: 'ניתוח קמפיינים בגוגל' },
+      { provider: 'meta',       name: 'Meta Ads',           icon: '🔵', desc: 'פייסבוק ואינסטגרם' },
+      { provider: 'ga4',        name: 'Google Analytics 4', icon: '📈', desc: 'ניתוח תנועת אתר' },
+      { provider: 'tiktok',     name: 'TikTok Ads',         icon: '🎵', desc: 'קמפיינים ב-TikTok' },
+    ];
+    return `
+      <div class="integration-grid">
+        ${integrationDefs.map(def => {
+          const integ = connectedMap.get(def.provider);
+          const isConn = !!integ;
+          return `<div class="integration-card">
+            <div class="integration-header">
+              <div class="integration-icon">${def.icon}</div>
+              <div><div class="integration-name">${def.name}</div><div class="integration-desc">${def.desc}</div></div>
+            </div>
+            ${isConn ? `
+              <div class="flex items-center justify-between mb-2">
+                ${statusBadge(integ)}
+                <button class="btn btn-sm btn-danger" onclick="disconnectIntegration('${def.provider}')">נתק</button>
+              </div>
+              ${integ.account_name ? `<div class="text-xs text-muted">חשבון: ${integ.account_name}</div>` : ''}
+              ${integ.last_sync_at ? `<div class="text-xs text-muted">סנכרון: ${new Date(integ.last_sync_at).toLocaleString('he-IL')}</div>` : ''}
+              ${integ.last_error ? `<div class="text-xs" style="color:#ef4444;margin-top:0.25rem">שגיאה: ${integ.last_error}</div>` : ''}
+              ${(integ.connection_status === 'error' || integ.connection_status === 'expired')
+                ? `<button class="btn btn-sm btn-primary mt-2" id="connect-btn-${def.provider}" onclick="connectIntegration('${def.provider}')">חבר מחדש</button>` : ''}
+            ` : `<button class="btn btn-primary" id="connect-btn-${def.provider}" onclick="connectIntegration('${def.provider}')">חבר</button>`}
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="page-header mt-6" style="margin-bottom:1rem">
+        <h2 style="font-size:1.1rem;font-weight:700;margin:0">🗂️ מערכות CRM וניהול</h2>
+        <p class="page-subtitle">חבר מערכות ניהול לקוחות — לידים יועברו אוטומטית</p>
+      </div>
+      <div class="integration-grid">
+        ${[
+          { id:'fixdigital',name:'פיקס דיגיטל',icon:'🔧',desc:'CRM ישראלי' },
+          { id:'origami',name:'אוריגמי',icon:'📄',desc:'מערכת ניהול עסקי ישראלית' },
+          { id:'monday',name:'Monday.com',icon:'📅',desc:'ניהול פרויקטים ולידים' },
+          { id:'salesforce',name:'Salesforce',icon:'☁️',desc:'CRM גלובלי' },
+          { id:'hubspot',name:'HubSpot',icon:'🟠',desc:'CRM ושיווק אוטומטי' },
+          { id:'webhook',name:'Webhook אוניברסלי',icon:'🔗',desc:'חבר כל מערכת' },
+        ].map(crm => `
+          <div class="integration-card" style="border:1.5px solid #e2e8f0;background:#fafafa">
+            <div class="integration-header">
+              <div class="integration-icon">${crm.icon}</div>
+              <div><div class="integration-name">${crm.name}</div><div class="integration-desc">${crm.desc}</div></div>
+            </div>
+            <button class="btn btn-secondary" style="opacity:0.8" onclick="showCRMConnect('${crm.id}','${crm.name}')">
+              ${crm.id === 'webhook' ? '⚙️ הגדר Webhook' : '🔗 חבר'}
+            </button>
+          </div>`).join('')}
+      </div>
+      <div class="card mt-6" style="background:#f8fafc;border:1px solid #e2e8f0">
+        <div class="card-title" style="font-size:0.875rem">🔐 אבטחת הנתונים שלך</div>
+        <p class="text-sm text-muted">כל token מאוחסן מוצפן עם AES-256-GCM ייחודי לחשבונך. הטוקנים לעולם לא נחשפים לדפדפן.</p>
+      </div>`;
+  };
+
+  const buildBillingTab = () => {
+    const plan          = state.subscription?.plan          || 'free';
+    const paymentStatus = state.subscription?.payment_status || 'none';
+    const isPending     = paymentStatus === 'pending';
+    const isEarlyBird   = plan === 'early_bird' && !isPending;
+    const isFree        = plan === 'free' && !isPending;
+    const isPaid        = !isFree && !isPending;
+    return `
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <div style="font-size:1.1rem;font-weight:700">תוכנית נוכחית: <strong>${getPlanLabel(plan)}</strong></div>
+          ${isPending ? '<span class="badge badge-gray" style="margin-top:0.35rem">ממתין לאישור</span>' : ''}
+        </div>
+      </div>
+      ${isPending ? `
+        <div class="card mb-4" style="border:2px solid #f59e0b;background:#fffbeb">
+          <div style="font-weight:700;color:#92400e;margin-bottom:0.5rem">⏳ התשלום בבדיקה</div>
+          <p class="text-sm" style="color:#78350f;margin:0">הבקשה שלך התקבלה! החשבון יופעל תוך דקות לאחר אישור התשלום.</p>
+          <button class="btn btn-secondary mt-3" onclick="pollPaymentActivation()">רענן סטטוס</button>
+        </div>` : ''}
+      ${isEarlyBird ? `
+        <div class="card mb-4" style="border:2px solid #6366f1;background:#eef2ff">
+          <div class="flex items-center justify-between gap-3" style="flex-wrap:wrap">
+            <div>
+              <div class="font-semibold" style="color:#4338ca;font-size:1rem">🎁 הטבת מייסדים בלעדית</div>
+              <div class="text-sm text-muted mt-1">שדרגו ל-Pro ב-<strong>₪99 בלבד לכל החיים!</strong></div>
+            </div>
+            <a href="https://pay.grow.link/f752f70d2d88201a126de25aedbd498e-MzI1Njk5OA" target="_blank" rel="noopener"
+               class="btn btn-primary" style="white-space:nowrap" onclick="window._pendingPlan='pro'">
+              שדרגו עכשיו ₪99 →
+            </a>
+          </div>
+        </div>` : ''}
+      ${isFree ? `
+        <div class="flex flex-col gap-4">
+          <div class="card" style="border:2px solid #6366f1">
+            <div class="flex items-center justify-between gap-3" style="flex-wrap:wrap">
+              <div>
+                <div class="font-semibold" style="font-size:1rem">🐦 Early Bird — ₪10 / חודש</div>
+                <div class="text-sm text-muted mt-1">50 נכסים, קמפיין אחד, מחיר השקה לנצח</div>
+              </div>
+              <a href="${window.__GROW_LINK_EARLY_BIRD__ || '#'}" target="_blank" rel="noopener"
+                 class="btn btn-primary" onclick="window._pendingPlan='early_bird'">הצטרף עכשיו →</a>
+            </div>
+          </div>
+          <div class="card">
+            <div class="flex items-center justify-between gap-3" style="flex-wrap:wrap">
+              <div>
+                <div class="font-semibold" style="font-size:1rem">🚀 Pro — ₪149 / חודש</div>
+                <div class="text-sm text-muted mt-1">500 נכסים, 20 קמפיינים, כל הכלים</div>
+              </div>
+              <a href="${window.__GROW_LINK_PRO__ || '#'}" target="_blank" rel="noopener"
+                 class="btn btn-secondary" onclick="window._pendingPlan='pro'">התחיל</a>
+            </div>
+          </div>
+        </div>
+        <div class="card mt-4" style="background:#f8fafc">
+          <div class="card-title" style="font-size:0.875rem">כבר שילמת?</div>
+          <p class="text-sm text-muted mb-3">אם ביצעת תשלום אך החשבון לא הופעל, לחץ כאן:</p>
+          <button class="btn btn-secondary" onclick="claimPayment()">הפעל חשבון</button>
+        </div>` : ''}
+      ${isPaid ? `
+        <div class="card" style="background:#f0fdf4;border:1px solid #bbf7d0">
+          <div style="font-weight:700;color:#166534;margin-bottom:0.5rem">✓ המנוי פעיל</div>
+          <p class="text-sm text-muted">הגישה שלך למערכת פעילה ורציפה.</p>
+        </div>` : ''}`;
+  };
+
+  const buildAccountTab = () => `
     <div class="flex flex-col gap-6">
       <div class="card">
         <div class="card-title">פרופיל משתמש</div>
@@ -2184,7 +2468,9 @@ async function renderSettings() {
           </div>
           <div class="form-group">
             <label class="form-label">אימייל</label>
-            <input class="form-input" type="email" id="profile-email" value="${state.profile?.email || state.user?.email || ''}" readonly style="opacity:0.65;cursor:not-allowed" />
+            <input class="form-input" type="email" id="profile-email"
+              value="${state.profile?.email || state.user?.email || ''}"
+              readonly style="opacity:0.65;cursor:not-allowed" />
           </div>
           <button type="submit" class="btn btn-primary" style="width:auto">שמור שינויים</button>
         </form>
@@ -2197,7 +2483,17 @@ async function renderSettings() {
           <button class="btn btn-danger"    onclick="deleteAccount()">🗑 מחיקת חשבון</button>
         </div>
       </div>
-    </div>
+    </div>`;
+
+  const tabContent = settingsTab === 'business'     ? buildBusinessTab()
+                   : settingsTab === 'integrations' ? buildIntegrationsTab()
+                   : settingsTab === 'billing'       ? buildBillingTab()
+                   : buildAccountTab();
+
+  renderShell(`
+    <div class="page-header"><h1 class="page-title">⚙️ הגדרות</h1></div>
+    ${_settingsTabBar()}
+    ${tabContent}
   `);
 }
 
@@ -2239,21 +2535,72 @@ function renderLandingPages() {
 }
 
 // ── Stub pages — not yet implemented ──────────────────────────────────────────
-function renderRecommendations() {
-  renderShell(`<div class="page-header"><h1 class="page-title">💡 המלצות</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
+function _insightsTabBar() {
+  const tabs = [
+    { id: 'performance',     icon: '📈', label: 'ביצועים' },
+    { id: 'economics',       icon: '💰', label: 'כלכלת יחידה' },
+    { id: 'abtests',         icon: '🧪', label: 'A/B Tests' },
+    { id: 'recommendations', icon: '💡', label: 'המלצות' },
+    { id: 'copy',            icon: '✍️', label: 'קופי' },
+  ];
+  return `<div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1.75rem;overflow-x:auto">
+    ${tabs.map(t => `
+      <button onclick="switchInsightsTab('${t.id}')"
+        style="padding:0.6rem 1rem;border:none;border-bottom:2px solid ${insightsTab === t.id ? '#6366f1' : 'transparent'};
+               margin-bottom:-2px;background:none;cursor:pointer;font-size:0.88rem;
+               font-weight:${insightsTab === t.id ? '700' : '500'};
+               color:${insightsTab === t.id ? '#6366f1' : '#64748b'};white-space:nowrap;transition:color 0.15s">
+        ${t.icon} ${t.label}
+      </button>`).join('')}
+  </div>`;
 }
-async function renderPerformance() {
-  renderShell(`<div class="page-header"><h1 class="page-title">📈 ביצועים</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
+
+function switchInsightsTab(tab) {
+  insightsTab = tab;
+  renderInsights();
 }
-async function renderEconomics() {
-  renderShell(`<div class="page-header"><h1 class="page-title">💰 כלכלה</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
+
+function renderInsights(tabOverride) {
+  if (tabOverride) insightsTab = tabOverride;
+
+  const comingSoon = (title, icon, desc) => `
+    <div class="card">
+      <div class="empty-state" style="padding:3rem 1rem">
+        <div class="empty-state-icon" style="font-size:2.5rem">${icon}</div>
+        <h3 class="empty-state-title">${title}</h3>
+        <p class="empty-state-desc">${desc || 'תכונה זו תהיה זמינה בקרוב — בינתיים חבר אינטגרציות כדי לאסוף נתונים.'}</p>
+        <button class="btn btn-secondary mt-3" onclick="switchSettingsTab('integrations');navigate('settings')">חבר אינטגרציות</button>
+      </div>
+    </div>`;
+
+  const hasMetrics = (state.integrations || []).some(i => i.connection_status === 'active');
+
+  const tabContent = {
+    performance: hasMetrics
+      ? `<div class="card">
+           <div class="card-title">📈 ביצועי קמפיינים</div>
+           <div id="live-stats-container">${renderLiveStatsContent()}</div>
+           <button class="btn btn-sm btn-secondary mt-3" onclick="refreshLiveStats()">רענן נתונים</button>
+         </div>`
+      : comingSoon('ביצועים', '📈', 'חבר Google Ads, Meta Ads, או Google Analytics כדי לראות נתוני ביצועים.'),
+    economics: comingSoon('כלכלת יחידה', '💰', 'ניתוח עלות לרכישה, ROI, ו-LTV — יהיה זמין בקרוב.'),
+    abtests:   comingSoon('A/B Tests', '🧪', 'השוואת גרסאות מודעות ודפי נחיתה — יהיה זמין בקרוב.'),
+    recommendations: comingSoon('המלצות AI', '💡', 'המלצות אוטומטיות לשיפור קמפיינים — יהיה זמין בקרוב.'),
+    copy: comingSoon('קופירייטינג', '✍️', 'ניתוח ביצועי טקסטים ומודעות — יהיה זמין בקרוב.'),
+  }[insightsTab] || '';
+
+  renderShell(`
+    <div class="page-header"><h1 class="page-title">📈 תובנות</h1></div>
+    ${_insightsTabBar()}
+    ${tabContent}
+  `);
 }
-function renderCopyGenerator() {
-  renderShell(`<div class="page-header"><h1 class="page-title">✍️ קופירייטינג</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
-}
-function renderAbTests() {
-  renderShell(`<div class="page-header"><h1 class="page-title">🧪 A/B בדיקות</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
-}
+
+function renderRecommendations() { renderInsights('recommendations'); }
+async function renderPerformance()  { renderInsights('performance'); }
+async function renderEconomics()    { renderInsights('economics'); }
+function renderCopyGenerator()      { renderInsights('copy'); }
+function renderAbTests()            { renderInsights('abtests'); }
 async function renderUpdates() {
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
@@ -3269,8 +3616,8 @@ function keepAlive() {
 
 function resolveInitialPage() {
   const params = new URLSearchParams(window.location.search);
-  if (params.has('success') || params.has('canceled') || params.has('session_id')) return 'billing';
-  if (params.has('connected') || (params.has('error') && window.location.search)) return 'integrations';
+  if (params.has('success') || params.has('canceled') || params.has('session_id')) return 'settings';
+  if (params.has('connected') || (params.has('error') && window.location.search)) return 'settings';
   // Restore page from URL hash on refresh
   const hash = window.location.hash.slice(1);
   if (hash && routes[hash]) return hash;
@@ -3420,24 +3767,24 @@ async function boot() {
         }).catch(() => {});
       }
 
+      // New user flow: no business profile + no prior session → ai-creation
+      const isNewUser = !bpRes && !cached && initialPage === 'dashboard';
+      if (isNewUser) state.currentPage = 'ai-creation';
+
       // Re-render only if we didn't show cached version (first-ever load)
       if (!cached || cached.userId !== session.user.id) {
-        if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
+        if (!isNewUser && state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
           state.currentPage = initialPage;
         }
         render();
       } else {
-        // Silently update nav in case subscription/onboarding changed
-        const navEl = document.querySelector('.sidebar-nav');
-        if (navEl) {
-          const u = state.unlockedScreens;
-          document.querySelectorAll('.nav-item[data-page]').forEach(el => {
-            const page = el.dataset.page;
-            const corePages = ['landing-pages','recommendations','copy','performance','ab-tests','economics'];
-            if (corePages.includes(page)) {
-              el.style.display = u.has(page) ? '' : 'none';
-            }
-          });
+        // Redirect to settings with right tab for OAuth callbacks
+        const _qp = new URLSearchParams(window.location.search);
+        if (initialPage === 'settings' && _qp.has('connected')) {
+          settingsTab = 'integrations';
+        }
+        if (initialPage === 'settings' && (_qp.has('success') || _qp.has('session_id'))) {
+          settingsTab = 'billing';
         }
       }
     } catch {
@@ -3514,5 +3861,9 @@ window.leadsCopy             = leadsCopy;
 window.leadsLoadAll          = leadsLoadAll;
 window.sendSupportMessage    = sendSupportMessage;
 window.renderSupport         = renderSupport;
+window.switchSettingsTab      = switchSettingsTab;
+window.switchInsightsTab      = switchInsightsTab;
+window.renderInsights         = renderInsights;
+window._renderAICreationShell = _renderAICreationShell;
 
 boot();
