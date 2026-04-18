@@ -80,6 +80,11 @@ function getPlanLabel(plan)  { return PLAN_LIMITS[plan]?.label || plan.toUpperCa
 
 function navigate(page, params = {}) {
   if (page === 'updates') state.updatesCount = 0;
+  // Restore chat trigger when leaving integrations
+  if (state.currentPage === 'integrations' && page !== 'integrations') {
+    const chatTrigger = document.getElementById('chat-trigger');
+    if (chatTrigger) chatTrigger.style.display = '';
+  }
   state.currentPage = page;
   Object.assign(state, params);
   // Update URL hash so page survives refresh
@@ -1142,6 +1147,9 @@ async function showCampaignDetail(campaignId) {
  * The authorization code and refresh/access tokens NEVER touch the frontend.
  */
 async function renderIntegrations() {
+  // Hide floating support chat on this page
+  const chatTrigger = document.getElementById('chat-trigger');
+  if (chatTrigger) chatTrigger.style.display = 'none';
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
   try {
@@ -1221,6 +1229,34 @@ async function renderIntegrations() {
       }).join('')}
     </div>
 
+    <!-- CRM & Other Systems -->
+    <div class="page-header mt-8" style="margin-bottom:1rem">
+      <h2 class="page-title" style="font-size:1.25rem">🗂️ מערכות CRM וניהול</h2>
+      <p class="page-subtitle">חבר מערכות ניהול לקוחות ואוטומציה — לידים יועברו אוטומטית</p>
+    </div>
+    <div class="integration-grid">
+      ${[
+        { id: 'fixdigital', name: 'פיקס דיגיטל', icon: '🔧', desc: 'CRM ישראלי לניהול לקוחות ולידים' },
+        { id: 'origami',    name: 'אוריגמי',     icon: '📄', desc: 'מערכת ניהול עסקי ישראלית' },
+        { id: 'monday',     name: 'Monday.com',  icon: '📅', desc: 'ניהול פרויקטים ולידים' },
+        { id: 'salesforce', name: 'Salesforce',  icon: '☁️', desc: 'מערכת CRM גלובלית' },
+        { id: 'hubspot',    name: 'HubSpot',     icon: '🟠', desc: 'CRM ושיווק אוטומטי' },
+        { id: 'webhook',    name: 'Webhook אוניברסלי', icon: '🔗', desc: 'חבר כל מערכת שתומכת ב-webhook' },
+      ].map(crm => `
+        <div class="integration-card" style="border:1.5px solid #e2e8f0;background:#fafafa">
+          <div class="integration-header">
+            <div class="integration-icon">${crm.icon}</div>
+            <div>
+              <div class="integration-name">${crm.name}</div>
+              <div class="integration-desc">${crm.desc}</div>
+            </div>
+          </div>
+          <button class="btn btn-secondary" style="opacity:0.8" onclick="showCRMConnect('${crm.id}','${crm.name}')">
+            ${crm.id === 'webhook' ? '⚙️ הגדר Webhook' : '🔗 חבר'}
+          </button>
+        </div>`).join('')}
+    </div>
+
     <div class="card mt-6" style="background:#f8fafc;border:1px solid #e2e8f0">
       <div class="card-title" style="font-size:0.875rem">🔐 אבטחת הנתונים שלך</div>
       <p class="text-sm text-muted">
@@ -1280,6 +1316,43 @@ async function connectIntegration(provider) {
     const url = `https://www.tiktok.com/v2/auth/authorize?client_key=${encodeURIComponent(clientKey)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${state64}`;
     window.location.href = url;
   }
+}
+
+function showCRMConnect(id, name) {
+  const isWebhook = id === 'webhook';
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML = `
+    <div class="card" style="width:min(480px,90vw);max-height:80vh;overflow-y:auto">
+      <div class="card-title">🔗 חיבור ${name}</div>
+      ${isWebhook ? `
+        <p class="text-sm text-muted mb-3">הכנס את ה-URL של ה-webhook שלך. כל ליד חדש יישלח אוטומטית ל-URL זה כ-POST עם פרטי הליד.</p>
+        <div class="form-group">
+          <label class="form-label">Webhook URL</label>
+          <input class="form-input" id="crm-webhook-url" placeholder="https://hooks.yourapp.com/lead" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Authorization Header (אופציונלי)</label>
+          <input class="form-input" id="crm-webhook-auth" placeholder="Bearer token..." />
+        </div>` : `
+        <p class="text-sm text-muted mb-3">חיבור ל-${name} יהיה זמין בקרוב. ניתן לחבר כבר עכשיו דרך Webhook אוניברסלי.</p>
+        <p class="text-sm" style="color:#6366f1">לחיבור מיידי — השתמש ב-<strong>Webhook אוניברסלי</strong> שתומך בכל מערכת.</p>`}
+      <div class="flex gap-2 mt-4">
+        ${isWebhook ? `<button class="btn btn-primary" onclick="saveCRMWebhook()">שמור</button>` : `<button class="btn btn-primary" onclick="showCRMConnect('webhook','Webhook אוניברסלי');this.closest('[style*=fixed]').remove()">הגדר Webhook</button>`}
+        <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">סגור</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function saveCRMWebhook() {
+  const url  = document.getElementById('crm-webhook-url')?.value.trim();
+  const auth = document.getElementById('crm-webhook-auth')?.value.trim();
+  if (!url) { toast('נא להכניס URL', 'error'); return; }
+  try { new URL(url); } catch { toast('URL לא תקין', 'error'); return; }
+  localStorage.setItem('crm_webhook', JSON.stringify({ url, auth, savedAt: Date.now() }));
+  toast('Webhook נשמר בהצלחה ✓', 'success');
+  document.querySelector('[style*="position:fixed"]')?.remove();
 }
 
 async function disconnectIntegration(provider) {
@@ -1686,6 +1759,19 @@ function loadAISavedWorks() {
     return JSON.parse(localStorage.getItem(key) || '[]');
   } catch { return []; }
 }
+function deleteAISavedWork(id) {
+  try {
+    const key = 'ai_saved_works_' + (state.user?.id || 'anon');
+    const works = loadAISavedWorks().filter(w => String(w.id) !== String(id));
+    localStorage.setItem(key, JSON.stringify(works));
+    navigate('landing-pages');
+  } catch { toast('שגיאה במחיקה', 'error'); }
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => toast('הועתק ✓', 'success')).catch(() => toast('שגיאה בהעתקה', 'error'));
+}
+
 function saveAIWork(type, title, content) {
   try {
     const key = 'ai_saved_works_' + (state.user?.id || 'anon');
@@ -1912,7 +1998,7 @@ function _renderAICreationShell(bp, saved) {
 
 function switchAITab(tab) {
   aiCreationTab = tab;
-  navigate('ai_creation');
+  navigate('ai-creation');
 }
 
 async function generateAdScript() {
@@ -2121,8 +2207,42 @@ async function renderSettings() {
   `);
 }
 
-// ── Landing Pages (alias for Marketing Assets) ────────────────────────────────
-function renderLandingPages() { return renderMarketingAssets(); }
+// ── Landing Pages ─────────────────────────────────────────────────────────────
+function renderLandingPages() {
+  const saved = loadAISavedWorks().filter(a => a.type === 'landing_page');
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">🚀 דפי נחיתה</h1>
+        <p class="page-subtitle">דפי הנחיתה שיצרת עם ה-AI</p>
+      </div>
+      <button class="btn btn-gradient" style="width:auto" onclick="navigate('ai-creation')">+ צור דף חדש</button>
+    </div>
+    ${saved.length === 0 ? `
+      <div class="card">
+        <div class="empty-state">
+          <div class="empty-state-icon">🏗️</div>
+          <h3 class="empty-state-title">עדיין אין דפי נחיתה</h3>
+          <p class="empty-state-desc">עבור למחולל התכנים וצור דף נחיתה ראשון</p>
+          <button class="btn btn-gradient" style="width:auto" onclick="navigate('ai-creation')">✨ צור דף נחיתה</button>
+        </div>
+      </div>` : `
+      <div class="flex flex-col gap-4">
+        ${saved.map(a => `
+          <div class="card" style="cursor:default">
+            <div class="flex items-center justify-between mb-2">
+              <div class="card-title" style="margin:0">${a.title || 'דף נחיתה'}</div>
+              <span class="text-xs text-muted">${new Date(a.savedAt).toLocaleDateString('he-IL')}</span>
+            </div>
+            <div class="text-sm text-muted" style="white-space:pre-wrap;max-height:120px;overflow:hidden">${(a.content||'').slice(0,300)}${a.content?.length>300?'...':''}</div>
+            <div class="flex gap-2 mt-3">
+              <button class="btn btn-sm btn-secondary" onclick="copyText(${JSON.stringify((a.content||'').replace(/"/g,'&quot;'))})">📋 העתק</button>
+              <button class="btn btn-sm btn-danger" onclick="deleteAISavedWork('${a.id}')">🗑 מחק</button>
+            </div>
+          </div>`).join('')}
+      </div>`}
+  `);
+}
 
 // ── Stub pages — not yet implemented ──────────────────────────────────────────
 function renderRecommendations() {
@@ -3227,6 +3347,10 @@ window.clearPersonalNotifications = clearPersonalNotifications;
 window.showCampaignDetail    = showCampaignDetail;
 window.connectIntegration    = connectIntegration;
 window.disconnectIntegration = disconnectIntegration;
+window.showCRMConnect        = showCRMConnect;
+window.saveCRMWebhook        = saveCRMWebhook;
+window.deleteAISavedWork     = deleteAISavedWork;
+window.copyText              = copyText;
 window.confirmPayment        = confirmPayment;
 window.claimPayment          = claimPayment;
 window.submitClaim           = submitClaim;
