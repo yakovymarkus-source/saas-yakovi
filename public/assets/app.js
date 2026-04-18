@@ -2862,9 +2862,11 @@ async function boot() {
   }).catch(() => {});
 
   sb.auth.onAuthStateChange(async (event, session) => {
-    bootCompleted = true;
+    // Don't mark boot completed yet if token refresh may still be in progress
+    if (event !== 'INITIAL_SESSION' || session) bootCompleted = true;
 
     // INITIAL_SESSION with null session = JWT refresh in progress — do NOT flash login screen
+    // bootCompleted stays false so the 8-second fallback can call renderAuth() if no session arrives
     if (event === 'INITIAL_SESSION' && !session) return;
 
     // Token refresh — just update the token silently, no re-render needed
