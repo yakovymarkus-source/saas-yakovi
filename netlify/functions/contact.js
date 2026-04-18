@@ -10,11 +10,30 @@
 
 const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload } = require('./_shared/observability');
-const { writeRequestLog }                       = require('./_shared/supabase');
+const { writeRequestLog, getAdminClient }       = require('./_shared/supabase');
 const { AppError }                              = require('./_shared/errors');
 const { parseJsonBody }                         = require('./_shared/request');
 const { getEnv }                                = require('./_shared/env');
 const { sendEmail }                             = require('./_shared/email');
+
+const SUBJECT_TO_TYPE = {
+  'תמיכה טכנית':  'question',
+  'שאלה על חיוב': 'question',
+  'בקשת תכונה':   'feature_request',
+  'דיווח על באג': 'bug',
+};
+
+async function getUserIdFromToken(event) {
+  try {
+    const auth = event.headers?.authorization || event.headers?.Authorization || '';
+    const token = auth.replace(/^Bearer\s+/i, '').trim();
+    if (!token) return null;
+    const sb = getAdminClient();
+    const { data: { user }, error } = await sb.auth.getUser(token);
+    if (error || !user) return null;
+    return user.id;
+  } catch { return null; }
+}
 
 const APP_URL = () => process.env.APP_URL || process.env.URL || '';
 
@@ -44,6 +63,24 @@ exports.handler = async (event) => {
 
     const body = parseJsonBody(event, { fallback: {}, allowEmpty: false });
     const { name, email, subject, message } = validateContact(body);
+
+    // Save ticket to DB so admin can see it in the dashboard
+    const userId = await getUserIdFromToken(event);
+    const ticketType = SUBJECT_TO_TYPE[subject] || 'question';
+    let savedTicketId = null;
+    try {
+      const sb = getAdminClient();
+      const { data: ticket } = await sb.from('support_tickets').insert({
+        user_id:     userId,
+        title:       subject,
+        description: message,
+        type:        ticketType,
+        status:      'open',
+      }).select('id').single();
+      savedTicketId = ticket?.id || null;
+    } catch (dbErr) {
+      console.error('[contact] DB save failed:', dbErr.message);
+    }
 
     const env        = getEnv();
     const adminEmail = env.ADMIN_EMAIL;

@@ -33,6 +33,7 @@ let state = {
   businessProfile:   null,   // business_profiles row
   updatesCount:      0,      // unread system updates badge
   localNotifCount:   0,      // unread personal notifications (analysis, leads) from localStorage
+  supportCount:      0,      // open support tickets (admin only)
 };
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -320,7 +321,7 @@ function renderShell(content) {
         { id: 'billing',      icon: '💳', label: 'חיוב',        always: true },
         { id: 'settings',     icon: '⚙️', label: 'הגדרות',      always: true },
         { id: 'support',      icon: '💬', label: 'תמיכה',        always: true },
-        ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול', always: true }] : []),
+        ...(state.profile?.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'ניהול', always: true, badge: state.supportCount || 0 }] : []),
       ],
     },
   ];
@@ -333,6 +334,7 @@ function renderShell(content) {
         <div class="nav-item ${state.currentPage === n.id ? 'active' : ''}" data-page="${n.id}"
              style="${n.sub ? 'padding-right:2rem;font-size:0.84rem;opacity:0.85;' : ''}">
           <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
+          ${n.badge > 0 ? `<span style="margin-right:auto;background:#ef4444;color:#fff;font-size:0.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px">${n.badge > 99 ? '99+' : n.badge}</span>` : ''}
         </div>`).join('')}
     `;
   };
@@ -2427,19 +2429,99 @@ async function deleteAccount() {
   }
 }
 
+// ── Admin Support Section ─────────────────────────────────────────────────────
+let adminReplyTicketId = null;
+
+function buildSupportSection(supportData) {
+  const tickets = supportData?.tickets || [];
+  const open    = tickets.filter(t => t.status === 'open');
+  const inProg  = tickets.filter(t => t.status === 'in_progress');
+  const closed  = tickets.filter(t => t.status === 'closed');
+
+  const statusBadge = { open: '#3b82f6', in_progress: '#f59e0b', closed: '#94a3b8' };
+  const statusLabel = { open: 'פתוחה', in_progress: 'בטיפול', closed: 'סגורה' };
+  const typeLabel   = { question: 'שאלה', bug: 'באג', feature_request: 'פיצ\'ר', feedback: 'פידבק', 'תמיכה טכנית': 'תמיכה', 'שאלה על חיוב': 'חיוב', 'בקשת תכונה': 'פיצ\'ר', 'דיווח על באג': 'באג' };
+
+  function ticketRow(t) {
+    const isReplying = adminReplyTicketId === t.id;
+    const sc = statusBadge[t.status] || '#94a3b8';
+    return `<div id="ticket-${t.id}" style="border:1px solid #e2e8f0;border-radius:.5rem;padding:.875rem 1rem;margin-bottom:.5rem;background:${t.status==='open'?'#fefce8':'#fff'}">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.3rem">
+            <span style="font-weight:600;font-size:.875rem">${t.title || '—'}</span>
+            <span style="font-size:.68rem;padding:.15rem .45rem;border-radius:9999px;background:${sc}20;color:${sc};font-weight:600">${statusLabel[t.status] || t.status}</span>
+            <span style="font-size:.68rem;padding:.15rem .45rem;border-radius:9999px;background:#f1f5f9;color:#64748b">${typeLabel[t.type] || t.type || '—'}</span>
+          </div>
+          <div style="font-size:.8rem;color:#64748b;margin-bottom:.35rem">${t.userEmail || 'אנונימי'}${t.userName ? ' · ' + t.userName : ''}</div>
+          <div style="font-size:.83rem;color:#374151;white-space:pre-wrap;max-height:60px;overflow:hidden">${(t.description || '').slice(0, 200)}${(t.description || '').length > 200 ? '…' : ''}</div>
+          <div style="font-size:.72rem;color:#94a3b8;margin-top:.3rem">${new Date(t.created_at).toLocaleString('he-IL')}</div>
+        </div>
+        <div style="display:flex;gap:.35rem;flex-shrink:0;align-items:flex-start;flex-wrap:wrap">
+          ${t.status !== 'closed' ? `<button class="btn btn-sm btn-primary" onclick="adminToggleReply('${t.id}')" style="font-size:.75rem">${isReplying ? 'ביטול' : '↩ ענה'}</button>` : ''}
+          ${t.status === 'open'        ? `<button class="btn btn-sm btn-secondary" onclick="adminSetTicketStatus('${t.id}','in_progress')" style="font-size:.75rem">בטיפול</button>` : ''}
+          ${t.status !== 'closed'      ? `<button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;font-size:.75rem" onclick="adminSetTicketStatus('${t.id}','closed')">סגור</button>` : ''}
+          ${t.status === 'closed'      ? `<button class="btn btn-sm btn-secondary" onclick="adminSetTicketStatus('${t.id}','open')" style="font-size:.75rem">פתח מחדש</button>` : ''}
+        </div>
+      </div>
+      ${isReplying ? `
+      <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid #e2e8f0">
+        <textarea id="reply-text-${t.id}" rows="3" placeholder="כתוב תגובה — תישלח למייל ${t.userEmail || ''}..."
+          style="width:100%;padding:.45rem .65rem;border:1.5px solid #6366f1;border-radius:.4rem;font-size:.875rem;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>
+        <div style="display:flex;gap:.5rem;margin-top:.4rem">
+          <button class="btn btn-primary btn-sm" onclick="adminSendReply('${t.id}')" style="font-size:.8rem">שלח תגובה במייל</button>
+          <button class="btn btn-secondary btn-sm" onclick="adminToggleReply(null)" style="font-size:.8rem">ביטול</button>
+        </div>
+      </div>` : ''}
+    </div>`;
+  }
+
+  const tabData = [
+    { id: 'open',        label: `פתוחות (${open.length})`,    tickets: open,    color: open.length > 0 ? '#ef4444' : '' },
+    { id: 'in_progress', label: `בטיפול (${inProg.length})`,  tickets: inProg,  color: '' },
+    { id: 'closed',      label: `סגורות (${closed.length})`,  tickets: closed,  color: '' },
+  ];
+
+  const activeTab = adminSupportTab;
+  const activeTabs = tabData.find(t => t.id === activeTab) || tabData[0];
+
+  return `<div class="analysis-card" style="margin-bottom:1.5rem">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+      <h3 class="font-semibold">🎫 פניות תמיכה${open.length > 0 ? ` <span style="background:#ef4444;color:#fff;font-size:.65rem;padding:.1rem .4rem;border-radius:9999px;margin-right:.35rem">${open.length} חדשות</span>` : ''}</h3>
+      <button class="btn btn-sm btn-secondary" onclick="renderAdmin()" style="font-size:.75rem">🔄 רענן</button>
+    </div>
+    <div style="display:flex;gap:.25rem;margin-bottom:1rem;border-bottom:1px solid #e2e8f0;padding-bottom:.5rem;flex-wrap:wrap">
+      ${tabData.map(t => `<button onclick="adminSupportTab='${t.id}';renderAdmin()"
+        style="padding:.3rem .75rem;border-radius:.4rem;border:none;cursor:pointer;font-size:.8rem;font-weight:${activeTab===t.id?'700':'400'};
+          background:${activeTab===t.id?'#1e293b':'transparent'};color:${activeTab===t.id?'#fff':t.color||'#64748b'}">
+        ${t.label}</button>`).join('')}
+    </div>
+    <div id="support-tickets-list">
+      ${activeTabs.tickets.length === 0
+        ? `<p class="text-muted text-sm" style="padding:.75rem 0">אין פניות ב${activeTabs.label}</p>`
+        : activeTabs.tickets.map(ticketRow).join('')}
+    </div>
+  </div>`;
+}
+
 // ── Admin Dashboard ───────────────────────────────────────────────────────────
 let adminUserFilter = 'all';
+let adminSupportTab = 'open';
 
 async function renderAdmin() {
   if (!state.profile?.is_admin) { navigate('dashboard'); return; }
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
-  let overview = null, usersData = null, updatesData = [];
-  [overview, usersData, updatesData] = await Promise.all([
+  let overview = null, usersData = null, updatesData = [], supportData = { tickets: [], total: 0 };
+  [overview, usersData, updatesData, supportData] = await Promise.all([
     api('GET', 'admin-overview').catch(e => { console.error('[admin] overview failed:', e.message); return null; }),
     api('GET', 'admin-users?limit=100&page=1').catch(e => { console.error('[admin] users failed:', e.message); return null; }),
     api('GET', 'admin-updates').catch(() => []),
+    api('GET', 'admin-support?limit=50').catch(() => ({ tickets: [], total: 0 })),
   ]);
+  // Update support badge count
+  const openCount = (supportData.tickets || []).filter(t => t.status === 'open').length;
+  if (state.supportCount !== openCount) { state.supportCount = openCount; }
 
   const fmt    = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
   const pct    = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
@@ -2547,6 +2629,8 @@ async function renderAdmin() {
     </div>
 
     ${buildAdminUserSections(usersData, pBadge)}
+
+    ${buildSupportSection(supportData)}
 
     <div class="analysis-card" style="margin-bottom:1.5rem">
       <h3 class="font-semibold mb-3">💳 שינוי תוכנית משתמש</h3>
@@ -2684,6 +2768,31 @@ async function activateUserPayment(userId, plan) {
   } catch (err) {
     toast(err.message || 'שגיאה בהפעלה', 'error');
   }
+}
+
+function adminToggleReply(ticketId) {
+  adminReplyTicketId = adminReplyTicketId === ticketId ? null : ticketId;
+  renderAdmin();
+}
+
+async function adminSendReply(ticketId) {
+  const msg = document.getElementById('reply-text-' + ticketId)?.value?.trim();
+  if (!msg) { toast('כתוב הודעה לפני שליחה', 'error'); return; }
+  try {
+    const r = await api('POST', 'admin-support', { ticketId, message: msg });
+    toast(`✓ תגובה נשלחה ל-${r.to || 'המשתמש'}`, 'success');
+    adminReplyTicketId = null;
+    renderAdmin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminSetTicketStatus(ticketId, status) {
+  try {
+    await api('PATCH', 'admin-support', { id: ticketId, status });
+    if (status === 'closed' || status === 'open') adminReplyTicketId = null;
+    toast(status === 'closed' ? 'פנייה נסגרה' : status === 'in_progress' ? 'סומן כבטיפול' : 'פנייה נפתחה מחדש', 'success');
+    renderAdmin();
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 async function adminChangePlanInline(userId) {
@@ -3284,6 +3393,24 @@ async function boot() {
         refreshBellBadge();
       }).catch(() => {});
 
+      // Admin: load open support ticket count for sidebar badge
+      if (state.profile?.is_admin) {
+        api('GET', 'admin-support?status=open&limit=1').then(d => {
+          state.supportCount = d?.total || 0;
+          // re-render sidebar badge without full page re-render
+          const adminNavItem = document.querySelector('.nav-item[data-page="admin"]');
+          if (adminNavItem && state.supportCount > 0) {
+            if (!adminNavItem.querySelector('[data-support-badge]')) {
+              const badge = document.createElement('span');
+              badge.setAttribute('data-support-badge', '');
+              badge.style.cssText = 'margin-right:auto;background:#ef4444;color:#fff;font-size:0.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px';
+              badge.textContent = state.supportCount > 99 ? '99+' : state.supportCount;
+              adminNavItem.appendChild(badge);
+            }
+          }
+        }).catch(() => {});
+      }
+
       // Re-render only if we didn't show cached version (first-ever load)
       if (!cached || cached.userId !== session.user.id) {
         if (state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
@@ -3358,6 +3485,10 @@ window.adminChangePlanByEmail = adminChangePlanByEmail;
 window.adminSaveUpdate       = adminSaveUpdate;
 window.adminTogglePublish    = adminTogglePublish;
 window.adminDeleteUpdate     = adminDeleteUpdate;
+window.adminToggleReply      = adminToggleReply;
+window.adminSendReply        = adminSendReply;
+window.adminSetTicketStatus  = adminSetTicketStatus;
+window.adminSupportTab       = adminSupportTab;
 window.saveProfile           = saveProfile;
 window.exportData            = exportData;
 window.deleteAccount         = deleteAccount;
