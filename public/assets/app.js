@@ -4060,4 +4060,20 @@ window.renderInsights         = renderInsights;
 window._renderAICreationShell = _renderAICreationShell;
 window.showQuickConnectModal  = showQuickConnectModal;
 
+// ── Global error trap (dev: surfaces silent crashes as visible page) ──────────
+window.onerror = function(msg, src, line, col, err) {
+  const app = document.getElementById('app');
+  if (app && (app.innerHTML.includes('loading-screen') || app.innerHTML.trim() === '')) {
+    app.innerHTML = `<div style="padding:2rem;font-family:monospace;direction:ltr;background:#fff1f2;color:#9f1239;border:2px solid #fda4af;border-radius:8px;margin:2rem;"><strong>JS Error (white-page debug):</strong><br>${msg}<br>at ${src}:${line}:${col}</div>`;
+  }
+  console.error('[onerror]', msg, src, line, col, err);
+};
+window.addEventListener('unhandledrejection', e => {
+  console.error('[unhandledrejection]', e.reason);
+  const app = document.getElementById('app');
+  if (app && (app.innerHTML.includes('loading-screen') || app.innerHTML.trim() === '')) {
+    app.innerHTML = `<div style="padding:2rem;font-family:monospace;direction:ltr;background:#fff1f2;color:#9f1239;border:2px solid #fda4af;border-radius:8px;margin:2rem;"><strong>Unhandled Promise Rejection (white-page debug):</strong><br>${e.reason}</div>`;
+  }
+});
+
 boot();
