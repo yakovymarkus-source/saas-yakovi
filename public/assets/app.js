@@ -3844,10 +3844,6 @@ async function boot() {
   const initialPage = resolveInitialPage();
   let bootCompleted = false;
 
-  // Warm up Supabase without blocking boot
-  fetch(window.__SUPABASE_URL__ + '/rest/v1/', {
-    headers: { 'apikey': window.__SUPABASE_ANON_KEY__ }
-  }).catch(() => {});
 
   sb.auth.onAuthStateChange(async (event, session) => {
     // Don't mark boot completed yet if token refresh may still be in progress
