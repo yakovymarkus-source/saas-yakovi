@@ -54,6 +54,7 @@ const assetHash = (() => {
     path.join(ASSETS_DIR, 'app.css'),
     path.join(ASSETS_DIR, 'chat.css'),
     path.join(ADMIN_DIR,  'app.js'),
+    path.join(ADMIN_DIR,  'app.css'),
   ]) {
     if (fs.existsSync(fp)) h.update(fs.readFileSync(fp));
   }
