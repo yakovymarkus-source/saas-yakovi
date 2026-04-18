@@ -2434,10 +2434,11 @@ async function renderAdmin() {
   if (!state.profile?.is_admin) { navigate('dashboard'); return; }
   renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
-  let overview = null, usersData = null;
-  [overview, usersData] = await Promise.all([
+  let overview = null, usersData = null, updatesData = [];
+  [overview, usersData, updatesData] = await Promise.all([
     api('GET', 'admin-overview').catch(e => { console.error('[admin] overview failed:', e.message); return null; }),
     api('GET', 'admin-users?limit=100&page=1').catch(e => { console.error('[admin] users failed:', e.message); return null; }),
+    api('GET', 'admin-updates').catch(() => []),
   ]);
 
   const fmt    = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
@@ -2546,6 +2547,65 @@ async function renderAdmin() {
     </div>
 
     ${buildAdminUserSections(usersData, pBadge)}
+
+    <div class="analysis-card" style="margin-bottom:1.5rem">
+      <h3 class="font-semibold mb-3">💳 שינוי תוכנית משתמש</h3>
+      <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+        <input id="admin-plan-email" class="form-input" placeholder="אימייל משתמש..." style="flex:1;min-width:200px;padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem"/>
+        <select id="admin-plan-select" style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;background:#fff">
+          <option value="free">Free</option>
+          <option value="early_bird">Early Bird</option>
+          <option value="starter">Starter</option>
+          <option value="pro">Pro</option>
+          <option value="agency">Agency</option>
+        </select>
+        <button class="btn btn-primary" onclick="adminChangePlanByEmail()">החל שינוי</button>
+      </div>
+      <p class="text-muted" style="font-size:.78rem;margin-top:.5rem">ניתן גם ללחוץ "שנה" ישירות בטבלת המשתמשים למטה</p>
+    </div>
+
+    <div class="analysis-card" style="margin-bottom:1.5rem">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold">📣 הודעות מערכת (פעמון)</h3>
+      </div>
+      <form onsubmit="adminSaveUpdate(event)" style="display:grid;gap:.6rem;margin-bottom:1rem">
+        <input class="form-input" id="adm-upd-title" placeholder="כותרת ההודעה *" required
+          style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem"/>
+        <textarea class="form-input" id="adm-upd-content" placeholder="תוכן ההודעה *" rows="3" required
+          style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;resize:vertical"></textarea>
+        <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+          <select id="adm-upd-type" style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;background:#fff">
+            <option value="new">חדש</option>
+            <option value="improved">שיפור</option>
+            <option value="fixed">תיקון</option>
+          </select>
+          <label style="display:flex;align-items:center;gap:.35rem;font-size:.875rem;cursor:pointer">
+            <input type="checkbox" id="adm-upd-published" checked> פרסם מיד
+          </label>
+          <button type="submit" class="btn btn-primary">פרסם הודעה</button>
+        </div>
+      </form>
+      <div id="admin-updates-list">
+        ${(updatesData || []).length === 0
+          ? '<p class="text-muted text-sm">אין הודעות עדיין</p>'
+          : (updatesData || []).slice(0, 10).map(u => `
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;padding:.6rem 0;border-bottom:1px solid #f1f5f9">
+              <div style="flex:1">
+                <div style="font-weight:600;font-size:.875rem">${u.title}</div>
+                <div class="text-muted" style="font-size:.78rem;margin-top:.15rem">${u.content.slice(0,80)}${u.content.length>80?'…':''}</div>
+                <div style="margin-top:.25rem;display:flex;gap:.4rem;flex-wrap:wrap">
+                  <span class="badge ${u.type==='new'?'badge-green':u.type==='improved'?'badge-blue':'badge-yellow'}">${u.type}</span>
+                  <span class="badge ${u.is_published?'badge-green':'badge-gray'}">${u.is_published?'פורסם':'טיוטה'}</span>
+                  ${u.is_pinned?'<span class="badge badge-purple">📌</span>':''}
+                </div>
+              </div>
+              <div style="display:flex;gap:.35rem;flex-shrink:0">
+                <button class="btn btn-sm btn-secondary" onclick="adminTogglePublish('${u.id}',${!u.is_published})">${u.is_published?'הסתר':'פרסם'}</button>
+                <button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5" onclick="adminDeleteUpdate('${u.id}')">מחק</button>
+              </div>
+            </div>`).join('')}
+      </div>
+    </div>
   `);
 }
 
@@ -2557,9 +2617,18 @@ function buildAdminUserSections(usersData, pBadge) {
 
   function buildRow(u, showActivate) {
     const adminBadge = u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.62rem">admin</span>' : '';
-    const actionCell = showActivate
-      ? '<td style="padding:0.4rem 0.6rem"><button class="btn btn-sm btn-primary" onclick="activateUserPayment(\'' + u.id + '\',\'' + u.plan + '\')">הפעל</button></td>'
+    const activateBtn = showActivate
+      ? '<button class="btn btn-sm btn-primary" style="margin-left:.25rem" onclick="activateUserPayment(\'' + u.id + '\',\'' + u.plan + '\')">הפעל</button>'
       : '';
+    const planOpts = ['free','early_bird','starter','pro','agency'].map(p =>
+      '<option value="' + p + '"' + (u.plan === p ? ' selected' : '') + '>' + p + '</option>'
+    ).join('');
+    const changePlanCell =
+      '<div style="display:flex;gap:.25rem;align-items:center">' +
+      '<select id="ipl-' + u.id + '" style="padding:.15rem .35rem;border:1px solid #d1d5db;border-radius:.35rem;font-size:.72rem;max-width:90px">' + planOpts + '</select>' +
+      '<button class="btn btn-sm btn-primary" onclick="adminChangePlanInline(\'' + u.id + '\')" style="padding:.2rem .45rem;font-size:.72rem">שנה</button>' +
+      activateBtn +
+      '</div>';
     const joined = u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—';
     return '<tr style="border-bottom:1px solid #f1f5f9">' +
       '<td style="padding:0.4rem 0.6rem">' + (u.email || '') + adminBadge + '</td>' +
@@ -2567,13 +2636,12 @@ function buildAdminUserSections(usersData, pBadge) {
       '<td style="padding:0.4rem 0.6rem"><span class="badge ' + (pBadge[u.plan] || 'badge-gray') + '">' + getPlanLabel(u.plan) + '</span></td>' +
       '<td style="padding:0.4rem 0.6rem">' + (u.campaignCount || 0) + '</td>' +
       '<td style="padding:0.4rem 0.6rem">' + joined + '</td>' +
-      actionCell +
+      '<td style="padding:0.4rem 0.6rem">' + changePlanCell + '</td>' +
       '</tr>';
   }
 
   function buildTable(users, showActivate) {
     if (!users.length) return '<p class="text-muted text-sm">אין משתמשים</p>';
-    const actionTh = showActivate ? '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">פעולה</th>' : '';
     return '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:0.85rem">' +
       '<thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">' +
       '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">אימייל</th>' +
@@ -2581,7 +2649,8 @@ function buildAdminUserSections(usersData, pBadge) {
       '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">תוכנית</th>' +
       '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">קמפיינים</th>' +
       '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">הצטרף</th>' +
-      actionTh + '</tr></thead>' +
+      '<th style="text-align:right;padding:0.4rem 0.6rem;font-weight:500">שינוי תוכנית</th>' +
+      '</tr></thead>' +
       '<tbody>' + users.map(u => buildRow(u, showActivate)).join('') + '</tbody>' +
       '</table></div>';
   }
@@ -2615,6 +2684,66 @@ async function activateUserPayment(userId, plan) {
   } catch (err) {
     toast(err.message || 'שגיאה בהפעלה', 'error');
   }
+}
+
+async function adminChangePlanInline(userId) {
+  const sel = document.getElementById('ipl-' + userId);
+  if (!sel) return;
+  const newPlan = sel.value;
+  if (!confirm(`שינוי תוכנית ל-${newPlan}?`)) return;
+  try {
+    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: userId, plan: newPlan });
+    toast(`✓ תוכנית שונתה ל-${newPlan}`, 'success');
+    renderAdmin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminChangePlanByEmail() {
+  const email   = document.getElementById('admin-plan-email')?.value?.trim();
+  const newPlan = document.getElementById('admin-plan-select')?.value;
+  if (!email) { toast('הכנס אימייל משתמש', 'error'); return; }
+  if (!confirm(`שינוי תוכנית עבור ${email} ל-${newPlan}?`)) return;
+  try {
+    const usersRes = await api('GET', `admin-users?search=${encodeURIComponent(email)}&limit=1`);
+    const user = usersRes?.users?.[0];
+    if (!user) { toast('משתמש לא נמצא', 'error'); return; }
+    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: user.id, plan: newPlan });
+    toast(`✓ תוכנית של ${email} שונתה ל-${newPlan}`, 'success');
+    renderAdmin();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminSaveUpdate(e) {
+  e.preventDefault();
+  const body = {
+    title:        document.getElementById('adm-upd-title').value.trim(),
+    content:      document.getElementById('adm-upd-content').value.trim(),
+    type:         document.getElementById('adm-upd-type').value,
+    is_published: document.getElementById('adm-upd-published').checked,
+    is_pinned:    false,
+  };
+  try {
+    await api('POST', 'admin-updates', body);
+    toast('הודעה פורסמה ✓', 'success');
+    renderAdmin();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function adminTogglePublish(id, publish) {
+  try {
+    await api('PATCH', 'admin-updates', { id, is_published: publish });
+    toast(publish ? 'פורסם ✓' : 'הוסתר', 'success');
+    renderAdmin();
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+async function adminDeleteUpdate(id) {
+  if (!confirm('למחוק את ההודעה לצמיתות?')) return;
+  try {
+    await api('DELETE', 'admin-updates', { id });
+    toast('נמחק', 'success');
+    renderAdmin();
+  } catch (err) { toast(err.message, 'error'); }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -3224,6 +3353,11 @@ window.confirmPayment        = confirmPayment;
 window.claimPayment          = claimPayment;
 window.submitClaim           = submitClaim;
 window.activateUserPayment   = activateUserPayment;
+window.adminChangePlanInline = adminChangePlanInline;
+window.adminChangePlanByEmail = adminChangePlanByEmail;
+window.adminSaveUpdate       = adminSaveUpdate;
+window.adminTogglePublish    = adminTogglePublish;
+window.adminDeleteUpdate     = adminDeleteUpdate;
 window.saveProfile           = saveProfile;
 window.exportData            = exportData;
 window.deleteAccount         = deleteAccount;
