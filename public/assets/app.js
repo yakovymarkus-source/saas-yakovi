@@ -707,45 +707,198 @@ function renderScoreBadge(score) {
 
 // ── Campaigns ─────────────────────────────────────────────────────────────────
 async function renderCampaigns() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  // Reload integrations if needed
+  if (!state.integrations.length) {
+    try { const r = await api('GET', 'integration-connect'); state.integrations = Array.isArray(r) ? r : []; } catch {}
+  }
+
+  // Fetch latest verdict per campaign
+  const verdicts = {};
+  if (state.campaigns.length > 0) {
+    try {
+      const { data } = await sb.from('decision_history')
+        .select('campaign_id,verdict,confidence,timestamp')
+        .in('campaign_id', state.campaigns.map(c => c.id))
+        .order('timestamp', { ascending: false });
+      (data || []).forEach(d => { if (!verdicts[d.campaign_id]) verdicts[d.campaign_id] = d; });
+    } catch {}
+
+    // Also fetch latest scores
+    try {
+      const { data: scores } = await sb.from('analysis_results')
+        .select('campaign_id,scores,created_at')
+        .in('campaign_id', state.campaigns.map(c => c.id))
+        .order('created_at', { ascending: false });
+      if (scores) scores.forEach(s => {
+        if (!verdicts[s.campaign_id]) verdicts[s.campaign_id] = {};
+        if (!verdicts[s.campaign_id].scores) verdicts[s.campaign_id].scores = s.scores;
+      });
+    } catch {}
+  }
+
+  const activeConns = (state.integrations || []).filter(i => i.connection_status === 'active');
+  const hasConns = activeConns.length > 0;
+  const PLATFORM_NAMES = { google_ads: 'Google Ads', meta: 'Meta Ads', ga4: 'Analytics', tiktok: 'TikTok' };
+
+  const statusDot = (verdict) => {
+    if (!verdict) return `<span style="width:9px;height:9px;border-radius:50%;background:#cbd5e1;display:inline-block" title="לא נותח"></span>`;
+    const v = verdict.verdict;
+    const color = v === 'healthy' ? '#22c55e' : v === 'critical' ? '#ef4444' : v === 'needs_work' ? '#f59e0b' : '#94a3b8';
+    const label = v === 'healthy' ? 'פעיל בריא' : v === 'critical' ? 'בעיה קריטית' : v === 'needs_work' ? 'דורש שיפור' : v || 'לא ידוע';
+    return `<span style="width:9px;height:9px;border-radius:50%;background:${color};display:inline-block" title="${label}"></span>`;
+  };
+
+  const statusBadge = (verdict) => {
+    if (!verdict) return `<span class="badge badge-gray" style="font-size:0.72rem">לא נותח</span>`;
+    const v = verdict.verdict;
+    if (v === 'healthy')    return `<span class="badge badge-green" style="font-size:0.72rem">✓ פעיל בריא</span>`;
+    if (v === 'critical')   return `<span class="badge badge-red" style="font-size:0.72rem">⚠ בעיה קריטית</span>`;
+    if (v === 'needs_work') return `<span class="badge badge-yellow" style="font-size:0.72rem">↗ דורש שיפור</span>`;
+    if (v === 'paused')     return `<span class="badge badge-gray" style="font-size:0.72rem">⏸ מושהה</span>`;
+    return `<span class="badge badge-blue" style="font-size:0.72rem">${v || 'בודק...'}</span>`;
+  };
+
   renderShell(`
     <div class="page-header flex items-center justify-between">
       <div>
-        <h1 class="page-title">📊 קמפיינים</h1>
-        <p class="page-subtitle">נהל ונתח את הנכסים השיווקיים שלך</p>
+        <h1 class="page-title">🎯 קמפיינים</h1>
+        <p class="page-subtitle">ניהול, ניתוח, ומעקב אחרי כל הקמפיינים שלך</p>
       </div>
-      <button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ נכס חדש</button>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary" style="width:auto" onclick="navigate('insights')">📈 תובנות כלליות →</button>
+        <button class="btn btn-primary" style="width:auto" onclick="showAddCampaignModal()">+ קמפיין חדש</button>
+      </div>
     </div>
-    <div class="campaign-list">
-      ${state.campaigns.length > 0 ? state.campaigns.map(c => `
-        <div class="campaign-item" onclick="showCampaignDetail('${c.id}')">
-          <div>
-            <div class="campaign-name">${c.name}</div>
-            <div class="campaign-meta">נוצר: ${new Date(c.created_at).toLocaleDateString('he-IL')}</div>
-          </div>
-          <div class="flex items-center gap-2">
-            <button class="btn btn-sm btn-primary" data-analysis-btn="${c.id}" onclick="event.stopPropagation();runAnalysis('${c.id}')">הרץ ניתוח</button>
-          </div>
-        </div>`).join('') : `
-        <div class="card">
-          <div class="empty-state">
-            <div class="empty-state-icon">🎯</div>
-            <h3 class="empty-state-title">עדיין אין נכסים שיווקיים</h3>
-            <p class="empty-state-desc">לחצו על "+ נכס חדש" כדי ליצור תסריט מודעה, דף נחיתה, אסטרטגיית פנל ועוד</p>
-            ${getPlanLimits(state.subscription?.plan || 'free').campaignLimit === 0
-              ? `<button class="btn btn-gradient" style="width:auto" onclick="settingsTab='billing';navigate('settings')">שדרג ליצירת נכסים →</button>`
-              : `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ צור נכס ראשון</button>`}
-          </div>
-        </div>`}
+
+    <!-- Platform connections bar -->
+    <div class="card mb-4" style="padding:1rem 1.25rem">
+      <div class="flex items-center justify-between gap-3" style="flex-wrap:wrap">
+        <div class="flex items-center gap-3">
+          <span style="font-size:0.85rem;font-weight:600;color:#374151">פלטפורמות מחוברות:</span>
+          ${hasConns
+            ? activeConns.map(i => `<span style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.82rem;background:#f0fdf4;color:#16a34a;padding:0.25rem 0.6rem;border-radius:9999px;border:1px solid #bbf7d0">
+                <span style="width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block"></span>
+                ${PLATFORM_NAMES[i.provider] || i.provider}
+              </span>`).join('')
+            : `<span style="font-size:0.85rem;color:#94a3b8">אין חשבון מחובר</span>`}
+        </div>
+        ${!hasConns ? `
+          <button class="btn btn-sm btn-primary" onclick="showQuickConnectModal()" style="width:auto">
+            🔌 חבר עכשיו
+          </button>` : `
+          <button class="btn btn-sm btn-secondary" onclick="showQuickConnectModal()" style="width:auto;font-size:0.8rem">
+            + חבר פלטפורמה נוספת
+          </button>`}
+      </div>
     </div>
+
+    <!-- Campaigns table -->
+    ${state.campaigns.length === 0 ? `
+      <div class="card">
+        <div class="empty-state">
+          <div class="empty-state-icon">🎯</div>
+          <h3 class="empty-state-title">עדיין אין קמפיינים</h3>
+          <p class="empty-state-desc">צור קמפיין ראשון כדי להתחיל לנתח ביצועים</p>
+          ${getPlanLimits(state.subscription?.plan || 'free').campaignLimit === 0
+            ? `<button class="btn btn-gradient" style="width:auto" onclick="settingsTab='billing';navigate('settings')">שדרג ליצירת קמפיינים →</button>`
+            : `<button class="btn btn-gradient" style="width:auto" onclick="showAddCampaignModal()">+ צור קמפיין ראשון</button>`}
+        </div>
+      </div>` : `
+      <div class="card" style="padding:0;overflow:hidden">
+        <table style="width:100%;border-collapse:collapse;font-size:0.88rem">
+          <thead>
+            <tr style="background:#f8fafc;border-bottom:1px solid #e2e8f0">
+              <th style="padding:0.85rem 1.25rem;text-align:right;font-weight:600;color:#64748b">שם הקמפיין</th>
+              <th style="padding:0.85rem 1rem;text-align:center;font-weight:600;color:#64748b">סטטוס</th>
+              <th style="padding:0.85rem 1rem;text-align:center;font-weight:600;color:#64748b">ציון</th>
+              <th style="padding:0.85rem 1rem;text-align:center;font-weight:600;color:#64748b">ניתוח אחרון</th>
+              <th style="padding:0.85rem 1rem;text-align:center;font-weight:600;color:#64748b">פעולות</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.campaigns.map((c, idx) => {
+              const v = verdicts[c.id];
+              const score = v?.scores?.overall;
+              const scoreColor = score >= 70 ? '#16a34a' : score >= 45 ? '#d97706' : score != null ? '#dc2626' : '#94a3b8';
+              const lastAnalyzed = v?.timestamp ? new Date(v.timestamp).toLocaleDateString('he-IL') : '—';
+              return `<tr style="border-bottom:1px solid #f1f5f9;cursor:pointer;transition:background 0.12s"
+                  onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''"
+                  onclick="showCampaignDetail('${c.id}')">
+                <td style="padding:1rem 1.25rem">
+                  <div style="font-weight:600;color:#1e293b">${c.name}</div>
+                  <div style="font-size:0.78rem;color:#94a3b8">נוצר: ${new Date(c.created_at).toLocaleDateString('he-IL')}</div>
+                </td>
+                <td style="padding:1rem;text-align:center">${statusBadge(v)}</td>
+                <td style="padding:1rem;text-align:center">
+                  ${score != null
+                    ? `<span style="font-weight:700;font-size:1rem;color:${scoreColor}">${score}</span><span style="font-size:0.7rem;color:#94a3b8">/100</span>`
+                    : `<span style="color:#cbd5e1">—</span>`}
+                </td>
+                <td style="padding:1rem;text-align:center;color:#64748b;font-size:0.82rem">${lastAnalyzed}</td>
+                <td style="padding:1rem;text-align:center">
+                  <button class="btn btn-sm btn-primary" data-analysis-btn="${c.id}"
+                    onclick="event.stopPropagation();runAnalysis('${c.id}')" style="width:auto;padding:0.3rem 0.75rem;font-size:0.8rem">
+                    הרץ ניתוח
+                  </button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card mt-4" style="background:linear-gradient(135deg,#f8f7ff,#f0f9ff);border:1px solid #e0e7ff;text-align:center;padding:1.5rem">
+        <div style="font-size:1rem;font-weight:700;margin-bottom:0.5rem">📈 רוצה לראות תמונה שלמה על כל השיווק שלך?</div>
+        <p class="text-sm text-muted" style="margin-bottom:1rem">בעמוד התובנות תמצא ביצועים, כלכלת יחידה, A/B tests ונתוני CRM — הכל במקום אחד</p>
+        <button class="btn btn-primary" style="width:auto" onclick="navigate('insights')">עבור לתובנות →</button>
+      </div>`}
   `);
+}
+
+function showQuickConnectModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const integrationDefs = [
+    { provider: 'google_ads', name: 'Google Ads',  icon: '🟢' },
+    { provider: 'meta',       name: 'Meta Ads',    icon: '🔵' },
+    { provider: 'ga4',        name: 'Analytics 4', icon: '📈' },
+    { provider: 'tiktok',     name: 'TikTok Ads',  icon: '🎵' },
+  ];
+  const connMap = new Map((state.integrations || []).map(i => [i.provider, i]));
+  overlay.innerHTML = `
+    <div class="modal-box" style="max-width:400px">
+      <h2 class="modal-title">🔌 חיבור פלטפורמה</h2>
+      <p class="text-sm text-muted mb-4">בחר פלטפורמה לחיבור — תועבר ותחזור אוטומטית</p>
+      <div class="flex flex-col gap-3">
+        ${integrationDefs.map(def => {
+          const conn = connMap.get(def.provider);
+          const isActive = conn?.connection_status === 'active';
+          return `<div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:${isActive ? '#f0fdf4' : '#fff'}">
+            <div style="display:flex;align-items:center;gap:0.6rem">
+              <span>${def.icon}</span>
+              <span style="font-weight:600;font-size:0.9rem">${def.name}</span>
+              ${isActive ? '<span style="font-size:0.75rem;color:#16a34a">✓ מחובר</span>' : ''}
+            </div>
+            ${isActive
+              ? `<button class="btn btn-sm btn-danger" onclick="this.closest('.modal-overlay').remove();disconnectIntegration('${def.provider}')">נתק</button>`
+              : `<button class="btn btn-sm btn-primary" id="qc-btn-${def.provider}"
+                  onclick="this.closest('.modal-overlay').remove();connectIntegration('${def.provider}')">חבר</button>`}
+          </div>`;
+        }).join('')}
+      </div>
+      <button class="btn btn-secondary mt-4" onclick="this.closest('.modal-overlay').remove()">סגור</button>
+    </div>`;
+  document.body.appendChild(overlay);
 }
 
 function showAddCampaignModal() {
   // CA-008: guard for free plan — campaign creation is blocked, redirect to billing
   const plan = state.subscription?.plan || 'free';
   if (getPlanLimits(plan).campaignLimit === 0) {
-    navigate('billing');
-    toast('שדרג את התוכנית שלך כדי ליצור נכסים שיווקיים', 'info');
+    settingsTab = 'billing'; navigate('settings');
+    toast('שדרג את התוכנית שלך כדי ליצור קמפיינים', 'info');
     return;
   }
   const overlay = document.createElement('div');
@@ -1056,14 +1209,38 @@ async function showCampaignDetail(campaignId) {
       </div>
     </div>` : '';
 
+  const activeConns = (state.integrations || []).filter(i => i.connection_status === 'active');
+  const PNAMES = { google_ads: 'Google Ads', meta: 'Meta Ads', ga4: 'Analytics', tiktok: 'TikTok' };
+
+  // Extract bottlenecks from recommendations (high urgency items)
+  const bottlenecks = recommendations.filter(r => r.urgency >= 75).slice(0, 3);
+
   renderShell(`
     <div class="page-header flex items-center justify-between">
       <div>
-        <button class="btn btn-sm btn-secondary mb-2" onclick="navigate('campaigns')">← חזור לנכסים</button>
+        <button class="btn btn-sm btn-secondary mb-2" onclick="navigate('campaigns')">← כל הקמפיינים</button>
         <h1 class="page-title">${campaign.name}</h1>
-        <p class="page-subtitle">ID: ${campaignId}</p>
+        <p class="page-subtitle">ניתוח מפורט לקמפיין זה</p>
       </div>
-      <button class="btn btn-primary" style="width:auto" onclick="runAnalysis('${campaignId}')">הרץ ניתוח חדש</button>
+      <div class="flex gap-2">
+        <button class="btn btn-secondary" style="width:auto" onclick="navigate('insights')">📈 תובנות כלליות →</button>
+        <button class="btn btn-primary" style="width:auto" data-analysis-btn="${campaignId}" onclick="runAnalysis('${campaignId}')">הרץ ניתוח חדש</button>
+      </div>
+    </div>
+
+    <!-- Platform connections for this campaign -->
+    <div class="card mb-4" style="padding:0.875rem 1.25rem">
+      <div class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <span style="font-size:0.82rem;font-weight:600;color:#374151">פלטפורמות:</span>
+          ${activeConns.length > 0
+            ? activeConns.map(i => `<span style="font-size:0.8rem;background:#f0fdf4;color:#16a34a;padding:0.2rem 0.55rem;border-radius:9999px;border:1px solid #bbf7d0">${PNAMES[i.provider] || i.provider}</span>`).join('')
+            : `<span style="font-size:0.82rem;color:#94a3b8">אין פלטפורמה מחוברת</span>`}
+        </div>
+        <button class="btn btn-sm ${activeConns.length ? 'btn-secondary' : 'btn-primary'}" onclick="showQuickConnectModal()" style="width:auto;font-size:0.8rem">
+          ${activeConns.length ? '+ פלטפורמה נוספת' : '🔌 חבר פלטפורמה'}
+        </button>
+      </div>
     </div>
 
     ${latest ? `
@@ -1097,6 +1274,20 @@ async function showCampaignDetail(campaignId) {
       </div>
       ${scoresHtml}
       ${metricsHtml}
+
+      ${bottlenecks.length > 0 ? `
+      <div class="card mt-4" style="border-right:4px solid #ef4444">
+        <div class="card-title" style="color:#dc2626">🚧 צווארי בקבוק עיקריים</div>
+        <div class="flex flex-col gap-3">
+          ${bottlenecks.map(r => `
+            <div style="background:#fef2f2;border-radius:8px;padding:0.75rem 1rem">
+              <div style="font-weight:600;color:#991b1b;margin-bottom:0.25rem">${r.issue}</div>
+              <div class="text-sm" style="color:#7f1d1d">${r.root_cause}</div>
+              <div class="text-sm" style="color:#1e293b;margin-top:0.35rem"><strong>פתרון:</strong> ${r.action}</div>
+            </div>`).join('')}
+        </div>
+      </div>` : ''}
+
       ${recoHtml}
     </div>` : `
     <div class="card text-center" style="padding:3rem">
@@ -1119,6 +1310,12 @@ async function showCampaignDetail(campaignId) {
           </div>`).join('')}
       </div>
     </div>` : ''}
+
+    <div class="card mt-4" style="background:linear-gradient(135deg,#f8f7ff,#f0f9ff);border:1px solid #e0e7ff;text-align:center;padding:1.5rem">
+      <div style="font-size:1rem;font-weight:700;margin-bottom:0.5rem">📈 רוצה לראות תמונה רחבה יותר?</div>
+      <p class="text-sm text-muted" style="margin-bottom:1rem">עמוד התובנות מציג ביצועים מכל הפלטפורמות, כלכלת יחידה, ונתוני CRM — לא רק קמפיין זה</p>
+      <button class="btn btn-primary" style="width:auto" onclick="navigate('insights')">עבור לתובנות כלליות →</button>
+    </div>
   `);
 }
 
@@ -3865,5 +4062,6 @@ window.switchSettingsTab      = switchSettingsTab;
 window.switchInsightsTab      = switchInsightsTab;
 window.renderInsights         = renderInsights;
 window._renderAICreationShell = _renderAICreationShell;
+window.showQuickConnectModal  = showQuickConnectModal;
 
 boot();
