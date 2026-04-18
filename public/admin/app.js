@@ -12,7 +12,7 @@ const { createClient } = supabase;
 const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let state = { user: null, page: 'overview', userId: null };
+let state = { user: null, page: 'overview', userId: null, openTickets: 0 };
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function api(method, path, body, params) {
@@ -72,7 +72,9 @@ function shell(content) {
         <div class="sidebar-brand">Campaign<span>AI</span> <span style="font-size:.7rem;opacity:.5">admin</span></div>
         <nav class="sidebar-nav">
           ${nav.map(n => `<div class="nav-item ${state.page===n.id?'active':''}" onclick="navigate('${n.id}')">
-            <span class="icon">${n.icon}</span>${n.label}</div>`).join('')}
+            <span class="icon">${n.icon}</span>${n.label}
+            ${n.id==='support-mgmt' && state.openTickets > 0 ? `<span style="margin-right:auto;background:#ef4444;color:#fff;font-size:.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px">${state.openTickets > 99 ? '99+' : state.openTickets}</span>` : ''}
+            </div>`).join('')}
         </nav>
         <div class="sidebar-footer">${state.user?.email || ''}<br/>
           <span onclick="handleLogout()" style="cursor:pointer;color:#818cf8">Sign out</span></div>
@@ -698,7 +700,7 @@ async function deleteUpdate(id) {
 }
 
 // ── Support Tickets Management ─────────────────────────────────────────────────
-let supportAdminState = { page: 1, status: '', selected: null, tickets: [], total: 0, limit: 25 };
+let supportAdminState = { page: 1, status: '', selected: null, replyingTo: null, tickets: [], total: 0, limit: 25 };
 
 async function renderAdminSupport() {
   shell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
@@ -779,23 +781,53 @@ function _drawSupportPage() {
         </div>
         <div class="support-desc">${sel.description}</div>
         <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
+          ${sel.status !== 'closed' ? `<button class="btn btn-sm btn-primary" onclick="toggleSupportReply('${sel.id}')">${supportAdminState.replyingTo === sel.id ? 'ביטול' : '↩ ענה במייל'}</button>` : ''}
           ${sel.status !== 'in_progress' ? `<button class="btn btn-sm btn-secondary" onclick="updateTicketStatus('${sel.id}','in_progress')">בטיפול</button>` : ''}
           ${sel.status !== 'closed'      ? `<button class="btn btn-sm btn-danger"    onclick="updateTicketStatus('${sel.id}','closed')">סגור פנייה</button>` : ''}
           ${sel.status === 'closed'      ? `<button class="btn btn-sm btn-primary"   onclick="updateTicketStatus('${sel.id}','open')">פתח מחדש</button>` : ''}
         </div>
+        ${supportAdminState.replyingTo === sel.id ? `
+        <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--gray-200)">
+          <p style="font-size:.78rem;color:var(--gray-500);margin-bottom:.4rem">תגובה תישלח ל-${sel.userEmail || '?'}</p>
+          <textarea id="support-reply-text" rows="4" placeholder="כתוב את תגובתך..."
+            style="width:100%;padding:.5rem .7rem;border:1.5px solid var(--brand);border-radius:.4rem;font-size:.85rem;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>
+          <div style="display:flex;gap:.5rem;margin-top:.5rem">
+            <button class="btn btn-primary btn-sm" onclick="sendSupportReply('${sel.id}')">שלח תגובה</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleSupportReply(null)">ביטול</button>
+          </div>
+        </div>` : ''}
       </div>` : ''}
     </div>`);
 }
 
 function selectTicket(id) {
   supportAdminState.selected = id === supportAdminState.selected ? null : id;
+  supportAdminState.replyingTo = null;
   _drawSupportPage();
+}
+function toggleSupportReply(id) {
+  supportAdminState.replyingTo = supportAdminState.replyingTo === id ? null : id;
+  _drawSupportPage();
+  if (id) requestAnimationFrame(() => document.getElementById('support-reply-text')?.focus());
+}
+async function sendSupportReply(ticketId) {
+  const msg = document.getElementById('support-reply-text')?.value?.trim();
+  if (!msg) { toast('כתוב הודעה לפני שליחה', 'error'); return; }
+  try {
+    const r = await api('POST', 'admin-support', { ticketId, message: msg });
+    toast(`✓ תגובה נשלחה ל-${r.to || 'המשתמש'}`, 'success');
+    supportAdminState.replyingTo = null;
+    const t = supportAdminState.tickets.find(x => x.id === ticketId);
+    if (t) t.status = 'in_progress';
+    _drawSupportPage();
+  } catch (e) { toast(e.message, 'error'); }
 }
 async function updateTicketStatus(id, status) {
   try {
     await api('PATCH', 'admin-support', { id, status });
     const t = supportAdminState.tickets.find(x => x.id === id);
     if (t) t.status = status;
+    supportAdminState.replyingTo = null;
     toast('Updated ✓', 'success');
     _drawSupportPage();
   } catch (err) { toast(err.message, 'error'); }
@@ -838,8 +870,11 @@ async function boot() {
     await api('GET', 'admin-overview');
   } catch (e) {
     if (e.message === 'forbidden') return;
-    // Network/other error — still try to render
   }
+  // Load open ticket count for sidebar badge
+  api('GET', 'admin-support', null, { status: 'open', limit: 1 })
+    .then(d => { state.openTickets = d?.total || 0; })
+    .catch(() => {});
   render();
 }
 
@@ -865,6 +900,8 @@ window.renderAdminSupport   = renderAdminSupport;
 window.selectTicket         = selectTicket;
 window.updateTicketStatus   = updateTicketStatus;
 window.supportAdminState    = supportAdminState;
+window.toggleSupportReply   = toggleSupportReply;
+window.sendSupportReply     = sendSupportReply;
 
 // ── Admin Assets ──────────────────────────────────────────────────────────────
 let assetsAdminState = { page: 1, status: '', items: [], total: 0, limit: 25 };

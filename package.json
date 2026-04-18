@@ -2,7 +2,9 @@
   "name": "saas-sync-package",
   "version": "1.0.0",
   "private": true,
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "node scripts/inject-env.js",
     "start": "node scripts/smoke-run.js",
@@ -13,7 +15,7 @@
   "type": "commonjs",
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
+    "nodemailer": "^8.0.5",
     "stripe": "^16.12.0"
-  },
-  "devDependencies": {}
+  }
 }
