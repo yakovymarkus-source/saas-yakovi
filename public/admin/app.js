@@ -54,16 +54,17 @@ function showError(msg) {
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function shell(content) {
   const nav = [
-    { id: 'overview',      icon: '📊', label: 'Overview' },
-    { id: 'users',         icon: '👥', label: 'Users' },
-    { id: 'assets-mgmt',   icon: '🚀', label: 'Assets' },
-    { id: 'onboarding-mgmt', icon: '🎯', label: 'Onboarding' },
-    { id: 'metrics-mgmt',  icon: '📈', label: 'Metrics' },
-    { id: 'billing',       icon: '💰', label: 'Billing' },
-    { id: 'system',        icon: '🖥️',  label: 'System' },
-    { id: 'audit',         icon: '📋', label: 'Audit Log' },
-    { id: 'updates-mgmt',  icon: '📣', label: 'Updates' },
-    { id: 'support-mgmt',  icon: '🎫', label: 'Support' },
+    { id: 'overview',         icon: '📊', label: 'Overview' },
+    { id: 'users',            icon: '👥', label: 'Users' },
+    { id: 'subscriptions-mgmt', icon: '💳', label: 'Subscriptions' },
+    { id: 'assets-mgmt',      icon: '🚀', label: 'Assets' },
+    { id: 'onboarding-mgmt',  icon: '🎯', label: 'Onboarding' },
+    { id: 'metrics-mgmt',     icon: '📈', label: 'Metrics' },
+    { id: 'billing',          icon: '💰', label: 'Billing' },
+    { id: 'system',           icon: '🖥️',  label: 'System' },
+    { id: 'audit',            icon: '📋', label: 'Audit Log' },
+    { id: 'updates-mgmt',     icon: '📣', label: 'Updates' },
+    { id: 'support-mgmt',     icon: '🎫', label: 'Support' },
   ];
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
@@ -365,6 +366,85 @@ async function changePlan(targetId) {
 }
 
 // ── Billing ───────────────────────────────────────────────────────────────────
+// ── Subscriptions Management ──────────────────────────────────────────────────
+let subsState = { page: 1, search: '', plan: '' };
+
+async function renderSubscriptions() {
+  shell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  let d;
+  try {
+    d = await api('GET', 'admin-users', null, {
+      page: subsState.page,
+      search: subsState.search || undefined,
+      plan: subsState.plan || undefined,
+      limit: 50,
+    });
+  } catch (e) { shell(`<div class="card">${e.message}</div>`); return; }
+
+  const planBadge = { free: 'badge-gray', early_bird: 'badge-purple', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-orange' };
+  const PLANS = ['free','early_bird','starter','pro','agency'];
+
+  shell(`
+    <div class="page-header flex items-center justify-between">
+      <div><h1 class="page-title">💳 ניהול מנויים</h1><p class="page-subtitle">${d.total} משתמשים</p></div>
+    </div>
+    <div class="filter-bar" style="margin-bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <input class="filter-input" placeholder="חיפוש אימייל..." value="${subsState.search}"
+        oninput="subsState.search=this.value"
+        onkeydown="if(event.key==='Enter'){subsState.page=1;renderSubscriptions()}"/>
+      <select class="filter-select" onchange="subsState.plan=this.value;subsState.page=1;renderSubscriptions()">
+        <option value="">כל התוכניות</option>
+        ${PLANS.map(p => `<option value="${p}" ${subsState.plan===p?'selected':''}>${p}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary" onclick="subsState.page=1;renderSubscriptions()">סנן</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>אימייל</th>
+            <th>תוכנית נוכחית</th>
+            <th>סטטוס</th>
+            <th>שינוי ידני</th>
+          </tr></thead>
+          <tbody>
+            ${(d.users||[]).map(u => `
+              <tr>
+                <td>
+                  <div style="font-weight:500">${u.email}</div>
+                  <div class="text-muted text-xs">${u.name||''}</div>
+                </td>
+                <td><span class="badge ${planBadge[u.plan]||'badge-gray'}">${u.plan}</span></td>
+                <td><span class="badge ${u.status==='active'?'badge-green':'badge-gray'}">${u.status||'—'}</span></td>
+                <td>
+                  <div style="display:flex;gap:.4rem;align-items:center">
+                    <select id="sub-plan-${u.id}" style="padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:.375rem;font-size:.8rem">
+                      ${PLANS.map(p => `<option value="${p}" ${u.plan===p?'selected':''}>${p}</option>`).join('')}
+                    </select>
+                    <button class="btn btn-sm btn-primary" onclick="quickChangePlan('${u.id}')">החל</button>
+                    <button class="btn btn-sm btn-secondary" onclick="navigate('user-detail',{userId:'${u.id}'})">פרטים</button>
+                  </div>
+                </td>
+              </tr>`).join('')||'<tr><td colspan="4" class="text-center text-muted" style="padding:2rem">אין משתמשים</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    ${renderPagination(d.page, d.limit, d.total, p => { subsState.page=p; renderSubscriptions(); })}
+  `);
+}
+
+async function quickChangePlan(userId) {
+  const sel = document.getElementById(`sub-plan-${userId}`);
+  if (!sel) return;
+  const newPlan = sel.value;
+  try {
+    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: userId, plan: newPlan });
+    toast(`✓ שונה ל-${newPlan}`, 'success');
+    renderSubscriptions();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 async function renderBilling() {
   shell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
   let d;
@@ -724,17 +804,18 @@ async function updateTicketStatus(id, status) {
 // ── Router ────────────────────────────────────────────────────────────────────
 async function render() {
   const routes = {
-    overview:          renderOverview,
-    users:             renderUsers,
-    'user-detail':     renderUserDetail,
-    'assets-mgmt':     renderAdminAssets,
-    'onboarding-mgmt': renderAdminOnboarding,
-    'metrics-mgmt':    renderAdminMetrics,
-    billing:           renderBilling,
-    system:            renderSystem,
-    audit:             renderAudit,
-    'updates-mgmt':    renderAdminUpdates,
-    'support-mgmt':    renderAdminSupport,
+    overview:              renderOverview,
+    users:                 renderUsers,
+    'user-detail':         renderUserDetail,
+    'subscriptions-mgmt':  renderSubscriptions,
+    'assets-mgmt':         renderAdminAssets,
+    'onboarding-mgmt':     renderAdminOnboarding,
+    'metrics-mgmt':        renderAdminMetrics,
+    billing:               renderBilling,
+    system:                renderSystem,
+    audit:                 renderAudit,
+    'updates-mgmt':        renderAdminUpdates,
+    'support-mgmt':        renderAdminSupport,
   };
   const fn = routes[state.page] || renderOverview;
   await fn().catch(e => { if (e.message !== 'forbidden') console.error(e); });
@@ -770,6 +851,8 @@ window.renderAudit          = renderAudit;
 window.adminToggle          = adminToggle;
 window.adminCancelSub       = adminCancelSub;
 window.changePlan           = changePlan;
+window.quickChangePlan      = quickChangePlan;
+window.renderSubscriptions  = renderSubscriptions;
 window.usersState           = usersState;
 window.auditState           = auditState;
 window.renderAdminUpdates   = renderAdminUpdates;

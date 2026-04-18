@@ -2252,8 +2252,51 @@ function renderCopyGenerator() {
 function renderAbTests() {
   renderShell(`<div class="page-header"><h1 class="page-title">🧪 A/B בדיקות</h1><p class="page-subtitle">תכונה זו תהיה זמינה בקרוב</p></div>`);
 }
-function renderUpdates() {
-  renderShell(`<div class="page-header"><h1 class="page-title">🔔 עדכונים</h1><p class="page-subtitle">אין עדכונים חדשים כרגע</p></div>`);
+async function renderUpdates() {
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+
+  let updates = [];
+  try { updates = await api('GET', 'get-updates'); } catch {}
+
+  // Mark all as seen
+  if (state.user?.id) {
+    const seenKey = 'seen_updates_' + state.user.id;
+    localStorage.setItem(seenKey, JSON.stringify(updates.map(u => u.id)));
+    state.updatesCount = 0;
+    refreshBellBadge();
+  }
+
+  const typeBadge = { new: 'background:#dcfce7;color:#166534', improved: 'background:#dbeafe;color:#1e40af', fixed: 'background:#fef9c3;color:#854d0e' };
+  const typeLabel = { new: '✨ חדש', improved: '⚡ שיפור', fixed: '🔧 תיקון' };
+
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">🔔 עדכוני מערכת</h1>
+      <p class="page-subtitle">כל החידושים והשיפורים ב-CampaignAI</p>
+    </div>
+    ${updates.length === 0 ? `
+      <div class="card">
+        <div class="empty-state">
+          <div class="empty-state-icon">🔔</div>
+          <h3 class="empty-state-title">אין עדכונים עדיין</h3>
+          <p class="empty-state-desc">עדכונים חדשים יופיעו כאן</p>
+        </div>
+      </div>` : `
+      <div class="flex flex-col gap-4">
+        ${updates.map(u => `
+          <div class="card" ${u.is_pinned ? 'style="border:2px solid var(--brand)"' : ''}>
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                ${u.is_pinned ? '<span style="font-size:.8rem">📌</span>' : ''}
+                <span style="font-size:.75rem;font-weight:600;padding:.2rem .6rem;border-radius:9999px;${typeBadge[u.type]||'background:#f1f5f9;color:#475569'}">${typeLabel[u.type]||u.type}</span>
+              </div>
+              <span class="text-xs text-muted">${new Date(u.created_at).toLocaleDateString('he-IL')}</span>
+            </div>
+            <div class="card-title" style="margin-bottom:.5rem">${u.title}</div>
+            <div class="text-sm" style="line-height:1.7;white-space:pre-wrap">${u.content}</div>
+          </div>`).join('')}
+      </div>`}
+  `);
 }
 
 // ── Support page ──────────────────────────────────────────────────────────────
@@ -3103,9 +3146,12 @@ async function boot() {
       // Local personal notifications count (stored in localStorage)
       state.localNotifCount = getLocalNotifications().filter(n => !n.read).length;
 
-      // Fetch system updates count for bell notification (fire-and-forget)
+      // Fetch system updates — count only unread ones for bell
       api('GET', 'get-updates').then(data => {
-        state.updatesCount = Array.isArray(data) ? data.length : 0;
+        if (!Array.isArray(data)) return;
+        const seenKey = 'seen_updates_' + session.user.id;
+        const seen = new Set(JSON.parse(localStorage.getItem(seenKey) || '[]'));
+        state.updatesCount = data.filter(u => !seen.has(u.id)).length;
         refreshBellBadge();
       }).catch(() => {});
 
