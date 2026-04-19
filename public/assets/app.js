@@ -2122,8 +2122,8 @@ function _renderAICreationShell(bp, saved) {
 
     ad_creative: `
       <div class="card">
-        <div class="card-title">🖼️ צור מודעה מוכנה</div>
-        <p class="text-sm text-muted mb-4">AI יכתוב מודעה מוכנה לפרסום — כותרת, תיאור וקריאה לפעולה — מותאמת לפלטפורמה</p>
+        <div class="card-title">🖼️ מודעה ויזואלית מוכנה</div>
+        <p class="text-sm text-muted mb-4">AI מעצב עבורך קריאייטיב ויזואלי מוכן לפרסום — מותאם לפלטפורמה שבחרת</p>
         ${hint ? `<div class="text-xs text-muted mb-3" style="background:#f1f5f9;padding:0.5rem 0.75rem;border-radius:0.5rem">${hint}</div>` : ''}
         <div class="form-grid-2">
           <div class="form-group">
@@ -2157,19 +2157,24 @@ function _renderAICreationShell(bp, saved) {
           <label class="form-label">ההצעה / מבצע</label>
           <input class="form-input" id="creative-deal" value="${(bp.main_promise||'').replace(/"/g,'&quot;')}" placeholder="למשל: ניסיון חינם 14 יום, הנחה 30%" />
         </div>
+        <div class="form-group">
+          <label class="form-label">שם העסק / מותג</label>
+          <input class="form-input" id="creative-brand" value="${(bp.business_name||'').replace(/"/g,'&quot;')}" placeholder="שם העסק שיופיע במודעה" />
+        </div>
         <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
           id="ai-gen-creative-btn" onclick="generateAdCreative()">
-          🖼️ צור מודעה
+          🖼️ צור מודעה ויזואלית
         </button>
-        <div id="ai-result-creative" style="display:none" class="card mt-4">
-          <div class="flex items-center justify-between mb-2">
-            <div class="card-title" style="margin:0">✅ המודעה שלך</div>
+        <div id="ai-result-creative" style="display:none" class="mt-4">
+          <div class="flex items-center justify-between mb-3" style="background:#fff;padding:0.75rem 1rem;border-radius:0.75rem;border:1px solid #e2e8f0">
+            <div class="card-title" style="margin:0">✅ הקריאייטיב שלך מוכן</div>
             <div class="flex gap-2">
               <button id="ai-save-creative-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
-              <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-creative-text')">📋 העתק</button>
+              <button class="btn btn-sm btn-secondary" onclick="downloadAdCreative()">⬇️ הורד HTML</button>
+              <button class="btn btn-sm" style="background:#fee2e2;color:#dc2626;border:none;border-radius:0.5rem;padding:0.35rem 0.75rem;font-size:0.8rem;cursor:pointer" onclick="clearAdCreative()">🗑️ נקה</button>
             </div>
           </div>
-          <div id="ai-result-creative-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
+          <div id="ai-result-creative-text"></div>
         </div>
       </div>`,
 
@@ -2207,6 +2212,7 @@ function _renderAICreationShell(bp, saved) {
     </div>
     ${tabContent[tab] || tabContent.ad_script}
   `);
+  if (tab === 'ad_creative') setTimeout(restoreAdCreative, 0);
 }
 
 function switchAITab(tab) {
@@ -2276,130 +2282,137 @@ async function generateLandingPage() {
 
 async function generateAdCreative() {
   const btn = document.getElementById('ai-gen-creative-btn');
-  const resBox = document.getElementById('ai-result-creative');
-  const resText = document.getElementById('ai-result-creative-text');
   if (!btn) return;
-  btn.disabled = true; btn.textContent = 'יוצר...';
+  btn.disabled = true; btn.textContent = 'מעצב קריאייטיב...';
   const platform = document.getElementById('creative-platform')?.value || 'facebook';
   const type     = document.getElementById('creative-type')?.value || 'conversion';
   const offer    = document.getElementById('creative-offer')?.value.trim() || '';
   const audience = document.getElementById('creative-audience')?.value.trim() || '';
   const deal     = document.getElementById('creative-deal')?.value.trim() || '';
-  if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '🖼️ צור מודעה'; return; }
-  const typeLabels = { awareness: 'חשיפה', lead: 'לידים', conversion: 'המרה', retargeting: 'ריטרגטינג' };
+  const brand    = document.getElementById('creative-brand')?.value.trim() || offer.split(' ')[0] || 'המותג שלך';
+  if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '🖼️ צור מודעה ויזואלית'; return; }
+  const typeLabels = { awareness: 'חשיפה ומודעות', lead: 'לידים', conversion: 'המרה ומכירה', retargeting: 'ריטרגטינג' };
   const platformNames = { facebook: 'פייסבוק', instagram: 'אינסטגרם', google: 'Google Ads', tiktok: 'TikTok' };
+  const platformSpecs = {
+    facebook:  { width: '500px', ratio: '1200x628', style: 'כרטיס רוחבי עם אזור תמונה גדול, לוגו וטקסט בתחתית' },
+    instagram: { width: '420px', ratio: '1080x1080', style: 'ריבוע מרובע, עיצוב מרכזי עם ויזואל חזק ומינימליסטי' },
+    tiktok:    { width: '340px', ratio: '1080x1920', style: 'אנכי מלא מסך, כהה ודינמי, טקסט ב overlay' },
+    google:    { width: '560px', ratio: 'טקסט בלבד', style: 'מודעת חיפוש: כותרת כחולה, URL ירוק, תיאור אפור' },
+  };
+  const spec = platformSpecs[platform] || platformSpecs.facebook;
+
   try {
     const result = await api('POST', 'campaigner-chat', {
-      message: `[DIRECT_AD] צור מודעה לפלטפורמה: ${platform}, סוג: ${typeLabels[type]||type}. מוצר/שירות: ${offer}. קהל יעד: ${audience||'לא צוין'}. הצעה/מבצע: ${deal||'לא צוין'}.
-החזר JSON בלבד ללא הסברים, בפורמט הבא:
-{"headline":"כותרת קצרה ומושכת עד 7 מילים","primary_text":"טקסט ראשי 2-3 משפטים","description":"שורת תיאור קצרה","cta":"טקסט כפתור קריאה לפעולה","image_prompt":"תיאור ויזואל מומלץ לתמונת המודעה"}
-כל הטקסטים בעברית, ממירים ומדויקים לקהל הישראלי.`,
+      message: `[DIRECT_AD] אתה מעצב גרפי מקצועי ומומחה לפרסום ברשתות חברתיות. צור קוד HTML+CSS מלא לקריאייטיב מודעה מקצועי ל${platformNames[platform]||platform}.
+
+פרטי המודעה:
+- מוצר/שירות: ${offer}
+- מותג/שם עסק: ${brand}
+- קהל יעד: ${audience||'קהל ישראלי כללי'}
+- הצעת ערך / מבצע: ${deal||'לא צוין'}
+- מטרת הקמפיין: ${typeLabels[type]||type}
+- יחס גובה-רוחב: ${spec.ratio}
+- סגנון הפלטפורמה: ${spec.style}
+
+דרישות טכניות:
+- צור קוד HTML מלא ועצמאי (כולל <!DOCTYPE html> וכל הסגנונות inline)
+- רוחב מוגדר: ${spec.width}
+- עיצוב ויזואלי מקצועי ברמת פרסומאי מקצועי — גרדיאנטים, צבעים חזקים, טיפוגרפיה ברורה
+- כל הטקסטים בעברית (כיוון RTL: dir="rtl")
+- צבעי מותג עקביים ויפים
+- אלמנטים ויזואליים: צורות גיאומטריות, גרדיאנטים, אייקונים (emoji בלבד, אין תמונות חיצוניות)
+- כפתור CTA בולט עם hover effect
+- "ממומן" badge קטן
+- נראה כמו מודעה אמיתית שמוכנה לפרסום
+
+החזר אך ורק את קוד ה-HTML המלא, ללא הסברים, ללא markdown, ללא \`\`\` — רק הקוד עצמו שמתחיל ב-<!DOCTYPE html>`,
       history: [],
     });
-    let adData = null;
-    try {
-      const raw = result.reply || '';
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (jsonMatch) adData = JSON.parse(jsonMatch[0]);
-    } catch {}
 
-    if (!adData) {
-      toast('שגיאה בפרסור תוצאת ה-AI', 'error');
+    const raw = result.reply || '';
+    const htmlMatch = raw.match(/<!DOCTYPE html[\s\S]*/i) || raw.match(/<html[\s\S]*/i);
+    const adHtml = htmlMatch ? htmlMatch[0] : raw.trim();
+
+    if (!adHtml || adHtml.length < 100) {
+      toast('שגיאה ביצירת הקריאייטיב', 'error');
       return;
     }
 
-    const mockupHtml = renderAdMockup(platform, adData, offer);
-    const saveText = `פלטפורמה: ${platformNames[platform]||platform}\nכותרת: ${adData.headline}\nטקסט: ${adData.primary_text}\nCTA: ${adData.cta}\nתיאור ויזואל: ${adData.image_prompt}`;
+    const stored = { platform, brand, offer, html: adHtml, timestamp: Date.now() };
+    try { localStorage.setItem('lastAdCreative', JSON.stringify(stored)); } catch {}
 
-    if (resBox) { resBox.style.display = ''; resBox.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-    if (resText) resText.innerHTML = mockupHtml;
+    _renderAdCreativeResult(stored);
     const saveBtn = document.getElementById('ai-save-creative-btn');
-    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_creative', `מודעה — ${platformNames[platform]||platform}`, saveText); }
-    toast('המודעה נוצרה!', 'success');
+    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_creative', `מודעה ויזואלית — ${platformNames[platform]||platform}`, `פלטפורמה: ${platformNames[platform]||platform}\nמותג: ${brand}\nמוצר: ${offer}`); }
+    toast('הקריאייטיב מוכן!', 'success');
   } catch (err) {
     toast(err.message || 'שגיאה ביצירת מודעה', 'error');
   } finally {
-    btn.disabled = false; btn.textContent = '🖼️ צור מודעה';
+    btn.disabled = false; btn.textContent = '🖼️ צור מודעה ויזואלית';
   }
 }
 
-function renderAdMockup(platform, ad, businessName) {
-  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const initial = (businessName||'B').charAt(0).toUpperCase();
-
-  if (platform === 'google') {
-    return `
-    <div style="font-family:Arial,sans-serif;direction:ltr;max-width:600px;padding:1rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px">
-      <div style="font-size:0.7rem;color:#666;margin-bottom:2px">ממומן</div>
-      <div style="color:#1558d6;font-size:1.05rem;font-weight:500;margin-bottom:2px;direction:rtl">${esc(ad.headline)}</div>
-      <div style="color:#0d652d;font-size:0.82rem;margin-bottom:4px">campaignbrain.netlify.app › ${esc(businessName||'').replace(/\s+/g,'-').toLowerCase()}</div>
-      <div style="color:#444;font-size:0.875rem;direction:rtl;line-height:1.5">${esc(ad.primary_text)}</div>
-    </div>
-    <div style="margin-top:1rem;padding:0.75rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;direction:rtl">
-      <strong style="font-size:0.8rem;color:#166534">💡 תיאור ויזואל מומלץ:</strong>
-      <p style="margin:0.25rem 0 0;font-size:0.82rem;color:#374151">${esc(ad.image_prompt)}</p>
+function _renderAdCreativeResult(stored) {
+  const resBox  = document.getElementById('ai-result-creative');
+  const resText = document.getElementById('ai-result-creative-text');
+  if (!resBox || !resText) return;
+  resBox.style.display = '';
+  const iframeId = 'ad-creative-iframe';
+  resText.innerHTML = `
+    <div style="display:flex;justify-content:center;padding:1rem 0">
+      <iframe id="${iframeId}" style="border:none;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,0.18);max-width:100%" scrolling="no"></iframe>
     </div>`;
+  const iframe = document.getElementById(iframeId);
+  if (iframe) {
+    iframe.srcdoc = stored.html;
+    iframe.onload = function() {
+      try {
+        const h = iframe.contentDocument?.body?.scrollHeight;
+        if (h && h > 50) iframe.style.height = h + 'px';
+        const w = iframe.contentDocument?.body?.scrollWidth;
+        if (w && w > 50) iframe.style.width = Math.min(w, 600) + 'px';
+      } catch {}
+    };
   }
-
-  if (platform === 'instagram') {
-    return `
-    <div style="max-width:400px;background:#fff;border:1px solid #dbdbdb;border-radius:8px;font-family:-apple-system,sans-serif;direction:rtl">
-      <div style="display:flex;align-items:center;gap:0.6rem;padding:0.75rem">
-        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:0.9rem">${initial}</div>
-        <div><div style="font-weight:600;font-size:0.85rem">${esc(businessName||'העסק שלך')}</div><div style="font-size:0.7rem;color:#8e8e8e">ממומן</div></div>
-      </div>
-      <div style="background:linear-gradient(135deg,#667eea,#764ba2);height:300px;display:flex;align-items:center;justify-content:center;color:#fff;text-align:center;padding:1.5rem;font-size:1.3rem;font-weight:700;line-height:1.4">${esc(ad.headline)}</div>
-      <div style="padding:0.75rem">
-        <div style="font-size:0.875rem;line-height:1.5;margin-bottom:0.5rem"><strong>${esc(businessName||'העסק שלך')}</strong> ${esc(ad.primary_text)}</div>
-        <div style="color:#0095f6;font-size:0.82rem;font-weight:600">${esc(ad.description)}</div>
-        <button style="margin-top:0.75rem;width:100%;background:#0095f6;color:#fff;border:none;border-radius:6px;padding:0.6rem;font-weight:600;font-size:0.9rem;cursor:pointer">${esc(ad.cta)}</button>
-      </div>
-    </div>
-    <div style="margin-top:1rem;padding:0.75rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">
-      <strong style="font-size:0.8rem;color:#166534">💡 תיאור ויזואל מומלץ:</strong>
-      <p style="margin:0.25rem 0 0;font-size:0.82rem;color:#374151">${esc(ad.image_prompt)}</p>
-    </div>`;
-  }
-
-  if (platform === 'tiktok') {
-    return `
-    <div style="max-width:320px;background:#000;border-radius:12px;font-family:-apple-system,sans-serif;position:relative;overflow:hidden;direction:rtl">
-      <div style="background:linear-gradient(180deg,#1a1a2e,#16213e,#0f3460);height:500px;display:flex;flex-direction:column;justify-content:flex-end;padding:1rem 1rem 4rem">
-        <div style="background:rgba(0,0,0,0.6);border-radius:8px;padding:0.75rem;margin-bottom:0.5rem">
-          <div style="color:#fff;font-weight:700;font-size:1rem;margin-bottom:0.25rem">${esc(ad.headline)}</div>
-          <div style="color:rgba(255,255,255,0.85);font-size:0.82rem;line-height:1.4">${esc(ad.primary_text)}</div>
-        </div>
-        <button style="background:#fe2c55;color:#fff;border:none;border-radius:4px;padding:0.5rem 1rem;font-weight:700;font-size:0.85rem;width:100%">${esc(ad.cta)}</button>
-      </div>
-      <div style="position:absolute;top:0.75rem;right:0.75rem;background:rgba(0,0,0,0.5);color:#fff;font-size:0.65rem;padding:2px 6px;border-radius:4px">ממומן</div>
-    </div>
-    <div style="margin-top:1rem;padding:0.75rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">
-      <strong style="font-size:0.8rem;color:#166534">💡 תיאור ויזואל מומלץ:</strong>
-      <p style="margin:0.25rem 0 0;font-size:0.82rem;color:#374151">${esc(ad.image_prompt)}</p>
-    </div>`;
-  }
-
-  // Default: Facebook
-  return `
-  <div style="max-width:480px;background:#fff;border:1px solid #ddd;border-radius:8px;font-family:-apple-system,sans-serif;direction:rtl">
-    <div style="display:flex;align-items:center;gap:0.6rem;padding:0.75rem 0.75rem 0.5rem">
-      <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1rem;flex-shrink:0">${initial}</div>
-      <div style="flex:1"><div style="font-weight:600;font-size:0.9rem">${esc(businessName||'העסק שלך')}</div><div style="font-size:0.72rem;color:#65676b">ממומן · <span>🌐</span></div></div>
-    </div>
-    <div style="padding:0 0.75rem 0.6rem;font-size:0.9rem;line-height:1.5;color:#050505">${esc(ad.primary_text)}</div>
-    <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);height:250px;display:flex;align-items:center;justify-content:center;color:#fff;text-align:center;padding:1.5rem">
-      <div style="font-size:1.4rem;font-weight:700;line-height:1.3">${esc(ad.headline)}</div>
-    </div>
-    <div style="padding:0.6rem 0.75rem;border-top:1px solid #e5e5e5;display:flex;align-items:center;justify-content:space-between">
-      <div><div style="font-size:0.72rem;color:#65676b;text-transform:uppercase">campaignbrain.netlify.app</div><div style="font-weight:700;font-size:0.9rem">${esc(ad.headline)}</div><div style="font-size:0.82rem;color:#65676b">${esc(ad.description)}</div></div>
-      <button style="background:#e7e7e7;border:none;border-radius:6px;padding:0.5rem 1rem;font-weight:600;font-size:0.85rem;cursor:pointer;white-space:nowrap;margin-right:0.5rem">${esc(ad.cta)}</button>
-    </div>
-  </div>
-  <div style="margin-top:1rem;padding:0.75rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">
-    <strong style="font-size:0.8rem;color:#166534">💡 תיאור ויזואל מומלץ:</strong>
-    <p style="margin:0.25rem 0 0;font-size:0.82rem;color:#374151">${esc(ad.image_prompt)}</p>
-  </div>`;
+  resBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+
+function restoreAdCreative() {
+  try {
+    const raw = localStorage.getItem('lastAdCreative');
+    if (!raw) return;
+    const stored = JSON.parse(raw);
+    if (!stored?.html) return;
+    _renderAdCreativeResult(stored);
+    const resBox = document.getElementById('ai-result-creative');
+    if (resBox) resBox.scrollIntoView = () => {};
+  } catch {}
+}
+
+function clearAdCreative() {
+  try { localStorage.removeItem('lastAdCreative'); } catch {}
+  const resBox = document.getElementById('ai-result-creative');
+  if (resBox) resBox.style.display = 'none';
+  const resText = document.getElementById('ai-result-creative-text');
+  if (resText) resText.innerHTML = '';
+  toast('המודעה נמחקה', 'success');
+}
+
+function downloadAdCreative() {
+  try {
+    const raw = localStorage.getItem('lastAdCreative');
+    if (!raw) { toast('אין מודעה להורדה', 'error'); return; }
+    const stored = JSON.parse(raw);
+    const blob = new Blob([stored.html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `ad-creative-${stored.platform || 'ad'}.html`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast('הקריאייטיב הורד!', 'success');
+  } catch { toast('שגיאה בהורדה', 'error'); }
+}
+
 
 function renderMarkdown(text) {
   return text
@@ -4111,6 +4124,8 @@ window.switchAITab           = switchAITab;
 window.generateAdScript      = generateAdScript;
 window.generateLandingPage   = generateLandingPage;
 window.generateAdCreative    = generateAdCreative;
+window.clearAdCreative       = clearAdCreative;
+window.downloadAdCreative    = downloadAdCreative;
 window.copyAIResult          = copyAIResult;
 window.expandSavedWork       = expandSavedWork;
 window.filterAdminUsers      = filterAdminUsers;
