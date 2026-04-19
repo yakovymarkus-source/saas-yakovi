@@ -98,13 +98,12 @@ async function runResearchPipeline({ job, supabase, onStep }) {
     systemState.totalAiCalls++;
     try {
       await supabase.from('research_usage_logs').insert({
-        job_id:       job.id,
-        user_id:      job.user_id,
-        provider_name: provider,
-        operation,
-        tokens_used:  tokensUsed,
+        job_id:      job.id,
+        user_id:     job.user_id,
+        provider,
+        action:      operation,
+        tokens_used: tokensUsed,
         success,
-        logged_at:    new Date().toISOString(),
       });
     } catch (e) { console.warn('[pipeline] logUsage failed:', e.message); }
   }
