@@ -1,7 +1,7 @@
 'use strict';
 const { createClient } = require('@supabase/supabase-js');
 
-const TOTAL_STEPS = 15;
+const TOTAL_STEPS = 19;
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'GET') return { statusCode: 405, body: 'Method Not Allowed' };

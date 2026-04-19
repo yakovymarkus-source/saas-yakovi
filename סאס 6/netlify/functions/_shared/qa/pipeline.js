@@ -1,10 +1,8 @@
 'use strict';
 /**
  * qa/pipeline.js
- * 15-step QA Agent pipeline.
- * Receives execution report + optional research context.
- * Runs 12 check categories (deterministic + AI), simulation, variant ranking, corrections.
- * Returns verdict: approve | improve | reject + routing to correct agent.
+ * 19-step QA Agent pipeline — full protocol: 20 check categories (deterministic + AI + simulation).
+ * Deterministic + AI checks + simulation + routing.
  */
 
 const { createClient } = require('@supabase/supabase-js');
@@ -17,6 +15,11 @@ const {
   checkTrustSignals,
   checkTracking,
   checkEndToEndFlow,
+  checkFrictionPoints,
+  checkLpHierarchy,
+  checkImplementationReadiness,
+  checkMarketSaturationFit,
+  checkMessageClarity,
 } = require('./core/checks');
 
 const { runSimulation }      = require('./core/simulation-engine');
@@ -28,6 +31,9 @@ const {
   evaluateOfferAndPersuasion,
   compareVariants,
   generateCorrections,
+  evaluateEdgeCasesAndIntentDrift,
+  evaluateExecutionFidelity,
+  evaluateBusinessAndScalability,
 } = require('./collectors/claude-qa-engine');
 
 const { buildRoutingDecision } = require('./output/routing-engine');
@@ -136,8 +142,49 @@ async function runQaPipeline({ jobId, userId, executionReport, researchReport })
     return result;
   });
 
-  // ── Step 13: Simulation ───────────────────────────────────────────────────
-  const simulation = await step('simulation', 'סימולציית ביצוע: scroll / click / conversion', async () => {
+  // ── Step 13: Friction Points + LP Hierarchy + Implementation + Market Fit ──
+  let frictionCheck, lpHierarchy, implementationCheck, marketSatCheck, messageClarity;
+  await step('advanced_checks', 'בדיקות מתקדמות: friction / hierarchy / readiness / saturation', async () => {
+    frictionCheck      = checkFrictionPoints(assets);
+    lpHierarchy        = checkLpHierarchy(assets);
+    implementationCheck= checkImplementationReadiness(assets);
+    marketSatCheck     = checkMarketSaturationFit(assets, researchCtx);
+    messageClarity     = checkMessageClarity(assets);
+    return {
+      friction:       frictionCheck.friction_level,
+      lp_hierarchy:   lpHierarchy.passed,
+      ready:          implementationCheck.can_deploy_now,
+      saturation:     marketSatCheck.saturation_level,
+      message_clarity: messageClarity.clear_in_2sec,
+    };
+  });
+
+  // ── Step 13b: AI — Edge Cases + Intent Drift ──────────────────────────────
+  let edgeCases;
+  await step('edge_cases', 'AI: Edge Cases (סקפטי/קר/ניסה) + Intent Drift', async () => {
+    edgeCases = await evaluateEdgeCasesAndIntentDrift({ assets, brief });
+    aiCalls++;
+    return { score: edgeCases.edge_case_score, intent_drift: edgeCases.intent_drift?.exists };
+  });
+
+  // ── Step 13c: AI — Execution Fidelity + Visual QA ────────────────────────
+  let executionFidelity;
+  await step('execution_fidelity', 'AI: נאמנות ביצוע לאסטרטגיה + Visual QA', async () => {
+    executionFidelity = await evaluateExecutionFidelity({ assets, brief, decisionLayer });
+    aiCalls++;
+    return { score: executionFidelity.fidelity_score, platform_fit: executionFidelity.platform_format_fit };
+  });
+
+  // ── Step 13d: AI — Business Fit + ROI + Scalability + Fatigue ────────────
+  let businessAnalysis;
+  await step('business_analysis', 'AI: Business Fit + ROI + Scalability + Content Fatigue', async () => {
+    businessAnalysis = await evaluateBusinessAndScalability({ assets, brief, offer });
+    aiCalls++;
+    return { roi: businessAnalysis.roi_outlook, scalable: businessAnalysis.scalable, fatigue: businessAnalysis.fatigue_risk };
+  });
+
+  // ── Step 14: Simulation ───────────────────────────────────────────────────
+  const simulation = await step('simulation', 'סימולציית ביצוע: scroll / click / conversion + ROI', async () => {
     return runSimulation({
       hookScore:           hookEval.overall_hook_score      || 50,
       offerScore:          offerPersuasion.offer_score      || 50,
@@ -146,6 +193,7 @@ async function runQaPipeline({ jobId, userId, executionReport, researchReport })
       awarenessMatchScore: awareness.passed ? 80 : 40,
       cognitiveLoadScore:  cognitiveLoad.score              || 50,
       platform:            brief.platform,
+      brief,
     });
   });
 
@@ -153,6 +201,8 @@ async function runQaPipeline({ jobId, userId, executionReport, researchReport })
   const allIssues = _collectAllIssues({
     killSignals, cognitiveLoad, language, awareness, trust, tracking, flow,
     hookEval, painDiff, offerPersuasion,
+    frictionCheck, lpHierarchy, implementationCheck, marketSatCheck, messageClarity,
+    edgeCases, executionFidelity, businessAnalysis,
   });
 
   // ── Step 14: AI — Generate Corrections ───────────────────────────────────
@@ -181,9 +231,27 @@ async function runQaPipeline({ jobId, userId, executionReport, researchReport })
   };
 
   const checks = {
-    hook: hookEval, pain: painDiff, differentiation: { score: painDiff.differentiation?.score, unique: painDiff.differentiation?.unique },
-    offer: offerPersuasion, persuasion: { persuasion_score: offerPersuasion.persuasion_score, persuasion_flow: offerPersuasion.persuasion_flow },
-    language, awareness, cognitiveLoad, trust, tracking, flow, killSignals,
+    hook:              hookEval,
+    pain:              painDiff,
+    differentiation:   { score: painDiff.differentiation?.score, unique: painDiff.differentiation?.unique },
+    offer:             offerPersuasion,
+    persuasion:        { persuasion_score: offerPersuasion.persuasion_score, persuasion_flow: offerPersuasion.persuasion_flow },
+    language,
+    awareness,
+    cognitiveLoad,
+    trust,
+    tracking,
+    flow,
+    killSignals,
+    // New checks
+    friction:          frictionCheck,
+    lp_hierarchy:      lpHierarchy,
+    implementation:    implementationCheck,
+    market_saturation: marketSatCheck,
+    message_clarity:   messageClarity,
+    edge_cases:        edgeCases,
+    execution_fidelity: executionFidelity,
+    business:          businessAnalysis,
   };
 
   const routing = await step('routing_decision', 'החלטת ניתוב — approve/improve/reject + שולח לסוכן', async () => {
@@ -244,21 +312,40 @@ async function runQaPipeline({ jobId, userId, executionReport, researchReport })
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function _collectAllIssues({ killSignals, cognitiveLoad, language, awareness, trust, tracking, flow, hookEval, painDiff, offerPersuasion }) {
+function _collectAllIssues({ killSignals, cognitiveLoad, language, awareness, trust, tracking, flow,
+  hookEval, painDiff, offerPersuasion,
+  frictionCheck, lpHierarchy, implementationCheck, marketSatCheck, messageClarity,
+  edgeCases, executionFidelity, businessAnalysis }) {
   const issues = [];
 
-  for (const s of (killSignals.signals || []))  issues.push({ source: 'kill_signals',     issue: s.description, severity: s.severity, fix: s.fix });
-  for (const i of (cognitiveLoad.issues || []))  issues.push({ source: 'cognitive_load',   issue: i.issue,       severity: 'medium' });
-  for (const i of (language.issues || []))       issues.push({ source: 'language',         issue: i.issue,       severity: 'medium', fix: i.fix });
-  for (const i of (awareness.issues || []))      issues.push({ source: 'awareness_match',  issue: i.issue,       severity: i.severity || 'medium', fix: i.fix });
-  if (!trust.sufficient)                         issues.push({ source: 'trust',            issue: 'אין מספיק אלמנטי אמון', severity: 'high', fix: `הוסף: ${trust.missing?.slice(0,2).join(', ')}` });
-  for (const i of (tracking.issues || []))       issues.push({ source: 'tracking',         issue: i.issue,       severity: i.severity });
-  for (const i of (flow.issues || []))           issues.push({ source: 'flow',             issue: i.issue,       severity: i.severity });
-  if (hookEval.market_comparison === 'נראה כמו השוק') issues.push({ source: 'hook', issue: 'הוקים דומים לשוק — לא מספיק ייחודיים', severity: 'high' });
-  if (painDiff.pain_depth === 'shallow')         issues.push({ source: 'pain',            issue: 'כאב שטחי', severity: 'high', fix: painDiff.quick_fix });
-  if (!painDiff.differentiation?.unique)         issues.push({ source: 'differentiation', issue: 'אין בידול אמיתי', severity: 'high', fix: painDiff.differentiation?.issue });
-  if (offerPersuasion.offer_strength === 'weak') issues.push({ source: 'offer',           issue: 'הצעה חלשה', severity: 'high', fix: offerPersuasion.offer_fix });
-  if (offerPersuasion.persuasion_flow === 'broken') issues.push({ source: 'persuasion',  issue: 'רצף שכנוע שבור', severity: 'critical', fix: offerPersuasion.persuasion_fix });
+  // ── Original checks ────────────────────────────────────────────────────────
+  for (const s of (killSignals?.signals || []))  issues.push({ source: 'kill_signals',    issue: s.description,  severity: s.severity,              fix: s.fix });
+  for (const i of (cognitiveLoad?.issues || []))  issues.push({ source: 'cognitive_load',  issue: i.issue,        severity: 'medium' });
+  for (const i of (language?.issues || []))       issues.push({ source: 'language',        issue: i.issue,        severity: 'medium',                fix: i.fix });
+  for (const i of (awareness?.issues || []))      issues.push({ source: 'awareness_match', issue: i.issue,        severity: i.severity || 'medium',  fix: i.fix });
+  if (!trust?.sufficient)                         issues.push({ source: 'trust',           issue: 'אין מספיק אלמנטי אמון', severity: 'high', fix: `הוסף: ${trust?.missing?.slice(0,2).join(', ')}` });
+  for (const i of (tracking?.issues || []))       issues.push({ source: 'tracking',        issue: i.issue,        severity: i.severity });
+  for (const i of (flow?.issues || []))           issues.push({ source: 'flow',            issue: i.issue,        severity: i.severity });
+  if (hookEval?.market_comparison === 'נראה כמו השוק') issues.push({ source: 'hook', issue: 'הוקים דומים לשוק — לא מספיק ייחודיים', severity: 'high' });
+  if (painDiff?.pain_depth === 'shallow')         issues.push({ source: 'pain',           issue: 'כאב שטחי',     severity: 'high',                  fix: painDiff.quick_fix });
+  if (!painDiff?.differentiation?.unique)         issues.push({ source: 'differentiation',issue: 'אין בידול אמיתי', severity: 'high',               fix: painDiff?.differentiation?.issue });
+  if (offerPersuasion?.offer_strength === 'weak') issues.push({ source: 'offer',          issue: 'הצעה חלשה',    severity: 'high',                  fix: offerPersuasion.offer_fix });
+  if (offerPersuasion?.persuasion_flow === 'broken') issues.push({ source: 'persuasion', issue: 'רצף שכנוע שבור', severity: 'critical',             fix: offerPersuasion.persuasion_fix });
+
+  // ── New checks ─────────────────────────────────────────────────────────────
+  for (const i of (frictionCheck?.issues || []))        issues.push({ source: 'friction',          issue: i.issue, severity: i.severity || 'medium', fix: i.fix });
+  for (const i of (lpHierarchy?.issues || []))          issues.push({ source: 'lp_hierarchy',      issue: i.issue, severity: i.severity || 'medium', fix: i.fix });
+  for (const i of (implementationCheck?.issues || []))  issues.push({ source: 'implementation',    issue: i.issue, severity: i.severity || 'high' });
+  for (const i of (marketSatCheck?.issues || []))       issues.push({ source: 'market_saturation', issue: i.issue, severity: i.severity || 'high',   fix: i.fix });
+  for (const i of (messageClarity?.issues || []))       issues.push({ source: 'message_clarity',   issue: i.issue, severity: i.severity || 'medium', fix: i.fix });
+  if (edgeCases?.edge_case_score < 40)                  issues.push({ source: 'edge_cases',        issue: edgeCases.top_edge_issue || 'edge cases חלשים', severity: 'high', fix: edgeCases.fix });
+  if (edgeCases?.intent_drift?.exists)                  issues.push({ source: 'intent_drift',      issue: edgeCases.intent_drift.description, severity: 'high', fix: edgeCases.intent_drift.fix });
+  if (executionFidelity?.fidelity_score < 50)           issues.push({ source: 'execution_fidelity',issue: `ביצוע לא נאמן לאסטרטגיה (${executionFidelity.fidelity_score}/100)`, severity: 'high', fix: executionFidelity.fidelity_fix });
+  if (executionFidelity?.platform_format_fit === 'wrong') issues.push({ source: 'platform_format', issue: 'פורמט לא מתאים לפלטפורמה', severity: 'critical', fix: 'שכתב לפי מגבלות הפלטפורמה' });
+  if (businessAnalysis?.business_fit?.score < 50)       issues.push({ source: 'business_fit',      issue: businessAnalysis.business_fit.issue || 'חוסר התאמה עסקית', severity: 'high' });
+  if (businessAnalysis?.roi_outlook === 'negative')     issues.push({ source: 'roi',               issue: 'ROI שלילי צפוי', severity: 'high', fix: businessAnalysis.roi_note });
+  if (businessAnalysis?.over_optimized)                 issues.push({ source: 'over_optimization', issue: 'ייעול יתר — שובר פשטות', severity: 'medium', fix: businessAnalysis.over_optimization_fix });
+  if (businessAnalysis?.fatigue_risk === 'high')        issues.push({ source: 'content_fatigue',   issue: `עייפות תוכן מהירה: "${businessAnalysis.fatigue_element}"`, severity: 'medium' });
 
   return issues;
 }

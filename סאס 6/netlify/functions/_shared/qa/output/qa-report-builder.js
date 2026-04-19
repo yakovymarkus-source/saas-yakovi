@@ -24,18 +24,27 @@ function buildQaReport({
 
     // ── All check results ──────────────────────────────────────────────────
     checks: {
-      hook:             checks.hook,
-      pain:             checks.pain,
-      differentiation:  checks.differentiation,
-      offer:            checks.offer,
-      persuasion:       checks.persuasion,
-      language:         checks.language,
-      awareness:        checks.awareness,
-      cognitive_load:   checks.cognitiveLoad,
-      trust:            checks.trust,
-      tracking:         checks.tracking,
-      kill_signals:     checks.killSignals,
-      flow:             checks.flow,
+      hook:               checks.hook,
+      pain:               checks.pain,
+      differentiation:    checks.differentiation,
+      offer:              checks.offer,
+      persuasion:         checks.persuasion,
+      language:           checks.language,
+      awareness:          checks.awareness,
+      cognitive_load:     checks.cognitiveLoad,
+      trust:              checks.trust,
+      tracking:           checks.tracking,
+      kill_signals:       checks.killSignals,
+      flow:               checks.flow,
+      // Extended checks
+      friction:           checks.friction,
+      lp_hierarchy:       checks.lp_hierarchy,
+      implementation:     checks.implementation,
+      market_saturation:  checks.market_saturation,
+      message_clarity:    checks.message_clarity,
+      edge_cases:         checks.edge_cases,
+      execution_fidelity: checks.execution_fidelity,
+      business:           checks.business,
     },
 
     // ── Simulation ─────────────────────────────────────────────────────────
@@ -65,18 +74,29 @@ function buildQaReport({
 
 function _calcOverall(checks, simulation) {
   const scores = {
-    hook:           checks.hook?.overall_hook_score        ?? 50,
-    pain:           checks.pain?.pain_score                ?? 50,
-    differentiation:checks.differentiation?.score          ?? 50,
-    offer:          checks.offer?.offer_score              ?? 50,
-    persuasion:     checks.persuasion?.persuasion_score    ?? 50,
-    language:       checks.language?.score                 ?? 50,
-    trust:          checks.trust?.score                    ?? 50,
-    cognitive_load: checks.cognitiveLoad?.score            ?? 50,
-    awareness:      checks.awareness?.passed ? 80 : 40,
+    hook:               checks.hook?.overall_hook_score           ?? 50,
+    pain:               checks.pain?.pain_score                   ?? 50,
+    differentiation:    checks.differentiation?.score             ?? 50,
+    offer:              checks.offer?.offer_score                 ?? 50,
+    persuasion:         checks.persuasion?.persuasion_score       ?? 50,
+    language:           checks.language?.score                    ?? 50,
+    trust:              checks.trust?.score                       ?? 50,
+    cognitive_load:     checks.cognitiveLoad?.score               ?? 50,
+    awareness:          checks.awareness?.passed ? 80 : 40,
+    message_clarity:    checks.message_clarity?.score             ?? 50,
+    friction:           checks.friction?.score                    ?? 70,
+    implementation:     checks.implementation?.readiness_score    ?? 70,
+    edge_cases:         checks.edge_cases?.edge_case_score        ?? 50,
+    execution_fidelity: checks.execution_fidelity?.fidelity_score ?? 50,
+    business:           checks.business?.overall_business_score   ?? 50,
   };
 
-  const weights = { hook: 0.20, pain: 0.15, differentiation: 0.12, offer: 0.13, persuasion: 0.10, language: 0.08, trust: 0.10, cognitive_load: 0.07, awareness: 0.05 };
+  const weights = {
+    hook: 0.15, pain: 0.12, differentiation: 0.10, offer: 0.10, persuasion: 0.08,
+    language: 0.06, trust: 0.08, cognitive_load: 0.05, awareness: 0.05,
+    message_clarity: 0.05, friction: 0.04, implementation: 0.05,
+    edge_cases: 0.04, execution_fidelity: 0.05, business: 0.08,
+  };
   let overall = 0;
   for (const [k, w] of Object.entries(weights)) overall += (scores[k] || 50) * w;
   overall = Math.round(overall);
@@ -84,6 +104,9 @@ function _calcOverall(checks, simulation) {
   // Kill signal penalty
   const kills = checks.killSignals?.count || 0;
   overall = Math.max(0, overall - kills * 12);
+
+  // Implementation not ready = hard cap
+  if (checks.implementation?.can_deploy_now === false) overall = Math.min(overall, 55);
 
   const verdict = overall >= 72 ? 'approve' : overall >= 45 ? 'improve' : 'reject';
   return { overall, verdict };

@@ -230,6 +230,168 @@ function checkEndToEndFlow(assets, brief) {
   return { passed: issues.length === 0, issues };
 }
 
+// ── 8. Friction Points ────────────────────────────────────────────────────────
+function checkFrictionPoints(assets) {
+  const issues = [];
+  let score = 100;
+
+  const lp = assets.landing_page?.content?.sections || {};
+
+  // Form field count (if form section exists)
+  const formFields = lp.form?.fields || lp.cta_section?.fields || [];
+  if (formFields.length > 4) {
+    issues.push({ issue: `${formFields.length} שדות בטופס — יותר מדי (מקסימום 3–4)`, fix: 'קצץ לשם+טלפון או שם+אימייל בלבד', severity: 'high' });
+    score -= 20;
+  }
+
+  // CTA visibility — CTA should appear early, not only at bottom
+  const sectionKeys = Object.keys(lp);
+  const heroIndex   = sectionKeys.indexOf('hero');
+  const ctaIndex    = sectionKeys.findIndex(k => k.includes('cta'));
+  if (ctaIndex > 4 && heroIndex === 0) {
+    issues.push({ issue: 'CTA ראשון מופיע רחוק מדי למטה', fix: 'הוסף CTA כבר ב-hero section', severity: 'medium' });
+    score -= 15;
+  }
+
+  // Text density — too many sections = confusion
+  if (sectionKeys.length > 8) {
+    issues.push({ issue: `${sectionKeys.length} סקשנים בדף — יותר מדי`, fix: 'צמצם ל-5–6 סקשנים ממוקדים', severity: 'medium' });
+    score -= 10;
+  }
+
+  // Navigation links that take user away
+  const hasNavLinks = /href=|<a /.test(JSON.stringify(lp));
+  if (hasNavLinks) {
+    issues.push({ issue: 'קישורי ניווט בדף — מסיחי דעת', fix: 'הסר כל קישור שמוציא את המשתמש מהדף', severity: 'medium' });
+    score -= 10;
+  }
+
+  return { score: Math.max(score, 0), issues, friction_level: score >= 80 ? 'low' : score >= 50 ? 'medium' : 'high' };
+}
+
+// ── 9. LP Hierarchy Check ─────────────────────────────────────────────────────
+function checkLpHierarchy(assets) {
+  const issues = [];
+  const lp = assets.landing_page?.content?.sections || {};
+  const sections = Object.keys(lp);
+
+  if (sections.length === 0) return { passed: true, issues: [], note: 'אין דף נחיתה' };
+
+  const IDEAL_ORDER = ['hero', 'pain', 'solution', 'offer', 'proof', 'cta'];
+  const orderIssues = [];
+
+  // Hero must be first
+  if (sections[0] !== 'hero') {
+    orderIssues.push({ issue: `הסקשן הראשון הוא "${sections[0]}" במקום hero`, fix: 'hero תמיד ראשון — זה החלון הראשון', severity: 'high' });
+  }
+
+  // Proof/social before offer = wrong (trust before the ask is ok, but offer before pain = wrong)
+  const painIdx  = sections.findIndex(s => s.includes('pain') || s.includes('problem'));
+  const offerIdx = sections.findIndex(s => s.includes('offer') || s.includes('product'));
+  if (offerIdx >= 0 && painIdx >= 0 && offerIdx < painIdx) {
+    orderIssues.push({ issue: 'ההצעה מגיעה לפני הכאב — קפיצה מהירה מדי', fix: 'הצג את הכאב לפני הפתרון', severity: 'medium' });
+  }
+
+  // CTA must exist
+  const hasCta = sections.some(s => s.includes('cta') || lp[s]?.cta || lp[s]?.button);
+  if (!hasCta) {
+    orderIssues.push({ issue: 'אין CTA ברור בדף', fix: 'הוסף לפחות CTA אחד ברור לפני fold', severity: 'critical' });
+  }
+
+  issues.push(...orderIssues);
+  return { passed: issues.length === 0, issues, section_order: sections, ideal_order: IDEAL_ORDER };
+}
+
+// ── 10. Implementation Readiness ──────────────────────────────────────────────
+function checkImplementationReadiness(assets) {
+  const issues = [];
+  let readinessScore = 100;
+
+  // Ads have actual text (not just placeholders)
+  for (const ad of (assets.ads || [])) {
+    const t = ad.text || ad;
+    if (!t.headline || t.headline.includes('[') || t.headline.includes('placeholder')) {
+      issues.push({ issue: 'מודעה עם כותרת placeholder — לא מוכנה לפרסום', severity: 'critical', fix: 'החלף placeholder בטקסט אמיתי' });
+      readinessScore -= 25;
+    }
+    if (!t.primary_text || _wordCount(t.primary_text) < 10) {
+      issues.push({ issue: 'טקסט מודעה קצר מדי לפרסום', severity: 'high', fix: 'הרחב ל-30–80 מילה' });
+      readinessScore -= 15;
+    }
+  }
+
+  // LP has real content (hero with headline + CTA)
+  const lpHero = assets.landing_page?.content?.sections?.hero;
+  if (assets.landing_page && !lpHero?.headline) {
+    issues.push({ issue: 'דף נחיתה ללא כותרת hero — לא מוכן לפרסום', severity: 'critical', fix: 'הוסף headline בסקשן hero' });
+    readinessScore -= 30;
+  }
+
+  // Hooks exist and have text
+  const emptyHooks = (assets.hooks || []).filter(h => !h.text || _charCount(h.text) < 15);
+  if (emptyHooks.length > 0) {
+    issues.push({ issue: `${emptyHooks.length} hooks ריקים או קצרים מדי`, severity: 'medium', fix: 'כל hook צריך לפחות 15 תווים' });
+    readinessScore -= 10;
+  }
+
+  const ready = readinessScore >= 70;
+  return { ready, readiness_score: Math.max(readinessScore, 0), issues, can_deploy_now: ready };
+}
+
+// ── 11. Market Saturation Fit ─────────────────────────────────────────────────
+function checkMarketSaturationFit(assets, researchContext) {
+  const saturation = researchContext?.marketSaturation || researchContext?.saturation || 'unknown';
+  const competitors = (researchContext?.competitors || []).length;
+  const allText = _gatherAllText(assets);
+
+  const issues = [];
+  let recommendation = '';
+
+  if (saturation === 'high' || competitors > 5) {
+    // Saturated market: needs extreme differentiation
+    const isExtreme = /מבטיח|מוכח|תוצאות|ב-\d+|שאף אחד|ראשון|בלעדי/.test(allText);
+    if (!isExtreme) {
+      issues.push({ issue: 'שוק רווי — הקופי לא מספיק קיצוני/ייחודי', fix: 'הוסף תוצאה מספרית, claim חזק, או זווית שאף אחד לא השתמש בה', severity: 'high' });
+    }
+    recommendation = 'שוק רווי — חייבים claim חזק ובידול ברור, אחרת נאבד בים המודעות';
+  } else if (saturation === 'low' || competitors <= 2) {
+    // Low saturation: needs clarity, not extremeness
+    const isClean = _wordCount(_gatherAllText(assets)) > 30;
+    recommendation = 'שוק פתוח — התמקד בבהירות ולא בקיצוניות, הקהל עדיין לא חשוף לרעיון';
+  } else {
+    recommendation = 'רמת רוויה לא ידועה — בסס על נתוני מחקר לדיוק';
+  }
+
+  return { saturation_level: saturation, issues, recommendation, competitors_count: competitors };
+}
+
+// ── 12. Message Clarity Under Pressure (1-2 second scan) ─────────────────────
+function checkMessageClarity(assets) {
+  const issues = [];
+  const headline = _getPrimaryHeadline(assets);
+  const firstHook = (assets.hooks || [])[0]?.text || '';
+
+  // Headline clarity: should communicate value in < 8 words ideally
+  const headlineWords = _wordCount(headline);
+  if (headlineWords > 12) {
+    issues.push({ issue: `כותרת ארוכה מדי (${headlineWords} מילות) — לא ברורה תוך שנייה`, fix: 'קצץ לכותרת של 6–10 מילים עם הבטחה ברורה', severity: 'medium' });
+  }
+
+  // Headline has no clear value signal
+  const valueSignals = /תוצאה|חסוך|הגדל|הרווח|פתרון|שיפור|\d+%|\d+ ש"ח|בחינם|מהר/.test(headline);
+  if (headline && !valueSignals) {
+    issues.push({ issue: 'הכותרת אינה מעבירה ערך ברור', fix: 'הוסף תוצאה/מספר/הבטחה ספציפית לכותרת', severity: 'high' });
+  }
+
+  // Hook must be short enough for thumb-stop (< 100 chars ideal)
+  if (firstHook && _charCount(firstHook) > 150) {
+    issues.push({ issue: 'הוק ראשון ארוך מדי לעצירת גלילה', fix: 'קצץ הוק ראשון ל-60–100 תווים', severity: 'medium' });
+  }
+
+  const score = 100 - (issues.length * 20);
+  return { score: Math.max(score, 0), issues, headline_words: headlineWords, clear_in_2sec: issues.length === 0 };
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function _gatherAllText(assets) {
   const parts = [];
@@ -267,6 +429,11 @@ function _avgSentenceLength(text) {
 
 module.exports = {
   checkCognitiveLoad,
+  checkFrictionPoints,
+  checkLpHierarchy,
+  checkImplementationReadiness,
+  checkMarketSaturationFit,
+  checkMessageClarity,
   detectKillSignals,
   checkLanguage,
   checkAwarenessMatch,

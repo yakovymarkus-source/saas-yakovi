@@ -5567,20 +5567,28 @@ function _qaRenderReport(report) {
   // Score bar
   const scoreColor = score >= 72 ? '#15803d' : score >= 45 ? '#d97706' : '#dc2626';
 
-  // Checks grid
+  // Checks grid — 20 checks
   const checkItems = [
-    { key:'hook',           label:'הוק',         score: checks.hook?.overall_hook_score },
-    { key:'pain',           label:'כאב',         score: checks.pain?.pain_score },
-    { key:'differentiation',label:'בידול',       score: checks.differentiation?.score },
-    { key:'offer',          label:'הצעה',         score: checks.offer?.offer_score },
-    { key:'persuasion',     label:'שכנוע',        score: checks.persuasion?.persuasion_score },
-    { key:'language',       label:'שפה',          score: checks.language?.score },
-    { key:'trust',          label:'אמון',         score: checks.trust?.score },
-    { key:'cognitive_load', label:'עומס',         score: checks.cognitive_load?.score },
-    { key:'awareness',      label:'מודעות',       score: checks.awareness?.passed ? 80 : 40 },
-    { key:'tracking',       label:'Tracking',     score: checks.tracking?.ready ? 80 : 30 },
-    { key:'flow',           label:'Flow',         score: checks.flow?.passed ? 80 : 40 },
-    { key:'kill_signals',   label:'Kill Signals', score: checks.kill_signals?.count === 0 ? 100 : Math.max(0, 100 - checks.kill_signals?.count * 25) },
+    { key:'hook',               label:'הוק',           score: checks.hook?.overall_hook_score },
+    { key:'pain',               label:'כאב',           score: checks.pain?.pain_score },
+    { key:'differentiation',    label:'בידול',         score: checks.differentiation?.score },
+    { key:'offer',              label:'הצעה',           score: checks.offer?.offer_score },
+    { key:'persuasion',         label:'שכנוע',          score: checks.persuasion?.persuasion_score },
+    { key:'language',           label:'שפה',            score: checks.language?.score },
+    { key:'trust',              label:'אמון',           score: checks.trust?.score },
+    { key:'cognitive_load',     label:'עומס קוגניטיבי',score: checks.cognitive_load?.score },
+    { key:'awareness',          label:'מודעות',         score: checks.awareness?.passed ? 80 : 40 },
+    { key:'tracking',           label:'Tracking',       score: checks.tracking?.ready ? 80 : 30 },
+    { key:'flow',               label:'Flow E2E',       score: checks.flow?.passed ? 80 : 40 },
+    { key:'kill_signals',       label:'Kill Signals',   score: checks.kill_signals?.count === 0 ? 100 : Math.max(0, 100 - (checks.kill_signals?.count||0) * 25) },
+    { key:'friction',           label:'Friction',       score: checks.friction?.score },
+    { key:'lp_hierarchy',       label:'LP Hierarchy',   score: checks.lp_hierarchy?.passed ? 85 : 45 },
+    { key:'implementation',     label:'מוכנות',         score: checks.implementation?.readiness_score },
+    { key:'message_clarity',    label:'בהירות מסר',     score: checks.message_clarity?.score },
+    { key:'edge_cases',         label:'Edge Cases',     score: checks.edge_cases?.edge_case_score },
+    { key:'execution_fidelity', label:'נאמנות ביצוע',   score: checks.execution_fidelity?.fidelity_score },
+    { key:'business',           label:'Business Fit',   score: checks.business?.overall_business_score },
+    { key:'market_saturation',  label:'Market Fit',     score: (checks.market_saturation?.issues||[]).length === 0 ? 80 : 45 },
   ];
 
   const checksHtml = checkItems.map(c => {
@@ -5593,11 +5601,11 @@ function _qaRenderReport(report) {
     </div>`;
   }).join('');
 
-  // Simulation
+  // Simulation + ROI
   const simHtml = sim.scroll_stop_probability !== undefined ? `
     <div class="card" style="margin-bottom:1.25rem">
-      <div class="card-title">📊 סימולציית ביצוע</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem">
+      <div class="card-title">📊 סימולציית ביצוע + ROI</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:0.75rem">
         ${[
           { label:'עצירת גלילה', val: Math.round((sim.scroll_stop_probability||0)*100)+'%' },
           { label:'קליק',        val: Math.round((sim.click_probability||0)*100)+'%' },
@@ -5607,7 +5615,49 @@ function _qaRenderReport(report) {
           <div style="font-size:0.72rem;color:#64748b">${s.label}</div>
         </div>`).join('')}
       </div>
-      <div style="margin-top:0.5rem;font-size:0.75rem;color:#94a3b8;text-align:center">תחזית — לא מדויק 100%, מבוסס על ניתוח הנכסים</div>
+      ${sim.roi_estimate ? `<div style="background:#f0fdf4;border-radius:0.6rem;padding:0.6rem 0.85rem;display:flex;gap:1.5rem;font-size:0.78rem;flex-wrap:wrap">
+        <span>💰 CPC: ${sim.roi_estimate.estimated_cpc}</span>
+        <span>📈 לידים/1K קליקים: ${sim.roi_estimate.leads_per_1k_clicks}</span>
+        <span>💵 הכנסה צפויה/1K: ${sim.roi_estimate.estimated_revenue_1k}</span>
+        <span style="font-weight:700;color:${sim.roi_estimate.roi_verdict==='positive'?'#15803d':sim.roi_estimate.roi_verdict==='break_even'?'#92400e':'#dc2626'}">ROAS: ${sim.roi_estimate.estimated_roas}x (${sim.roi_estimate.roi_verdict})</span>
+      </div>` : ''}
+      ${sim.micro_conversions ? `<div style="margin-top:0.5rem;font-size:0.74rem;color:#64748b">Micro: scroll depth ${Math.round((sim.micro_conversions.scroll_depth||0)*100)}% · זמן עמוד: ${sim.micro_conversions.time_on_page||'?'} · hover CTA: ${Math.round((sim.micro_conversions.cta_hover_chance||0)*100)}%</div>` : ''}
+      <div style="margin-top:0.3rem;font-size:0.72rem;color:#94a3b8">תחזית בלבד — מבוסס ניתוח נכסים + ממוצעי שוק, לא מדד בפועל</div>
+    </div>` : '';
+
+  // Edge Cases + Business + Fidelity insights
+  const edgeCasesData  = checks.edge_cases || {};
+  const businessData   = checks.business || {};
+  const fidelityData   = checks.execution_fidelity || {};
+  const extendedHtml = (edgeCasesData.edge_case_score || businessData.roi_outlook || fidelityData.fidelity_score) ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.25rem">
+      ${edgeCasesData.edge_case_score !== undefined ? `<div class="card" style="margin-bottom:0">
+        <div class="card-title" style="font-size:0.8rem">🚨 Edge Cases</div>
+        <div style="font-size:0.75rem;color:#374151">
+          <div>סקפטי: <b>${edgeCasesData.skeptic_response||'?'}</b></div>
+          <div>קר: <b>${edgeCasesData.cold_user_clarity||'?'}</b></div>
+          <div>ניסה: <b>${edgeCasesData.tried_before_differentiation||'?'}</b></div>
+          ${edgeCasesData.intent_drift?.exists ? `<div style="color:#dc2626;margin-top:0.3rem">⚠️ Intent Drift: ${edgeCasesData.intent_drift.description||''}</div>` : '<div style="color:#15803d;margin-top:0.3rem">✓ אין Intent Drift</div>'}
+        </div>
+      </div>` : '<div></div>'}
+      ${businessData.roi_outlook ? `<div class="card" style="margin-bottom:0">
+        <div class="card-title" style="font-size:0.8rem">💰 Business + ROI</div>
+        <div style="font-size:0.75rem;color:#374151">
+          <div>ROI: <b style="color:${businessData.roi_outlook==='positive'?'#15803d':businessData.roi_outlook==='negative'?'#dc2626':'#92400e'}">${businessData.roi_outlook||'?'}</b></div>
+          <div>Scalable: <b>${businessData.scalable?'כן':'לא'}</b></div>
+          <div>Content Fatigue: <b>${businessData.fatigue_risk||'?'}</b></div>
+          <div>Over-Opt: <b>${businessData.over_optimized?'כן ⚠️':'לא ✓'}</b></div>
+        </div>
+      </div>` : '<div></div>'}
+      ${fidelityData.fidelity_score !== undefined ? `<div class="card" style="margin-bottom:0">
+        <div class="card-title" style="font-size:0.8rem">🎯 נאמנות ביצוע</div>
+        <div style="font-size:0.75rem;color:#374151">
+          <div>זווית: <b>${fidelityData.angle_fidelity||'?'}</b></div>
+          <div>רגש: <b>${fidelityData.emotion_fidelity||'?'}</b></div>
+          <div>פלטפורמה: <b>${fidelityData.platform_format_fit||'?'}</b></div>
+          <div>ויזואל: <b>${fidelityData.visual_platform_fit||'?'}</b></div>
+        </div>
+      </div>` : '<div></div>'}
     </div>` : '';
 
   // Corrections
@@ -5672,6 +5722,7 @@ function _qaRenderReport(report) {
     </div>
 
     ${simHtml}
+    ${extendedHtml}
     ${corrHtml}
     ${routingHtml}
     ${testHtml}

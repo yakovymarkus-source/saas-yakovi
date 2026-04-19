@@ -192,6 +192,133 @@ ${issueList}
   return { corrections: parsed.corrections || [], count: (parsed.corrections || []).length };
 }
 
+// ── Edge Cases + Intent Drift ─────────────────────────────────────────────────
+async function evaluateEdgeCasesAndIntentDrift({ assets, brief }) {
+  const headline  = _getHeadline(assets);
+  const allHooks  = (assets.hooks || []).slice(0, 3).map(h => h.text || h).join('\n');
+  const lpSections = Object.keys(assets.landing_page?.content?.sections || {}).join(', ');
+
+  const prompt = `אתה מנסה לשבור את הקופי הזה מ-3 פרספקטיבות:
+
+כותרת: ${headline}
+הוקים: ${allHooks}
+מבנה דף: ${lpSections}
+פלטפורמה: ${brief?.platform}
+קהל: ${brief?.targetCustomer}
+
+**בדוק 3 סוגי משתמשים:**
+
+1. **משתמש סקפטי** — "שמעתי את זה כבר" — האם הקופי מתגבר על ספקנות?
+2. **משתמש קר** — לא מכיר את המוצר, רואה לראשונה — האם זה מובן?
+3. **משתמש שניסה בעבר** — ניסה פתרון דומה ונכשל — האם יש בידול מספיק?
+
+**בדוק Intent Drift:**
+האם המשתמש שמגיע מסוג מסוים (כאב ספציפי) מוצא מה שחיפש — או שהדף מסיט אותו לכיוון אחר?
+
+החזר JSON:
+{
+  "skeptic_response": "strong|moderate|weak",
+  "cold_user_clarity": "clear|confusing|partial",
+  "tried_before_differentiation": "strong|moderate|weak",
+  "intent_drift": { "exists": true/false, "description": "תיאור אם יש", "fix": "פתרון" },
+  "edge_case_score": 0-100,
+  "top_edge_issue": "הבעיה הגדולה ביותר",
+  "fix": "פתרון ספציפי"
+}`;
+
+  const raw = await callClaude({ prompt, maxTokens: 600, temperature: 0.2 });
+  return _parseJson(raw, { skeptic_response: 'moderate', cold_user_clarity: 'partial', edge_case_score: 50, intent_drift: { exists: false } });
+}
+
+// ── Execution Fidelity + Visual QA ───────────────────────────────────────────
+async function evaluateExecutionFidelity({ assets, brief, decisionLayer }) {
+  const primaryAd = (assets.ads || [])[0];
+  const adText    = primaryAd ? JSON.stringify(primaryAd.text || primaryAd).slice(0, 200) : 'אין מודעה';
+  const intendedAngle   = decisionLayer?.primaryAngle || brief?.angleType || 'לא צוין';
+  const intendedEmotion = decisionLayer?.emotionPrimary || 'לא צוין';
+  const platform        = brief?.platform;
+
+  const prompt = `בדוק נאמנות ביצוע — האם הנכס מיישם את ההחלטות האסטרטגיות עד הסוף:
+
+נכס (מודעה ראשונה): ${adText}
+
+מה היה אמור להיות:
+- זווית: ${intendedAngle}
+- רגש: ${intendedEmotion}
+- פלטפורמה: ${platform}
+
+שאלות:
+1. האם הזווית (${intendedAngle}) באה לידי ביטוי — או נכונה על הנייר אבל חלשה בפועל?
+2. האם הרגש (${intendedEmotion}) מורגש — או נשמע כמו כתיבה מכנית?
+3. האם הפורמט מתאים לפלטפורמה ${platform} (אורך, מבנה, ניסוח)?
+4. האם הוויזואל (אם קיים) נראה כמו פרסומת או כמו תוכן אורגני לפלטפורמה?
+
+החזר JSON:
+{
+  "angle_fidelity": "strong|moderate|weak",
+  "emotion_fidelity": "strong|moderate|weak",
+  "platform_format_fit": "perfect|acceptable|wrong",
+  "visual_platform_fit": "native|ad_like|unknown",
+  "fidelity_score": 0-100,
+  "fidelity_issues": ["בעיה 1", "בעיה 2"],
+  "fidelity_fix": "תיקון ספציפי"
+}`;
+
+  const raw = await callClaude({ prompt, maxTokens: 500, temperature: 0.2 });
+  return _parseJson(raw, { fidelity_score: 50, angle_fidelity: 'moderate', emotion_fidelity: 'moderate', fidelity_issues: [] });
+}
+
+// ── Business Fit + ROI + Content Fatigue + Scalability ───────────────────────
+async function evaluateBusinessAndScalability({ assets, brief, offer }) {
+  const headline    = _getHeadline(assets);
+  const priceTier   = brief?.priceTier || 'medium';
+  const businessType= brief?.businessType || 'b2c';
+  const adCount     = (assets.ads || []).length;
+  const hookCount   = (assets.hooks || []).length;
+
+  const prompt = `בדוק התאמה עסקית, ROI פוטנציאל, ועייפות תוכן:
+
+מוצר: ${brief?.productName || 'לא צוין'}
+מחיר: ${priceTier}
+קהל: ${brief?.targetCustomer}
+כותרת: ${headline}
+מספר נכסים: ${adCount} מודעות, ${hookCount} hooks
+
+**1. Business Fit:**
+האם הקופי מתאים לרמת המחיר (${priceTier}) ולסוג העסק (${businessType})?
+קופי לproduct ב-500₪ לעומת קופי ל-50₪ = שונה לגמרי.
+
+**2. ROI Thinking:**
+על סמך עוצמת ההצעה ורמת ההמרה הצפויה — האם זה שווה להריץ?
+(לא מדויק, אבל חייב להשיב: "כן/לא/תלוי ב...")
+
+**3. Content Fatigue:**
+אם מריצים את זה 4-6 שבועות — מה יישחק ראשון?
+
+**4. Scalability:**
+האם ניתן לשכפל את הגישה הזו ל-5-10 קמפיינים נוספים?
+
+**5. Over-Optimization:**
+האם יש סימנים לשיפור יתר שפוגע בפשטות?
+
+החזר JSON:
+{
+  "business_fit": { "score": 0-100, "issue": "תיאור אם לא מתאים" },
+  "roi_outlook": "positive|uncertain|negative",
+  "roi_note": "הסבר קצר",
+  "fatigue_risk": "low|medium|high",
+  "fatigue_element": "מה יישחק ראשון",
+  "scalable": true/false,
+  "scalability_note": "הסבר",
+  "over_optimized": true/false,
+  "over_optimization_fix": "תיקון אם נדרש",
+  "overall_business_score": 0-100
+}`;
+
+  const raw = await callClaude({ prompt, maxTokens: 600, temperature: 0.2 });
+  return _parseJson(raw, { business_fit: { score: 50 }, roi_outlook: 'uncertain', fatigue_risk: 'medium', scalable: true, over_optimized: false, overall_business_score: 50 });
+}
+
 // ── Helper ────────────────────────────────────────────────────────────────────
 function _getHeadline(assets) {
   const ad = (assets.ads || [])[0];
@@ -213,4 +340,7 @@ module.exports = {
   evaluateOfferAndPersuasion,
   compareVariants,
   generateCorrections,
+  evaluateEdgeCasesAndIntentDrift,
+  evaluateExecutionFidelity,
+  evaluateBusinessAndScalability,
 };
