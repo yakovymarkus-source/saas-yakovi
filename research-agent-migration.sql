@@ -295,3 +295,65 @@ drop trigger if exists link_report_to_job_trigger on public.research_reports;
 create trigger link_report_to_job_trigger
   after insert on public.research_reports
   for each row execute procedure public.link_report_to_job();
+
+-- ── entity_sources ─────────────────────────────────────────
+-- Per-platform source data for each discovered competitor
+create table if not exists public.entity_sources (
+  id          uuid primary key default gen_random_uuid(),
+  entity_id   uuid not null references public.research_entities(id) on delete cascade,
+  job_id      uuid not null references public.research_jobs(id) on delete cascade,
+  platform    text not null check (platform in ('website','google','meta','instagram','tiktok','linkedin','youtube','other')),
+  url         text,
+  raw_data    jsonb not null default '{}',
+  scraped_at  timestamptz not null default now(),
+  created_at  timestamptz not null default now()
+);
+alter table public.entity_sources enable row level security;
+create policy entity_sources_select_own on public.entity_sources
+  for select using (exists (select 1 from public.research_jobs j where j.id = entity_sources.job_id and j.user_id = auth.uid()));
+create policy entity_sources_service_insert on public.entity_sources for insert with check (true);
+create index if not exists idx_entity_sources_entity on public.entity_sources (entity_id);
+create index if not exists idx_entity_sources_job    on public.entity_sources (job_id);
+
+-- ── entity_assets ──────────────────────────────────────────
+-- Content assets (ads, landing pages, posts) per competitor
+create table if not exists public.entity_assets (
+  id          uuid primary key default gen_random_uuid(),
+  entity_id   uuid not null references public.research_entities(id) on delete cascade,
+  job_id      uuid not null references public.research_jobs(id) on delete cascade,
+  type        text not null check (type in ('website','ad','post','landing_page','video','other')),
+  platform    text,
+  content     text,
+  headline    text,
+  cta         text,
+  message     text,
+  source_url  text,
+  created_at  timestamptz not null default now()
+);
+alter table public.entity_assets enable row level security;
+create policy entity_assets_select_own on public.entity_assets
+  for select using (exists (select 1 from public.research_jobs j where j.id = entity_assets.job_id and j.user_id = auth.uid()));
+create policy entity_assets_service_insert on public.entity_assets for insert with check (true);
+create index if not exists idx_entity_assets_entity on public.entity_assets (entity_id);
+create index if not exists idx_entity_assets_job    on public.entity_assets (job_id);
+
+-- ── research_usage_logs ────────────────────────────────────
+-- Per-AI-call usage tracking for cost control and audit
+create table if not exists public.research_usage_logs (
+  id            uuid primary key default gen_random_uuid(),
+  job_id        uuid not null references public.research_jobs(id) on delete cascade,
+  user_id       uuid not null references auth.users(id) on delete cascade,
+  action        text not null,   -- step name: 'discovery', 'avatar', 'patterns', etc.
+  provider      text not null default 'claude_researcher',
+  tokens_used   int  not null default 0,
+  cost_estimate numeric(10,6) not null default 0,  -- USD estimate
+  success       boolean not null default true,
+  error_msg     text,
+  created_at    timestamptz not null default now()
+);
+alter table public.research_usage_logs enable row level security;
+create policy usage_logs_select_own on public.research_usage_logs
+  for select using (auth.uid() = user_id);
+create policy usage_logs_service_insert on public.research_usage_logs for insert with check (true);
+create index if not exists idx_usage_logs_job  on public.research_usage_logs (job_id);
+create index if not exists idx_usage_logs_user on public.research_usage_logs (user_id, created_at desc);
