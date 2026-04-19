@@ -30,7 +30,8 @@ const {
   designProduct, generatePositioning, buildCoreMessage,
   buildFunnelArchitecture, buildTestPlan, runRealityCheck,
 } = require('./collectors/claude-strategy-engine');
-const { buildStrategyReport } = require('./output/strategy-builder');
+const { buildStrategyReport }     = require('./output/strategy-builder');
+const { persistStrategyMemory }   = require('../learning-engine');
 
 // ── API key helper (same pattern as research pipeline) ─────────────────────────
 function getAnthropicKey() {
@@ -94,7 +95,7 @@ async function runStrategyPipeline({ job, researchReport, supabase, onStep }) {
 
   // Pipeline state
   let translated, productResult, positioningResult, revenueSystem;
-  let testPlan, metrics, validation, tradeoffs, coherence, scalability, risks, realityCheck, decision;
+  let testPlan, metrics, validation, tradeoffs, coherence, scalability, systemFit, risks, realityCheck, decision;
 
   // ── Avatar shape adapter ───────────────────────────────────────────────────
   // Research report stores flat arrays (core_pains, fears…); translation-layer
@@ -355,6 +356,12 @@ async function runStrategyPipeline({ job, researchReport, supabase, onStep }) {
     // ── MODULE 10: Scalability Check ─────────────────────────────────────────
     scalability = checkScalability({ productType: productResult.productType, strategy: revenueSystem });
 
+    // ── MODULE 13 (Protocol): System Fit Check ───────────────────────────────
+    systemFit = checkSystemFit({ productType: productResult.productType, platforms: revenueSystem.platforms, assets: revenueSystem.assets });
+    if (!systemFit.isSystemFit) {
+      await emit('system_fit_warn', `⚠️ System Fit: ${systemFit.score}% — מוצר עלול לא להתאים למשאבים הנוכחיים`, 'done');
+    }
+
     // ── MODULE 11: Risk Assessment ───────────────────────────────────────────
     risks = assessRisks({
       product: productResult, positioning: positioningResult,
@@ -380,16 +387,58 @@ async function runStrategyPipeline({ job, researchReport, supabase, onStep }) {
       await logUsage('reality_check', 800);
       const signal = realityCheck.go_signal === 'ירוק' ? '✅' : realityCheck.go_signal === 'צהוב' ? '⚠️' : '🔴';
       await emit('reality_check_done', `${signal} ${realityCheck.go_signal}: ${realityCheck.reason}`, 'done');
+
+      // Protocol: if go_signal = אדום → add critical risk
+      if (realityCheck.go_signal === 'אדום') {
+        risks.push({
+          type: 'reality_check_fail',
+          description: `Reality Check נכשל: ${realityCheck.reason || 'מישהו לא ישלם על זה עכשיו'}`,
+          severity: 'high',
+        });
+        await emit('reality_check_fail', `🔴 Reality Check: אות אדום — הוסף לסיכונים קריטיים`, 'done');
+      }
+      // Protocol: if must_fix present → log as warning
+      if (realityCheck.must_fix) {
+        await emit('reality_check_action', `🔧 חובה לתקן: ${realityCheck.must_fix}`, 'done');
+      }
     } catch (e) {
       await logUsage('reality_check', 0, false);
       realityCheck = { will_someone_pay: null, go_signal: 'צהוב', reason: 'לא הושלם', confidence: 50 };
       await emit('reality_check', 'דילוג על Reality Check AI', 'skipped');
     }
 
-    // ── MODULE 13: Decision Layer ────────────────────────────────────────────
+    // ── MODULE 13: Decision Layer + Iteration ───────────────────────────────
     systemState.phase = 'decision';
     decision = makeDecision({ product: productResult, positioning: positioningResult, strategy: revenueSystem, validation, risks });
     await emit('decision', `החלטה: ${decision.decision} | ביטחון: ${decision.confidence}%`, 'done');
+
+    // Protocol: Iteration Engine — if RETRY and backup pain available, try next pain
+    if (decision.decision === 'RETRY' && systemState.iterationCount < systemState.maxIterations && productResult.backupPains?.length > 0) {
+      systemState.iterationCount++;
+      const nextPain = productResult.backupPains[systemState.iterationCount - 1];
+      await emit('iteration', `🔁 Iteration ${systemState.iterationCount}: מנסה כאב גיבוי "${nextPain}"...`, 'running');
+
+      // Override pain and rerun product + positioning engines
+      const backupCandidate = translated.painCandidates.find(p => p.text === nextPain) || { text: nextPain, type: 'pain', frequency: 1, confidence: 60, painScore: 50 };
+      productResult.selectedPain      = backupCandidate.text;
+      productResult.selectedPainScore = backupCandidate.painScore || 50;
+      productResult.backupPains        = productResult.backupPains.filter(p => p !== nextPain);
+
+      // Re-run revenue system with new pain
+      const painType2 = backupCandidate.type || 'pain';
+      revenueSystem = runRevenueSystemEngine({
+        selectedPain: productResult.selectedPain, painType: painType2,
+        painScore: productResult.selectedPainScore,
+        competitorMessages: translated.competitorMessages,
+        productType: productResult.productType,
+        segments: translated.segments, opportunityZones: translated.opportunityZones,
+      });
+      // Re-validate after iteration
+      validation = runValidation({ product: productResult, positioning: positioningResult, strategy: revenueSystem, testPlan, metrics });
+      risks = assessRisks({ product: productResult, positioning: positioningResult, competitorCount: translated.competitorMessages.length, viabilityScore: productResult.viabilityScore });
+      decision = makeDecision({ product: productResult, positioning: positioningResult, strategy: revenueSystem, validation, risks });
+      await emit('iteration_done', `✅ איטרציה הושלמה | החלטה: ${decision.decision} | ביטחון: ${decision.confidence}%`, 'done');
+    }
 
     // ── Build Final Report ───────────────────────────────────────────────────
     systemState.phase = 'report';
@@ -399,7 +448,7 @@ async function runStrategyPipeline({ job, researchReport, supabase, onStep }) {
     const report = buildStrategyReport({
       jobId: job.id, userId: job.user_id, researchReportId: job.research_report_id, niche: job.niche,
       product: productResult, positioning: positioningResult, revenueSystem,
-      testPlan, metrics, risks, validation, decision, coherence, scalability, realityCheck,
+      testPlan, metrics, risks, validation, decision, coherence, scalability, systemFit, realityCheck,
       aiCallsMade, generationMs,
     });
 
@@ -418,6 +467,7 @@ async function runStrategyPipeline({ job, researchReport, supabase, onStep }) {
       fallback_options:   report.fallback_options,
       confidence:         report.confidence,
       go_signal:          report.go_signal,
+      preflight_passed:   report.preflight?.ready || false,
       validation_passed:  validation.canProceed,
       ai_calls_made:      aiCallsMade,
       generation_ms:      generationMs,
@@ -431,6 +481,21 @@ async function runStrategyPipeline({ job, researchReport, supabase, onStep }) {
       credits_used:  1,
       generation_ms: generationMs,
     });
+
+    // ── MODULE 10 (Protocol): Learning Engine — persist what worked ──────────
+    try {
+      await persistStrategyMemory(job.user_id, null, {
+        niche:       job.niche,
+        selectedPain: productResult.selectedPain,
+        productType:  productResult.productType,
+        positioning:  positioningResult.selectedPositioning,
+        method:       revenueSystem.method?.primary?.method,
+        platform:     revenueSystem.platforms?.primary,
+        confidence:   decision.confidence,
+        goSignal:     report.go_signal,
+        iterationCount: systemState.iterationCount,
+      }, null);
+    } catch (e) { console.warn('[strategy-pipeline] learning-engine persist failed:', e.message); }
 
     const goEmoji = report.go_signal === 'ירוק' ? '🟢' : report.go_signal === 'צהוב' ? '🟡' : '🔴';
     await emit('done',

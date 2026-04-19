@@ -4736,14 +4736,15 @@ function _strategyRenderReport(report) {
   if (!area) return;
   area.style.display = '';
 
-  const prod = report.product     || {};
-  const pos  = report.positioning || {};
-  const strat= report.strategy    || {};
-  const tp   = report.test_plan   || {};
-  const met  = report.metrics     || {};
-  const risks= report.risks       || [];
-  const conf = report.confidence  || 0;
-  const goSig= report.go_signal || (conf >= 70 ? 'ירוק' : conf >= 45 ? 'צהוב' : 'אדום');
+  const prod     = report.product     || {};
+  const pos      = report.positioning || {};
+  const strat    = report.strategy    || {};
+  const tp       = report.test_plan   || {};
+  const met      = report.metrics     || {};
+  const risks    = report.risks       || [];
+  const preflight= report.preflight   || {};
+  const conf     = report.confidence  || 0;
+  const goSig    = report.go_signal || (conf >= 70 ? 'ירוק' : conf >= 45 ? 'צהוב' : 'אדום');
 
   const goColor = goSig === 'ירוק' ? '#16a34a' : goSig === 'צהוב' ? '#d97706' : '#dc2626';
   const goBg    = goSig === 'ירוק' ? '#f0fdf4' : goSig === 'צהוב' ? '#fefce8' : '#fef2f2';
@@ -4872,6 +4873,10 @@ function _strategyRenderReport(report) {
               ${strat.funnel.offer_structure ? `<div style="margin-bottom:0.25rem">💰 <strong>הצעה:</strong> ${strat.funnel.offer_structure}</div>` : ''}
               ${strat.funnel.conversion_method ? `<div>✅ <strong>המרה:</strong> ${strat.funnel.conversion_method}</div>` : ''}
             </div>` : ''}
+          ${strat.system_fit ? `
+            <div style="margin-top:0.5rem;font-size:0.78rem;background:${strat.system_fit.isSystemFit?'#f0fdf4':'#fef2f2'};border-radius:0.4rem;padding:0.4rem 0.6rem;color:${strat.system_fit.isSystemFit?'#166534':'#991b1b'}">
+              System Fit: ${strat.system_fit.score}% ${strat.system_fit.isSystemFit ? '✅ מתאים למשאבים' : '⚠️ בדוק התאמה למשאבים'}
+            </div>` : ''}
         </div>
       </div>
     </div>
@@ -4904,6 +4909,28 @@ function _strategyRenderReport(report) {
       <div class="card-title">🚩 סיכונים</div>
       ${risks.map(riskBadge).join('')}
     </div>` : ''}
+
+    ${preflight.checklist ? (() => {
+      const checks = preflight.checklist;
+      const labels = {
+        product: 'מוצר ברור', pain_with_backup: 'כאב + גיבוי', differentiation: 'בידול',
+        core_message: 'מסר מרכזי', angles_3plus: '3+ זוויות', method: 'שיטת שיווק',
+        tone: 'טון', platform: 'פלטפורמה', assets: 'נכסים', funnel_complete: 'משפך שלם',
+        test_plan: 'תכנית בדיקות', metrics: 'מדדים',
+      };
+      return `
+      <div class="card" style="margin-bottom:1.25rem">
+        <div class="card-title">✅ בדיקת מעבר לסוכן ביצוע (Pre-flight)</div>
+        <div style="font-size:0.78rem;color:#64748b;margin-bottom:0.75rem">${preflight.passed || 0}/${preflight.total || 12} בדיקות עברו ${preflight.ready ? '— <strong style="color:#16a34a">מוכן לביצוע</strong>' : '— <strong style="color:#dc2626">יש פערים</strong>'}</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem">
+          ${Object.entries(checks).map(([k,v]) => `
+            <div style="display:flex;align-items:center;gap:0.3rem;padding:0.35rem 0.5rem;background:${v?'#f0fdf4':'#fef2f2'};border-radius:0.4rem;font-size:0.72rem">
+              <span>${v ? '✅' : '❌'}</span>
+              <span style="color:${v?'#166534':'#991b1b'}">${labels[k] || k}</span>
+            </div>`).join('')}
+        </div>
+      </div>`;
+    })() : ''}
   `;
 
   area.scrollIntoView({ behavior: 'smooth', block: 'start' });
