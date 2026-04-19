@@ -2234,8 +2234,7 @@ async function generateAdScript() {
     });
     const text = result.reply || '';
     if (resBox) resBox.style.display = '';
-    if (resText) resText.textContent = text;
-    // Show save button
+    if (resText) resText.innerHTML = renderMarkdown(text);
     const saveBtn = document.getElementById('ai-save-ad-btn');
     if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_script', 'תסריט מודעה', text); }
     toast('התסריט נוצר!', 'success');
@@ -2264,8 +2263,7 @@ async function generateLandingPage() {
     });
     const text = result.reply || '';
     if (resBox) resBox.style.display = '';
-    if (resText) resText.textContent = text;
-    // Show save button
+    if (resText) resText.innerHTML = renderMarkdown(text);
     const saveBtn = document.getElementById('ai-save-lp-btn');
     if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('landing_page', 'מבנה דף נחיתה', text); }
     toast('המבנה נוצר!', 'success');
@@ -2296,7 +2294,7 @@ async function generateAdCreative() {
     });
     const text = result.reply || '';
     if (resBox) resBox.style.display = '';
-    if (resText) resText.textContent = text;
+    if (resText) resText.innerHTML = renderMarkdown(text);
     const saveBtn = document.getElementById('ai-save-creative-btn');
     if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_creative', 'מודעה מוכנה', text); }
     toast('המודעה נוצרה!', 'success');
@@ -2305,6 +2303,15 @@ async function generateAdCreative() {
   } finally {
     btn.disabled = false; btn.textContent = '🖼️ צור מודעה';
   }
+}
+
+function renderMarkdown(text) {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #e2e8f0;margin:0.75rem 0">')
+    .replace(/\n/g, '<br>');
 }
 
 function copyAIResult(elId) {

@@ -1360,35 +1360,42 @@ exports.handler = async (event) => {
     // ── Direct generation mode (from AI creation form — bypasses intent/beginner layers) ──
     if (message.startsWith('[DIRECT_AD]') || message.startsWith('[DIRECT_GENERATE]')) {
       const rawPrompt = message.replace(/^\[(DIRECT_AD|DIRECT_GENERATE)\]\s*/, '');
-      // Load business profile only (skip full context to save time)
-      let businessProfile = {};
+
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      if (!anthropicKey) {
+        return ok({ reply: '⚠️ שגיאה: לא נמצא ANTHROPIC_API_KEY. אנא הגדר אותו בהגדרות הסביבה של Netlify.', quickActions: [] }, context.requestId);
+      }
+
+      let reply = '';
       try {
-        const { loadBusinessProfile } = require('./_shared/business-profile');
-        businessProfile = (await loadBusinessProfile(user.id)) || {};
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 22000);
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': anthropicKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
+            max_tokens: 1500,
+            system: 'אתה קופירייטר ישראלי מקצועי המתמחה בפרסום דיגיטלי. כתוב תוכן שיווקי בעברית, ישיר, ממיר ומשכנע. השב ישירות עם התוכן המבוקש בלבד, ללא הסברים נוספים.',
+            messages: [{ role: 'user', content: rawPrompt }],
+          }),
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json();
+          reply = data?.content?.find(b => b.type === 'text')?.text || '';
+        }
       } catch {}
 
-      // Single AI attempt — no second fallback to avoid 504
-      const aiResult = await orchestrate(
-        CAPABILITIES.AD_COPY,
-        { businessProfile, rawPrompt },
-        { userId: user.id, options: { timeout: 20000 } },
-      );
-      if (aiResult.ok) {
-        if (aiResult.content?.variants?.length) {
-          const vars = aiResult.content.variants;
-          let reply = `✍️ **${vars.length} וריאציות מודעה:**\n\n`;
-          reply += vars.map((v, i) => `**וריאציה ${i+1}:**\n${v.headline ? `**כותרת:** ${v.headline}\n` : ''}${v.body ? `**תיאור:** ${v.body}\n` : ''}${v.cta ? `**CTA:** ${v.cta}` : ''}`).join('\n\n---\n\n');
-          return ok({ reply, quickActions: [] }, context.requestId);
-        }
-        if (aiResult.content?.content) {
-          return ok({ reply: aiResult.content.content, quickActions: [] }, context.requestId);
-        }
+      if (!reply) {
+        return ok({ reply: '⚠️ שגיאה זמנית בגישה ל-AI. אנא נסה שנית עוד מספר שניות.', quickActions: [] }, context.requestId);
       }
-      // AI not configured or failed — return a clear message without echoing the raw prompt
-      const note = aiResult.error === 'PROVIDER_NOT_CONFIGURED'
-        ? 'לקבלת תוצאות AI מלאות, הגדר OPENAI_API_KEY בהגדרות הסביבה של Netlify.'
-        : 'שגיאה זמנית בגישה ל-AI. אנא נסה שנית עוד מספר שניות.';
-      return ok({ reply: `⚠️ ${note}`, quickActions: [] }, context.requestId);
+      return ok({ reply, quickActions: [] }, context.requestId);
     }
 
     // Build context from DB
