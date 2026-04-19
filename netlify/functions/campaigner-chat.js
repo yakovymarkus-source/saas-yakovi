@@ -1367,9 +1367,12 @@ exports.handler = async (event) => {
       }
 
       let reply = '';
+      let errorDetail = '';
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 22000);
+        const model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
+        console.log('[direct-gen] calling Anthropic, model:', model, 'key prefix:', anthropicKey.slice(0, 20));
         const res = await fetch('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           signal: controller.signal,
@@ -1379,21 +1382,30 @@ exports.handler = async (event) => {
             'anthropic-version': '2023-06-01',
           },
           body: JSON.stringify({
-            model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
+            model,
             max_tokens: 1500,
             system: 'אתה קופירייטר ישראלי מקצועי המתמחה בפרסום דיגיטלי. כתוב תוכן שיווקי בעברית, ישיר, ממיר ומשכנע. השב ישירות עם התוכן המבוקש בלבד, ללא הסברים נוספים.',
             messages: [{ role: 'user', content: rawPrompt }],
           }),
         });
         clearTimeout(timer);
+        console.log('[direct-gen] Anthropic status:', res.status);
         if (res.ok) {
           const data = await res.json();
           reply = data?.content?.find(b => b.type === 'text')?.text || '';
+          console.log('[direct-gen] reply length:', reply.length);
+        } else {
+          const errBody = await res.text().catch(() => '');
+          errorDetail = `HTTP ${res.status}: ${errBody.slice(0, 200)}`;
+          console.error('[direct-gen] Anthropic error:', errorDetail);
         }
-      } catch {}
+      } catch (e) {
+        errorDetail = e.message || 'network error';
+        console.error('[direct-gen] fetch error:', errorDetail);
+      }
 
       if (!reply) {
-        return ok({ reply: '⚠️ שגיאה זמנית בגישה ל-AI. אנא נסה שנית עוד מספר שניות.', quickActions: [] }, context.requestId);
+        return ok({ reply: `⚠️ שגיאה בגישה ל-AI${errorDetail ? ': ' + errorDetail : '. אנא נסה שנית.'}`, quickActions: [] }, context.requestId);
       }
       return ok({ reply, quickActions: [] }, context.requestId);
     }
