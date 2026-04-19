@@ -36,6 +36,18 @@
 [functions."process-strategy-job"]
   timeout = 26
 
+[functions."execution-start"]
+  timeout = 10
+
+[functions."execution-status"]
+  timeout = 10
+
+[functions."execution-report"]
+  timeout = 10
+
+[functions."process-execution-job"]
+  timeout = 26
+
 # Scheduled functions
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
