@@ -1,5 +1,16 @@
 'use strict';
 
+// Load .env for local dev (netlify dev sometimes skips injecting vars into functions)
+(function() {
+  const fs = require('node:fs'), path = require('node:path');
+  const p = path.resolve(__dirname, '../../../../..', '.env');
+  if (!fs.existsSync(p)) return;
+  for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
+    const m = line.match(/^([A-Z0-9_]+)=(.+)/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+  }
+})();
+
 /**
  * providers/adapters/claude.js — Anthropic Claude API Adapter
  *
@@ -18,14 +29,19 @@
 const { AdapterError, CAPABILITIES } = require('../contract');
 
 const SUPPORTED_CAPABILITIES = [
+  CAPABILITIES.AD_COPY,
+  CAPABILITIES.CAMPAIGN_STRATEGY,
+  CAPABILITIES.ANALYSIS_SUMMARY,
+  CAPABILITIES.ISSUE_EXPLANATION,
+  CAPABILITIES.ITERATION_ADVICE,
   CAPABILITIES.LANDING_PAGE,
   CAPABILITIES.AD_CREATIVE,
 ];
 
 const BASE_URL      = 'https://api.anthropic.com/v1/messages';
 const API_VERSION   = '2023-06-01';
-const DEFAULT_MODEL = 'claude-haiku-4-5-20251001';
-const DEFAULT_TIMEOUT = 30_000;
+const DEFAULT_MODEL = 'claude-sonnet-4-6'; // Sonnet for high-quality landing page + visual generation
+const DEFAULT_TIMEOUT = 22_000; // 22s — leaves headroom within Netlify's 26s function limit
 
 const ClaudeAdapter = {
   getName()         { return 'claude'; },
@@ -112,16 +128,14 @@ const ClaudeAdapter = {
       throw new AdapterError('PARSE_ERROR', `Claude response is not valid JSON: ${text.slice(0, 200)}`);
     }
 
-    if (capability === CAPABILITIES.LANDING_PAGE) {
-      if (!Array.isArray(parsed.sections)) {
-        throw new AdapterError('PARSE_ERROR', 'landing_page response missing sections array');
-      }
+    if (capability === CAPABILITIES.LANDING_PAGE && !Array.isArray(parsed.sections)) {
+      throw new AdapterError('PARSE_ERROR', 'landing_page response missing sections array');
     }
-
-    if (capability === CAPABILITIES.AD_CREATIVE) {
-      if (!Array.isArray(parsed.creatives)) {
-        throw new AdapterError('PARSE_ERROR', 'ad_creative response missing creatives array');
-      }
+    if (capability === CAPABILITIES.AD_CREATIVE && !Array.isArray(parsed.creatives)) {
+      throw new AdapterError('PARSE_ERROR', 'ad_creative response missing creatives array');
+    }
+    if (capability === CAPABILITIES.AD_COPY && !Array.isArray(parsed.variants)) {
+      throw new AdapterError('PARSE_ERROR', 'ad_copy response missing variants array');
     }
 
     return parsed;

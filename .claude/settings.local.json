@@ -6,7 +6,26 @@
       "Read(//c/Users/User/.config/**)",
       "Bash(node -e \"require\\('@supabase/supabase-js'\\)\")",
       "Bash(curl:*)",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(awk 'NR>=2525 && NR<=2600 {gsub\\(/[^`]/, \"\"\\); printf \"%d:%s\\\\n\", NR, $0}' \"public/assets/app.js\")",
+      "Bash(grep -v ':$')",
+      "Bash(netlify dev:*)",
+      "Bash(node:*)",
+      "Bash(netlify status *)",
+      "Bash(netlify deploy *)",
+      "Bash(awk '/^ *)",
+      "Bash(python3 -c *)",
+      "Bash(npx --yes @iarna/toml-cli parse netlify.toml)",
+      "Bash(netstat -ano)",
+      "Bash(npx kill-port *)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(npm install *)",
+      "Bash(npx netlify *)",
+      "Bash(xargs -I {} basename {})",
+      "mcp__claude_ai_Supabase__list_projects",
+      "mcp__claude_ai_Supabase__restore_project",
+      "mcp__claude_ai_Supabase__apply_migration",
+      "Bash(dir /s \"C:\\\\Users\\\\User\\\\Desktop\\\\saas\\\\סאס 6\\\\netlify\\\\functions\\\\_shared\\\\strategy\")"
     ]
   }
 }

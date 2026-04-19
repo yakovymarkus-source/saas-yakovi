@@ -1,38 +1,80 @@
 /**
- * email.js — Resend email service wrapper
+ * email.js — Email service with dual transport:
+ *
+ *  1. Gmail SMTP (preferred when GMAIL_APP_PASSWORD is set)
+ *     ENV: GMAIL_USER, GMAIL_APP_PASSWORD
+ *
+ *  2. Resend API (fallback, requires verified domain)
+ *     ENV: RESEND_API_KEY, EMAIL_FROM
  *
  * Usage:
- *   const { sendWelcome, sendBillingConfirmation, sendPaymentFailed, sendSubscriptionRenewed, sendSubscriptionCanceled } = require('./email');
+ *   const { sendWelcome, sendBillingConfirmation, ... } = require('./email');
  *   await sendWelcome({ to: 'user@example.com' });
  */
 
 const RESEND_API_URL = 'https://api.resend.com/emails';
 
-async function sendEmail({ to, subject, html, replyTo }) {
-  const apiKey   = process.env.RESEND_API_KEY;
-  const from     = process.env.EMAIL_FROM     || 'noreply@yourdomain.com';
-  const replyToAddr = replyTo || process.env.EMAIL_REPLY_TO || from;
+// ─── Gmail SMTP transport ────────────────────────────────────────────────────
+async function sendViaGmail({ to, subject, html, replyTo }) {
+  const nodemailer  = require('nodemailer');
+  const gmailUser   = process.env.GMAIL_USER        || 'yakovymarkus@gmail.com';
+  const gmailPass   = process.env.GMAIL_APP_PASSWORD || '';
 
-  if (!apiKey) {
-    console.warn('[email] RESEND_API_KEY not set — skipping email send');
-    return null;
-  }
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: gmailUser, pass: gmailPass },
+  });
+
+  const info = await transporter.sendMail({
+    from:    `"CampaignAI" <${gmailUser}>`,
+    to,
+    subject,
+    html,
+    replyTo: replyTo || gmailUser,
+  });
+
+  console.log(`[email/gmail] sent to ${to} — messageId: ${info.messageId}`);
+  return info;
+}
+
+// ─── Resend transport (kept for future verified domain) ──────────────────────
+async function sendViaResend({ to, subject, html, replyTo }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error('RESEND_API_KEY not set');
+
+  const rawFrom = process.env.EMAIL_FROM || '';
+  const from    = rawFrom.includes('netlify.app') ? 'noreply@campaignbrain.app' : (rawFrom || 'noreply@campaignbrain.app');
+  const replyToAddr = replyTo || process.env.EMAIL_REPLY_TO || from;
 
   const res = await fetch(RESEND_API_URL, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ from, to, reply_to: replyToAddr, subject, html }),
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.error(`[email] Send failed (${res.status}):`, body);
-    return null;
+    console.error(`[email/resend] error ${res.status}: ${body} | from:${from} to:${to}`);
+    throw new Error(`Resend failed (${res.status}): ${body}`);
   }
   return res.json();
+}
+
+// ─── Unified sendEmail — Gmail first, Resend fallback ───────────────────────
+async function sendEmail({ to, subject, html, replyTo }) {
+  const useGmail = !!(process.env.GMAIL_APP_PASSWORD);
+
+  if (useGmail) {
+    return sendViaGmail({ to, subject, html, replyTo });
+  }
+
+  // Resend path (future: when domain is verified)
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.error('[email] No email transport configured (set GMAIL_APP_PASSWORD or RESEND_API_KEY)');
+    return null;
+  }
+  return sendViaResend({ to, subject, html, replyTo });
 }
 
 // ─── Transactional email templates ───────────────────────────────────────────
@@ -136,8 +178,28 @@ ${WRAPPER_CLOSE}`,
 }
 
 // שמור לשימוש פנימי / אדמין
-async function sendActivationEmail({ to }) {
-  return sendBillingConfirmation({ to });
+async function sendActivationEmail({ to, name, planLabel }) {
+  const greeting = name ? `שלום ${name},` : 'שלום,';
+  const planLine = planLabel ? `<p><strong>תוכנית:</strong> ${planLabel}</p>` : '';
+  return sendEmail({
+    to,
+    subject: 'החשבון שלך הופעל — אפשר להתחיל',
+    html: `${WRAPPER_OPEN}
+<h2 style="margin:0 0 20px;font-size:22px;">החשבון הופעל ✔️</h2>
+<p>${greeting}</p>
+<p>התשלום שלך אומת והחשבון הופעל בהצלחה.</p>
+${planLine}
+<p style="margin:16px 0 8px;"><strong>מה זה אומר בפועל?</strong></p>
+<ul style="padding-right:20px;margin:0 0 16px;">
+  <li>גישה מלאה לכל הכלים</li>
+  <li>יצירת תסריטי מודעות ודפי נחיתה</li>
+  <li>ניתוח ביצועי קמפיינים בזמן אמת</li>
+</ul>
+${btn(APP_URL(), 'כניסה למערכת')}
+<p>מכאן — זה כבר תלוי בך.</p>
+<p style="margin-top:24px;">— צוות CampaignAI</p>
+${WRAPPER_CLOSE}`,
+  });
 }
 
 async function sendAdminPaymentAlert({ adminEmail, userEmail, userName, plan }) {

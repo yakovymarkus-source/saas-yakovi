@@ -19,6 +19,7 @@ const { requireAdmin }             = require('./_shared/admin-auth');
 const { parseJsonBody }            = require('./_shared/request');
 const { getAdminClient }           = require('./_shared/supabase');
 const { AppError }                 = require('./_shared/errors');
+const { sendEmail }                = require('./_shared/email');
 
 const VALID_STATUSES = new Set(['open', 'in_progress', 'closed']);
 const UUID_RE        = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -103,6 +104,57 @@ exports.handler = async (event) => {
 
       if (error) throw new AppError({ code: 'DB_WRITE_FAILED', devMessage: error.message, status: 500 });
       return ok(data, ctx.requestId);
+    }
+
+    // ── POST — reply to ticket ───────────────────────────────────────────────
+    if (event.httpMethod === 'POST') {
+      const body = parseJsonBody(event, { allowEmpty: false });
+      const { ticketId, message: replyMsg } = body;
+
+      if (!ticketId || !UUID_RE.test(ticketId)) {
+        throw new AppError({ code: 'BAD_REQUEST', userMessage: 'ticketId חסר או לא תקין', status: 400 });
+      }
+      if (!replyMsg || String(replyMsg).trim().length < 2) {
+        throw new AppError({ code: 'BAD_REQUEST', userMessage: 'הודעת תגובה ריקה', status: 400 });
+      }
+
+      // Get ticket
+      const { data: ticket, error: tErr } = await sb
+        .from('support_tickets').select('*').eq('id', ticketId).single();
+      if (tErr || !ticket) throw new AppError({ code: 'NOT_FOUND', userMessage: 'פנייה לא נמצאה', status: 404 });
+
+      // Get user email for the reply
+      let toEmail = null;
+      if (ticket.user_id) {
+        const { data: prof } = await sb.from('profiles').select('email, name').eq('id', ticket.user_id).single();
+        toEmail = prof?.email || null;
+      }
+
+      if (!toEmail) {
+        throw new AppError({ code: 'BAD_REQUEST', userMessage: 'לא ניתן למצוא אימייל של המשתמש', status: 400 });
+      }
+
+      const APP_URL = process.env.APP_URL || process.env.URL || '';
+      await sendEmail({
+        to:      toEmail,
+        subject: `תגובה לפנייתך: ${ticket.title || 'פנייה'}`,
+        html: `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px;line-height:1.7;color:#1a1a1a;max-width:540px;margin:0 auto;padding:32px 24px;">
+<h2 style="margin:0 0 20px;font-size:20px;">קיבלת תגובה לפנייתך ✉️</h2>
+<p><strong>פנייה מקורית:</strong> ${ticket.title || '—'}</p>
+<hr style="border:none;border-top:1px solid #e5e5e5;margin:16px 0;">
+<p style="white-space:pre-wrap;background:#f8fafc;border-right:4px solid #6366f1;padding:12px 16px;border-radius:4px">${String(replyMsg).trim()}</p>
+<hr style="border:none;border-top:1px solid #e5e5e5;margin:16px 0;">
+<p style="font-size:13px;color:#64748b;">לכניסה למערכת: <a href="${APP_URL}">${APP_URL}</a></p>
+<p style="font-size:12px;color:#999;">— צוות CampaignAI</p>
+</div>`,
+      });
+
+      // Update status to in_progress + save reply text
+      await sb.from('support_tickets')
+        .update({ status: 'in_progress', updated_at: new Date().toISOString() })
+        .eq('id', ticketId);
+
+      return ok({ ticketId, replied: true, to: toEmail }, ctx.requestId);
     }
 
     throw new AppError({ code: 'METHOD_NOT_ALLOWED', userMessage: 'Method not allowed', status: 405 });

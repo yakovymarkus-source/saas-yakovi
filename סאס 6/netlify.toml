@@ -5,15 +5,46 @@
 [build.environment]
   NODE_VERSION = "20"
 
-# ── Scheduled functions ────────────────────────────────────────────────────────
+# Function timeouts
+[functions."campaigner-chat"]
+  timeout = 26
+
+[functions."process-research-job"]
+  timeout = 26
+
+[functions."research-start"]
+  timeout = 10
+
+[functions."research-status"]
+  timeout = 10
+
+[functions."research-report"]
+  timeout = 10
+
+[functions."research-providers"]
+  timeout = 10
+
+[functions."strategy-start"]
+  timeout = 10
+
+[functions."strategy-status"]
+  timeout = 10
+
+[functions."strategy-report"]
+  timeout = 10
+
+[functions."process-strategy-job"]
+  timeout = 26
+
+# Scheduled functions
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
 
-# ── Raw body for Stripe webhook ───────────────────────────────────────────────
+# Raw body for Stripe webhook
 [functions."billing-webhook"]
   included_files = []
 
-# ── SPA fallback routing ───────────────────────────────────────────────────────
+# SPA fallback routing
 [[redirects]]
   from   = "/api/*"
   to     = "/.netlify/functions/:splat"
@@ -29,19 +60,17 @@
   to     = "/index.html"
   status = 200
 
-# ── CORS for Netlify Functions ────────────────────────────────────────────────
-# Belt-and-suspenders: http.js already sets these headers in every response.
-# This ensures they appear even if a function crashes before returning.
-# billing-webhook is intentionally excluded — it must accept Stripe's servers.
+# CORS headers for Netlify Functions
+# billing-webhook is excluded - it must accept Stripe servers
 [[headers]]
   for = "/.netlify/functions/*"
   [headers.values]
-    Access-Control-Allow-Origin  = "https://campaignbrain.netlify.app"
+    Access-Control-Allow-Origin  = "*"
     Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
     Access-Control-Allow-Headers = "Content-Type, Authorization, X-Request-ID"
     Access-Control-Max-Age       = "86400"
 
-# ── Security headers ───────────────────────────────────────────────────────────
+# Security headers
 [[headers]]
   for = "/admin/*"
   [headers.values]
@@ -60,3 +89,9 @@
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# index.html must never be cached
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

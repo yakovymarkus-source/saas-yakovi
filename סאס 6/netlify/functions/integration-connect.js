@@ -15,7 +15,7 @@ const { writeAudit }                             = require('./_shared/audit');
 const { AppError }                               = require('./_shared/errors');
 const { parseJsonBody, requireField }            = require('./_shared/request');
 
-const ALLOWED_PROVIDERS = ['ga4', 'meta', 'google_ads'];
+const ALLOWED_PROVIDERS = ['ga4', 'meta', 'google_ads', 'tiktok'];
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options();

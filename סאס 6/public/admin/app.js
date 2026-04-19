@@ -12,7 +12,7 @@ const { createClient } = supabase;
 const sb = createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey);
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let state = { user: null, page: 'overview', userId: null };
+let state = { user: null, page: 'overview', userId: null, openTickets: 0 };
 
 // ── API ───────────────────────────────────────────────────────────────────────
 async function api(method, path, body, params) {
@@ -54,16 +54,17 @@ function showError(msg) {
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function shell(content) {
   const nav = [
-    { id: 'overview',      icon: '📊', label: 'Overview' },
-    { id: 'users',         icon: '👥', label: 'Users' },
-    { id: 'assets-mgmt',   icon: '🚀', label: 'Assets' },
-    { id: 'onboarding-mgmt', icon: '🎯', label: 'Onboarding' },
-    { id: 'metrics-mgmt',  icon: '📈', label: 'Metrics' },
-    { id: 'billing',       icon: '💰', label: 'Billing' },
-    { id: 'system',        icon: '🖥️',  label: 'System' },
-    { id: 'audit',         icon: '📋', label: 'Audit Log' },
-    { id: 'updates-mgmt',  icon: '📣', label: 'Updates' },
-    { id: 'support-mgmt',  icon: '🎫', label: 'Support' },
+    { id: 'overview',         icon: '📊', label: 'Overview' },
+    { id: 'users',            icon: '👥', label: 'Users' },
+    { id: 'subscriptions-mgmt', icon: '💳', label: 'Subscriptions' },
+    { id: 'assets-mgmt',      icon: '🚀', label: 'Assets' },
+    { id: 'onboarding-mgmt',  icon: '🎯', label: 'Onboarding' },
+    { id: 'metrics-mgmt',     icon: '📈', label: 'Metrics' },
+    { id: 'billing',          icon: '💰', label: 'Billing' },
+    { id: 'system',           icon: '🖥️',  label: 'System' },
+    { id: 'audit',            icon: '📋', label: 'Audit Log' },
+    { id: 'updates-mgmt',     icon: '📣', label: 'Updates' },
+    { id: 'support-mgmt',     icon: '🎫', label: 'Support' },
   ];
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
@@ -71,7 +72,9 @@ function shell(content) {
         <div class="sidebar-brand">Campaign<span>AI</span> <span style="font-size:.7rem;opacity:.5">admin</span></div>
         <nav class="sidebar-nav">
           ${nav.map(n => `<div class="nav-item ${state.page===n.id?'active':''}" onclick="navigate('${n.id}')">
-            <span class="icon">${n.icon}</span>${n.label}</div>`).join('')}
+            <span class="icon">${n.icon}</span>${n.label}
+            ${n.id==='support-mgmt' && state.openTickets > 0 ? `<span style="margin-right:auto;background:#ef4444;color:#fff;font-size:.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px">${state.openTickets > 99 ? '99+' : state.openTickets}</span>` : ''}
+            </div>`).join('')}
         </nav>
         <div class="sidebar-footer">${state.user?.email || ''}<br/>
           <span onclick="handleLogout()" style="cursor:pointer;color:#818cf8">Sign out</span></div>
@@ -283,6 +286,19 @@ async function renderUserDetail() {
           <div class="detail-row"><span class="detail-label">Period end</span><span class="detail-value">${sub.current_period_end?new Date(sub.current_period_end).toLocaleDateString():'—'}</span></div>
           <div class="detail-row"><span class="detail-label">Stripe sub</span><span class="detail-value text-xs" style="font-family:monospace">${sub.stripe_sub_id||'—'}</span></div>`
         :'<div class="text-muted" style="padding:.5rem 0">No subscription</div>'}
+        <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #e5e7eb">
+          <div class="card-title" style="font-size:.8rem;margin-bottom:.5rem">✏️ שינוי ידני של תוכנית</div>
+          <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+            <select id="plan-select-${p.id}" style="padding:.35rem .6rem;border:1px solid #d1d5db;border-radius:.375rem;font-size:.85rem">
+              <option value="free"       ${sub?.plan==='free'?'selected':''}>Free</option>
+              <option value="early_bird" ${sub?.plan==='early_bird'?'selected':''}>Early Bird</option>
+              <option value="starter"    ${sub?.plan==='starter'?'selected':''}>Starter</option>
+              <option value="pro"        ${sub?.plan==='pro'?'selected':''}>Pro</option>
+              <option value="agency"     ${sub?.plan==='agency'?'selected':''}>Agency</option>
+            </select>
+            <button class="btn btn-primary" style="padding:.35rem .9rem;font-size:.85rem" onclick="changePlan('${p.id}')">החל</button>
+          </div>
+        </div>
       </div>
     </div>
     <div class="detail-grid">
@@ -339,7 +355,98 @@ async function adminCancelSub(targetId) {
   } catch (e) { toast(e.message, 'error'); }
 }
 
+async function changePlan(targetId) {
+  const sel = document.getElementById(`plan-select-${targetId}`);
+  if (!sel) return;
+  const newPlan = sel.value;
+  if (!confirm(`שנה תוכנית ל-${newPlan}?`)) return;
+  try {
+    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: targetId, plan: newPlan });
+    toast(`תוכנית שונתה ל-${newPlan} ✓`, 'success');
+    renderUserDetail();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 // ── Billing ───────────────────────────────────────────────────────────────────
+// ── Subscriptions Management ──────────────────────────────────────────────────
+let subsState = { page: 1, search: '', plan: '' };
+
+async function renderSubscriptions() {
+  shell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  let d;
+  try {
+    d = await api('GET', 'admin-users', null, {
+      page: subsState.page,
+      search: subsState.search || undefined,
+      plan: subsState.plan || undefined,
+      limit: 50,
+    });
+  } catch (e) { shell(`<div class="card">${e.message}</div>`); return; }
+
+  const planBadge = { free: 'badge-gray', early_bird: 'badge-purple', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-orange' };
+  const PLANS = ['free','early_bird','starter','pro','agency'];
+
+  shell(`
+    <div class="page-header flex items-center justify-between">
+      <div><h1 class="page-title">💳 ניהול מנויים</h1><p class="page-subtitle">${d.total} משתמשים</p></div>
+    </div>
+    <div class="filter-bar" style="margin-bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap">
+      <input class="filter-input" placeholder="חיפוש אימייל..." value="${subsState.search}"
+        oninput="subsState.search=this.value"
+        onkeydown="if(event.key==='Enter'){subsState.page=1;renderSubscriptions()}"/>
+      <select class="filter-select" onchange="subsState.plan=this.value;subsState.page=1;renderSubscriptions()">
+        <option value="">כל התוכניות</option>
+        ${PLANS.map(p => `<option value="${p}" ${subsState.plan===p?'selected':''}>${p}</option>`).join('')}
+      </select>
+      <button class="btn btn-primary" onclick="subsState.page=1;renderSubscriptions()">סנן</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>אימייל</th>
+            <th>תוכנית נוכחית</th>
+            <th>סטטוס</th>
+            <th>שינוי ידני</th>
+          </tr></thead>
+          <tbody>
+            ${(d.users||[]).map(u => `
+              <tr>
+                <td>
+                  <div style="font-weight:500">${u.email}</div>
+                  <div class="text-muted text-xs">${u.name||''}</div>
+                </td>
+                <td><span class="badge ${planBadge[u.plan]||'badge-gray'}">${u.plan}</span></td>
+                <td><span class="badge ${u.status==='active'?'badge-green':'badge-gray'}">${u.status||'—'}</span></td>
+                <td>
+                  <div style="display:flex;gap:.4rem;align-items:center">
+                    <select id="sub-plan-${u.id}" style="padding:.3rem .5rem;border:1px solid #d1d5db;border-radius:.375rem;font-size:.8rem">
+                      ${PLANS.map(p => `<option value="${p}" ${u.plan===p?'selected':''}>${p}</option>`).join('')}
+                    </select>
+                    <button class="btn btn-sm btn-primary" onclick="quickChangePlan('${u.id}')">החל</button>
+                    <button class="btn btn-sm btn-secondary" onclick="navigate('user-detail',{userId:'${u.id}'})">פרטים</button>
+                  </div>
+                </td>
+              </tr>`).join('')||'<tr><td colspan="4" class="text-center text-muted" style="padding:2rem">אין משתמשים</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    ${renderPagination(d.page, d.limit, d.total, p => { subsState.page=p; renderSubscriptions(); })}
+  `);
+}
+
+async function quickChangePlan(userId) {
+  const sel = document.getElementById(`sub-plan-${userId}`);
+  if (!sel) return;
+  const newPlan = sel.value;
+  try {
+    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: userId, plan: newPlan });
+    toast(`✓ שונה ל-${newPlan}`, 'success');
+    renderSubscriptions();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
 async function renderBilling() {
   shell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
   let d;
@@ -593,7 +700,7 @@ async function deleteUpdate(id) {
 }
 
 // ── Support Tickets Management ─────────────────────────────────────────────────
-let supportAdminState = { page: 1, status: '', selected: null, tickets: [], total: 0, limit: 25 };
+let supportAdminState = { page: 1, status: '', selected: null, replyingTo: null, tickets: [], total: 0, limit: 25 };
 
 async function renderAdminSupport() {
   shell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
@@ -674,23 +781,53 @@ function _drawSupportPage() {
         </div>
         <div class="support-desc">${sel.description}</div>
         <div style="display:flex;gap:.5rem;margin-top:1rem;flex-wrap:wrap">
+          ${sel.status !== 'closed' ? `<button class="btn btn-sm btn-primary" onclick="toggleSupportReply('${sel.id}')">${supportAdminState.replyingTo === sel.id ? 'ביטול' : '↩ ענה במייל'}</button>` : ''}
           ${sel.status !== 'in_progress' ? `<button class="btn btn-sm btn-secondary" onclick="updateTicketStatus('${sel.id}','in_progress')">בטיפול</button>` : ''}
           ${sel.status !== 'closed'      ? `<button class="btn btn-sm btn-danger"    onclick="updateTicketStatus('${sel.id}','closed')">סגור פנייה</button>` : ''}
           ${sel.status === 'closed'      ? `<button class="btn btn-sm btn-primary"   onclick="updateTicketStatus('${sel.id}','open')">פתח מחדש</button>` : ''}
         </div>
+        ${supportAdminState.replyingTo === sel.id ? `
+        <div style="margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--gray-200)">
+          <p style="font-size:.78rem;color:var(--gray-500);margin-bottom:.4rem">תגובה תישלח ל-${sel.userEmail || '?'}</p>
+          <textarea id="support-reply-text" rows="4" placeholder="כתוב את תגובתך..."
+            style="width:100%;padding:.5rem .7rem;border:1.5px solid var(--brand);border-radius:.4rem;font-size:.85rem;resize:vertical;box-sizing:border-box;font-family:inherit"></textarea>
+          <div style="display:flex;gap:.5rem;margin-top:.5rem">
+            <button class="btn btn-primary btn-sm" onclick="sendSupportReply('${sel.id}')">שלח תגובה</button>
+            <button class="btn btn-secondary btn-sm" onclick="toggleSupportReply(null)">ביטול</button>
+          </div>
+        </div>` : ''}
       </div>` : ''}
     </div>`);
 }
 
 function selectTicket(id) {
   supportAdminState.selected = id === supportAdminState.selected ? null : id;
+  supportAdminState.replyingTo = null;
   _drawSupportPage();
+}
+function toggleSupportReply(id) {
+  supportAdminState.replyingTo = supportAdminState.replyingTo === id ? null : id;
+  _drawSupportPage();
+  if (id) requestAnimationFrame(() => document.getElementById('support-reply-text')?.focus());
+}
+async function sendSupportReply(ticketId) {
+  const msg = document.getElementById('support-reply-text')?.value?.trim();
+  if (!msg) { toast('כתוב הודעה לפני שליחה', 'error'); return; }
+  try {
+    const r = await api('POST', 'admin-support', { ticketId, message: msg });
+    toast(`✓ תגובה נשלחה ל-${r.to || 'המשתמש'}`, 'success');
+    supportAdminState.replyingTo = null;
+    const t = supportAdminState.tickets.find(x => x.id === ticketId);
+    if (t) t.status = 'in_progress';
+    _drawSupportPage();
+  } catch (e) { toast(e.message, 'error'); }
 }
 async function updateTicketStatus(id, status) {
   try {
     await api('PATCH', 'admin-support', { id, status });
     const t = supportAdminState.tickets.find(x => x.id === id);
     if (t) t.status = status;
+    supportAdminState.replyingTo = null;
     toast('Updated ✓', 'success');
     _drawSupportPage();
   } catch (err) { toast(err.message, 'error'); }
@@ -699,17 +836,18 @@ async function updateTicketStatus(id, status) {
 // ── Router ────────────────────────────────────────────────────────────────────
 async function render() {
   const routes = {
-    overview:          renderOverview,
-    users:             renderUsers,
-    'user-detail':     renderUserDetail,
-    'assets-mgmt':     renderAdminAssets,
-    'onboarding-mgmt': renderAdminOnboarding,
-    'metrics-mgmt':    renderAdminMetrics,
-    billing:           renderBilling,
-    system:            renderSystem,
-    audit:             renderAudit,
-    'updates-mgmt':    renderAdminUpdates,
-    'support-mgmt':    renderAdminSupport,
+    overview:              renderOverview,
+    users:                 renderUsers,
+    'user-detail':         renderUserDetail,
+    'subscriptions-mgmt':  renderSubscriptions,
+    'assets-mgmt':         renderAdminAssets,
+    'onboarding-mgmt':     renderAdminOnboarding,
+    'metrics-mgmt':        renderAdminMetrics,
+    billing:               renderBilling,
+    system:                renderSystem,
+    audit:                 renderAudit,
+    'updates-mgmt':        renderAdminUpdates,
+    'support-mgmt':        renderAdminSupport,
   };
   const fn = routes[state.page] || renderOverview;
   await fn().catch(e => { if (e.message !== 'forbidden') console.error(e); });
@@ -732,8 +870,11 @@ async function boot() {
     await api('GET', 'admin-overview');
   } catch (e) {
     if (e.message === 'forbidden') return;
-    // Network/other error — still try to render
   }
+  // Load open ticket count for sidebar badge
+  api('GET', 'admin-support', null, { status: 'open', limit: 1 })
+    .then(d => { state.openTickets = d?.total || 0; })
+    .catch(() => {});
   render();
 }
 
@@ -744,6 +885,9 @@ window.renderUsers          = renderUsers;
 window.renderAudit          = renderAudit;
 window.adminToggle          = adminToggle;
 window.adminCancelSub       = adminCancelSub;
+window.changePlan           = changePlan;
+window.quickChangePlan      = quickChangePlan;
+window.renderSubscriptions  = renderSubscriptions;
 window.usersState           = usersState;
 window.auditState           = auditState;
 window.renderAdminUpdates   = renderAdminUpdates;
@@ -756,6 +900,8 @@ window.renderAdminSupport   = renderAdminSupport;
 window.selectTicket         = selectTicket;
 window.updateTicketStatus   = updateTicketStatus;
 window.supportAdminState    = supportAdminState;
+window.toggleSupportReply   = toggleSupportReply;
+window.sendSupportReply     = sendSupportReply;
 
 // ── Admin Assets ──────────────────────────────────────────────────────────────
 let assetsAdminState = { page: 1, status: '', items: [], total: 0, limit: 25 };

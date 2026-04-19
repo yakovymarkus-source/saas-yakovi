@@ -18,6 +18,7 @@
  */
 
 'use strict';
+require('./_shared/env');
 
 const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload } = require('./_shared/observability');
@@ -40,22 +41,21 @@ const { orchestrate, CAPABILITIES }     = require('./_shared/orchestrator');
 
 // ── Intent detection ──────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
-  { intent: 'overview',  patterns: /\b(איך|ביצועים|סקירה|סטטוס|מצב|overview|status|how am|doing)\b/i },
-  { intent: 'budget',    patterns: /\b(תקציב|budget|הזזה|חלוקה|הקצאה|shift|allocat|reallocat)\b/i },
-  { intent: 'top_ads',   patterns: /\b(מודעות|טובות|top|best|ads|קמפיין|campaign|ניצחון|נצח)\b/i },
-  { intent: 'tracking',  patterns: /\b(tracking|טראקינג|מעקב|פיקסל|pixel|pixel|audit|בדיקה)\b/i },
-  { intent: 'roas',      patterns: /\b(roas|החזר|return|spend|תשואה)\b/i },
-  { intent: 'ctr',       patterns: /\b(ctr|קליקים|clicks|חשיפות|impressions)\b/i },
-  { intent: 'recs',      patterns: /\b(המלצ|מה לעש|recommend|suggest|what should|תעשה|עצה)\b/i },
-  { intent: 'integrations', patterns: /\b(חיבור|integration|connected|גוגל|מטא|google|meta|ga4)\b/i },
-  { intent: 'trends',    patterns: /\b(טרנד|מגמה|שיפור|ירידה|trend|progress|היסטוריה|לאורך זמן|תקופה|שינוי|למידה|פרי|כיוון)\b/i },
-  { intent: 'business',  patterns: /\b(עסק|פרופיל|מה אני מוכר|מחיר שלי|קהל יעד|הצעה שלי|business|profile|offer)\b/i },
-  { intent: 'economics', patterns: /\b(כלכלה|CAC|LTV|CPL|cac|ltv|cpl|עלות ליד|break.?even|רווחיות|כמה להמיר|payback|economics|feasib)\b/i },
-  { intent: 'test',      patterns: /\b(בדיקה|a\/b|ab test|וריאציה|ניסוי|מה לבדוק|hypothesis|variant|control)\b/i },
-  { intent: 'copy',      patterns: /\b(כתוב|קופי|copy|מודעה|ad text|creative text|כותרת|headline|טקסט|מסר|נוסח)\b/i },
-  { intent: 'creative',  patterns: /\b(קריאייטיב|creative brief|ויזואל|visual|עיצוב מודעה|תמונה למודעה|creative|brief|מה לשים בתמונה|תמונה לקמפיין|image prompt)\b/i },
-  { intent: 'landing',   patterns: /\b(דף נחיתה|landing page|LP|לנדינג|עמוד נחיתה|לנד)\b/i },
-  { intent: 'visual',    patterns: /\b(generate html|צור html|html|visual asset|נכס ויזואלי|ad.?card|כרטיס מודעה|באנר מודעה|banner ad|צור באנר)\b/i },
+  { intent: 'overview',      patterns: /\b(איך|ביצועים|סקירה|סטטוס|מצב|overview|status|how am|doing)\b/i },
+  { intent: 'budget',        patterns: /\b(תקציב|budget|הזזה|חלוקה|הקצאה|shift|allocat|reallocat)\b/i },
+  { intent: 'top_ads',       patterns: /\b(מודעות|טובות|top|best|ads|קמפיין|campaign|ניצחון|נצח)\b/i },
+  { intent: 'tracking',      patterns: /\b(tracking|טראקינג|מעקב|פיקסל|pixel|pixel|audit|בדיקה)\b/i },
+  { intent: 'roas',          patterns: /\b(roas|החזר|return|spend|תשואה)\b/i },
+  { intent: 'ctr',           patterns: /\b(ctr|קליקים|clicks|חשיפות|impressions)\b/i },
+  { intent: 'recs',          patterns: /\b(המלצ|מה לעש|recommend|suggest|what should|תעשה|עצה)\b/i },
+  { intent: 'integrations',  patterns: /\b(חיבור|integration|connected|גוגל|מטא|google|meta|ga4)\b/i },
+  { intent: 'trends',        patterns: /\b(טרנד|מגמה|שיפור|ירידה|trend|progress|היסטוריה|לאורך זמן|תקופה|שינוי|למידה|פרי|כיוון)\b/i },
+  { intent: 'business',      patterns: /\b(עסק|פרופיל|מה אני מוכר|מחיר שלי|קהל יעד|הצעה שלי|business|profile|offer)\b/i },
+  { intent: 'economics',     patterns: /\b(כלכלה|CAC|LTV|CPL|cac|ltv|cpl|עלות ליד|break.?even|רווחיות|כמה להמיר|payback|economics|feasib)\b/i },
+  { intent: 'test',          patterns: /\b(בדיקה|a\/b|ab test|וריאציה|ניסוי|מה לבדוק|hypothesis|variant|control)\b/i },
+  { intent: 'copy',          patterns: /\b(כתוב|קופי|copy|מודעה|ad text|creative text|כותרת|headline|טקסט|מסר|נוסח)\b/i },
+  // landing_page must appear AFTER copy so targeted copy requests still match copy
+  { intent: 'landing_page',  patterns: /\b(דף נחיתה|landing.?page|above.?the.?fold|תכנן.*(דף|מבנה)|מבנה.*(דף|נחיתה))\b/i },
 ];
 
 function detectIntent(message) {
@@ -1116,7 +1116,7 @@ async function generateLandingPageResponse(context) {
 
     return {
       reply,
-      quickActions: ['הורד ZIP', 'צור קריאייטיב ויזואלי', 'כתוב קופי מודעה', 'נתח ביצועים'],
+      quickActions: ['כתוב קופי למודעה', 'נתח ביצועים', 'חשב כלכלת יחידה', 'הצג המלצות'],
       assetId:    saved.assetId,
       previewUrl: saved.previewUrl,
       expiresAt:  saved.expiresAt,
@@ -1263,11 +1263,76 @@ async function generateResponse(intent, context) {
     case 'economics':     return generateEconomicsResponse(context);
     case 'test':          return generateTestResponse(context);
     case 'copy':          return await generateCopyResponse(context);
-    case 'creative':      return await generateCreativeResponse(context);
-    case 'landing':       return await generateLandingPageResponse(context);
-    case 'visual':        return await generateLandingPageResponse(context);
+    case 'landing_page':  return await generateLandingPageResponse(context);
     default:              return generateOverviewResponse(context);
   }
+}
+
+async function generateLandingPageResponse(context) {
+  const { businessProfile, profileName, userId } = context;
+
+  const quickActionsDefault = [
+    'כתוב לי headline ל-A/B test',
+    'צור FAQ לדף הנחיתה',
+    'מה ה-CTA הכי ממיר?',
+    'כתוב תסריט מודעה שמוביל לדף',
+  ];
+
+  if (!businessProfile?.offer) {
+    return {
+      reply: `🏗️ **תכנון דף נחיתה — ${profileName}:**\n\nלא ניתן לתכנן דף נחיתה ללא פרופיל עסקי.\n\n❓ **מה אתה מוכר ומי קהל היעד?**\n\n_עדכן את הפרופיל העסקי כדי שאוכל לבנות מבנה דף ממוקד לעסק שלך._`,
+      quickActions: ['עדכן פרופיל עסקי', 'הצג פרופיל נוכחי'],
+    };
+  }
+
+  // Try AI-generated landing page via orchestrator
+  const aiResult = await orchestrate(
+    CAPABILITIES.LANDING_PAGE,
+    { businessProfile },
+    { userId },
+  );
+
+  if (aiResult.ok && aiResult.content?.structure) {
+    return {
+      reply: `🏗️ **מבנה דף נחיתה — ${businessProfile.business_name || profileName}:**\n\n${aiResult.content.structure}`,
+      quickActions: quickActionsDefault,
+    };
+  }
+
+  // Fallback: structured template
+  const offer    = businessProfile.offer.slice(0, 80);
+  const audience = businessProfile.target_audience || 'קהל היעד שלך';
+  const promise  = businessProfile.main_promise    || businessProfile.desired_outcome || '';
+
+  const reply = `🏗️ **מבנה דף נחיתה ממיר — ${businessProfile.business_name || profileName}:**
+
+**1. Hero Section**
+- Headline: "${promise || offer}"
+- Sub-headline: מה הלקוח מקבל ואיך חייו ישתנו
+- CTA ראשי: "קבל הצעת מחיר / התחל עכשיו"
+
+**2. בעיה (Above the fold)**
+- תאר את הכאב של ${audience}
+- 3 bullet points של הבעיות שהם חווים
+
+**3. פתרון**
+- איך "${offer.slice(0, 60)}" פותר את הבעיה
+- מנגנון ייחודי / USP
+
+**4. ראיות חברתיות**
+- לפחות 2–3 המלצות עם שם ותמונה
+- מספרים (לקוחות, תוצאות, שנות ניסיון)
+
+**5. FAQ**
+- 4–5 שאלות נפוצות שמונעות קנייה
+
+**6. CTA סופי**
+- כפתור עם דחיפות (מוגבל בזמן / כמות)
+- ערבות / ביטחון
+
+_מלא את הפרופיל העסקי לקבל מבנה מותאם יותר._`;
+
+  return { reply, quickActions: quickActionsDefault };
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -1291,6 +1356,70 @@ exports.handler = async (event) => {
       throw new AppError({ code: 'BAD_REQUEST', userMessage: 'ההודעה ארוכה מדי', devMessage: 'message > 2000 chars', status: 400 });
     }
     sanitiseText(message); // reject XSS patterns before reaching business logic
+
+    // ── Direct generation mode (from AI creation form — bypasses intent/beginner layers) ──
+    if (message.startsWith('[DIRECT_AD]') || message.startsWith('[DIRECT_GENERATE]')) {
+      const rawPrompt = message.replace(/^\[(DIRECT_AD|DIRECT_GENERATE)\]\s*/, '');
+
+      // Read key fresh from .env every call — avoids netlify dev caching stale keys
+      let anthropicKey = process.env.ANTHROPIC_API_KEY || '';
+      try {
+        const _fs = require('node:fs'), _path = require('node:path');
+        const _envFile = _path.resolve(__dirname, '../..', '.env');
+        if (_fs.existsSync(_envFile)) {
+          for (const _line of _fs.readFileSync(_envFile, 'utf8').split('\n')) {
+            const _m = _line.match(/^ANTHROPIC_API_KEY=(.+)/);
+            if (_m) { anthropicKey = _m[1].trim(); break; }
+          }
+        }
+      } catch {}
+      if (!anthropicKey) {
+        return ok({ reply: '⚠️ שגיאה: לא נמצא ANTHROPIC_API_KEY. אנא הגדר אותו בהגדרות הסביבה של Netlify.', quickActions: [] }, context.requestId);
+      }
+
+      let reply = '';
+      let errorDetail = '';
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 22000);
+        const model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
+        console.log('[direct-gen] calling Anthropic, model:', model, 'key prefix:', anthropicKey.slice(0, 20));
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': anthropicKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 1500,
+            system: 'אתה קופירייטר ישראלי מקצועי המתמחה בפרסום דיגיטלי. כתוב תוכן שיווקי בעברית, ישיר, ממיר ומשכנע. השב ישירות עם התוכן המבוקש בלבד, ללא הסברים נוספים.',
+            messages: [{ role: 'user', content: rawPrompt }],
+          }),
+        });
+        clearTimeout(timer);
+        console.log('[direct-gen] Anthropic status:', res.status);
+        if (res.ok) {
+          const data = await res.json();
+          reply = data?.content?.find(b => b.type === 'text')?.text || '';
+          console.log('[direct-gen] reply length:', reply.length);
+        } else {
+          const errBody = await res.text().catch(() => '');
+          errorDetail = `HTTP ${res.status}: ${errBody.slice(0, 200)}`;
+          console.error('[direct-gen] Anthropic error:', errorDetail);
+        }
+      } catch (e) {
+        errorDetail = e.message || 'network error';
+        console.error('[direct-gen] fetch error:', errorDetail);
+      }
+
+      if (!reply) {
+        return ok({ reply: `⚠️ שגיאה בגישה ל-AI${errorDetail ? ': ' + errorDetail : '. אנא נסה שנית.'}`, quickActions: [] }, context.requestId);
+      }
+      return ok({ reply, quickActions: [] }, context.requestId);
+    }
 
     // Build context from DB
     const chatContext = await buildContext(user.id);
