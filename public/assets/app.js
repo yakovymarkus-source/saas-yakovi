@@ -2738,7 +2738,6 @@ function _insightsTabBar() {
     { id: 'economics',       icon: '💰', label: 'כלכלת יחידה' },
     { id: 'abtests',         icon: '🧪', label: 'A/B Tests' },
     { id: 'recommendations', icon: '💡', label: 'המלצות' },
-    { id: 'copy',            icon: '✍️', label: 'קופי' },
   ];
   return `<div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1.75rem;overflow-x:auto">
     ${tabs.map(t => `
@@ -2783,7 +2782,6 @@ function renderInsights(tabOverride) {
     economics: comingSoon('כלכלת יחידה', '💰', 'ניתוח עלות לרכישה, ROI, ו-LTV — יהיה זמין בקרוב.'),
     abtests:   comingSoon('A/B Tests', '🧪', 'השוואת גרסאות מודעות ודפי נחיתה — יהיה זמין בקרוב.'),
     recommendations: comingSoon('המלצות AI', '💡', 'המלצות אוטומטיות לשיפור קמפיינים — יהיה זמין בקרוב.'),
-    copy: comingSoon('קופירייטינג', '✍️', 'ניתוח ביצועי טקסטים ומודעות — יהיה זמין בקרוב.'),
   }[insightsTab] || '';
 
   renderShell(`
