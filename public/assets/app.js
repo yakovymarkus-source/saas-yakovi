@@ -2287,22 +2287,118 @@ async function generateAdCreative() {
   const deal     = document.getElementById('creative-deal')?.value.trim() || '';
   if (!offer) { toast('נא למלא את שדה המוצר / שירות', 'error'); btn.disabled = false; btn.textContent = '🖼️ צור מודעה'; return; }
   const typeLabels = { awareness: 'חשיפה', lead: 'לידים', conversion: 'המרה', retargeting: 'ריטרגטינג' };
+  const platformNames = { facebook: 'פייסבוק', instagram: 'אינסטגרם', google: 'Google Ads', tiktok: 'TikTok' };
   try {
     const result = await api('POST', 'campaigner-chat', {
-      message: `[DIRECT_AD] כתוב מודעה מוכנה לפלטפורמה: ${platform}, סוג: ${typeLabels[type]||type}. מוצר/שירות: ${offer}. קהל יעד: ${audience}. הצעה/מבצע: ${deal||'לא צוין'}. כתוב בפורמט:\n**כותרת:** [כותרת קצרה מושכת]\n**תיאור:** [תיאור 2-3 שורות]\n**קריאה לפעולה:** [CTA חד]\n**וריאציה 2 — כותרת:** [אלטרנטיבה]\nבעברית, ישיר וממיר.`,
+      message: `[DIRECT_AD] צור מודעה לפלטפורמה: ${platform}, סוג: ${typeLabels[type]||type}. מוצר/שירות: ${offer}. קהל יעד: ${audience||'לא צוין'}. הצעה/מבצע: ${deal||'לא צוין'}.
+החזר JSON בלבד ללא הסברים, בפורמט הבא:
+{"headline":"כותרת קצרה ומושכת עד 7 מילים","primary_text":"טקסט ראשי 2-3 משפטים","description":"שורת תיאור קצרה","cta":"טקסט כפתור קריאה לפעולה","image_prompt":"תיאור ויזואל מומלץ לתמונת המודעה"}
+כל הטקסטים בעברית, ממירים ומדויקים לקהל הישראלי.`,
       history: [],
     });
-    const text = result.reply || '';
-    if (resBox) { resBox.style.display = ''; resBox.style.cssText += ';border:2px solid #6366f1;background:#f8f7ff'; resBox.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
-    if (resText) resText.innerHTML = renderMarkdown(text);
+    let adData = null;
+    try {
+      const raw = result.reply || '';
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) adData = JSON.parse(jsonMatch[0]);
+    } catch {}
+
+    if (!adData) {
+      toast('שגיאה בפרסור תוצאת ה-AI', 'error');
+      return;
+    }
+
+    const mockupHtml = renderAdMockup(platform, adData, offer);
+    const saveText = `פלטפורמה: ${platformNames[platform]||platform}\nכותרת: ${adData.headline}\nטקסט: ${adData.primary_text}\nCTA: ${adData.cta}\nתיאור ויזואל: ${adData.image_prompt}`;
+
+    if (resBox) { resBox.style.display = ''; resBox.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    if (resText) resText.innerHTML = mockupHtml;
     const saveBtn = document.getElementById('ai-save-creative-btn');
-    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_creative', 'מודעה מוכנה', text); }
+    if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_creative', `מודעה — ${platformNames[platform]||platform}`, saveText); }
     toast('המודעה נוצרה!', 'success');
   } catch (err) {
     toast(err.message || 'שגיאה ביצירת מודעה', 'error');
   } finally {
     btn.disabled = false; btn.textContent = '🖼️ צור מודעה';
   }
+}
+
+function renderAdMockup(platform, ad, businessName) {
+  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const initial = (businessName||'B').charAt(0).toUpperCase();
+
+  if (platform === 'google') {
+    return `
+    <div style="font-family:Arial,sans-serif;direction:ltr;max-width:600px;padding:1rem;background:#fff;border:1px solid #e2e8f0;border-radius:8px">
+      <div style="font-size:0.7rem;color:#666;margin-bottom:2px">ממומן</div>
+      <div style="color:#1558d6;font-size:1.05rem;font-weight:500;margin-bottom:2px;direction:rtl">${esc(ad.headline)}</div>
+      <div style="color:#0d652d;font-size:0.82rem;margin-bottom:4px">campaignbrain.netlify.app › ${esc(businessName||'').replace(/\s+/g,'-').toLowerCase()}</div>
+      <div style="color:#444;font-size:0.875rem;direction:rtl;line-height:1.5">${esc(ad.primary_text)}</div>
+    </div>
+    <div style="margin-top:1rem;padding:0.75rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;direction:rtl">
+      <strong style="font-size:0.8rem;color:#166534">💡 תיאור ויזואל מומלץ:</strong>
+      <p style="margin:0.25rem 0 0;font-size:0.82rem;color:#374151">${esc(ad.image_prompt)}</p>
+    </div>`;
+  }
+
+  if (platform === 'instagram') {
+    return `
+    <div style="max-width:400px;background:#fff;border:1px solid #dbdbdb;border-radius:8px;font-family:-apple-system,sans-serif;direction:rtl">
+      <div style="display:flex;align-items:center;gap:0.6rem;padding:0.75rem">
+        <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:0.9rem">${initial}</div>
+        <div><div style="font-weight:600;font-size:0.85rem">${esc(businessName||'העסק שלך')}</div><div style="font-size:0.7rem;color:#8e8e8e">ממומן</div></div>
+      </div>
+      <div style="background:linear-gradient(135deg,#667eea,#764ba2);height:300px;display:flex;align-items:center;justify-content:center;color:#fff;text-align:center;padding:1.5rem;font-size:1.3rem;font-weight:700;line-height:1.4">${esc(ad.headline)}</div>
+      <div style="padding:0.75rem">
+        <div style="font-size:0.875rem;line-height:1.5;margin-bottom:0.5rem"><strong>${esc(businessName||'העסק שלך')}</strong> ${esc(ad.primary_text)}</div>
+        <div style="color:#0095f6;font-size:0.82rem;font-weight:600">${esc(ad.description)}</div>
+        <button style="margin-top:0.75rem;width:100%;background:#0095f6;color:#fff;border:none;border-radius:6px;padding:0.6rem;font-weight:600;font-size:0.9rem;cursor:pointer">${esc(ad.cta)}</button>
+      </div>
+    </div>
+    <div style="margin-top:1rem;padding:0.75rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">
+      <strong style="font-size:0.8rem;color:#166534">💡 תיאור ויזואל מומלץ:</strong>
+      <p style="margin:0.25rem 0 0;font-size:0.82rem;color:#374151">${esc(ad.image_prompt)}</p>
+    </div>`;
+  }
+
+  if (platform === 'tiktok') {
+    return `
+    <div style="max-width:320px;background:#000;border-radius:12px;font-family:-apple-system,sans-serif;position:relative;overflow:hidden;direction:rtl">
+      <div style="background:linear-gradient(180deg,#1a1a2e,#16213e,#0f3460);height:500px;display:flex;flex-direction:column;justify-content:flex-end;padding:1rem 1rem 4rem">
+        <div style="background:rgba(0,0,0,0.6);border-radius:8px;padding:0.75rem;margin-bottom:0.5rem">
+          <div style="color:#fff;font-weight:700;font-size:1rem;margin-bottom:0.25rem">${esc(ad.headline)}</div>
+          <div style="color:rgba(255,255,255,0.85);font-size:0.82rem;line-height:1.4">${esc(ad.primary_text)}</div>
+        </div>
+        <button style="background:#fe2c55;color:#fff;border:none;border-radius:4px;padding:0.5rem 1rem;font-weight:700;font-size:0.85rem;width:100%">${esc(ad.cta)}</button>
+      </div>
+      <div style="position:absolute;top:0.75rem;right:0.75rem;background:rgba(0,0,0,0.5);color:#fff;font-size:0.65rem;padding:2px 6px;border-radius:4px">ממומן</div>
+    </div>
+    <div style="margin-top:1rem;padding:0.75rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">
+      <strong style="font-size:0.8rem;color:#166534">💡 תיאור ויזואל מומלץ:</strong>
+      <p style="margin:0.25rem 0 0;font-size:0.82rem;color:#374151">${esc(ad.image_prompt)}</p>
+    </div>`;
+  }
+
+  // Default: Facebook
+  return `
+  <div style="max-width:480px;background:#fff;border:1px solid #ddd;border-radius:8px;font-family:-apple-system,sans-serif;direction:rtl">
+    <div style="display:flex;align-items:center;gap:0.6rem;padding:0.75rem 0.75rem 0.5rem">
+      <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1rem;flex-shrink:0">${initial}</div>
+      <div style="flex:1"><div style="font-weight:600;font-size:0.9rem">${esc(businessName||'העסק שלך')}</div><div style="font-size:0.72rem;color:#65676b">ממומן · <span>🌐</span></div></div>
+    </div>
+    <div style="padding:0 0.75rem 0.6rem;font-size:0.9rem;line-height:1.5;color:#050505">${esc(ad.primary_text)}</div>
+    <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);height:250px;display:flex;align-items:center;justify-content:center;color:#fff;text-align:center;padding:1.5rem">
+      <div style="font-size:1.4rem;font-weight:700;line-height:1.3">${esc(ad.headline)}</div>
+    </div>
+    <div style="padding:0.6rem 0.75rem;border-top:1px solid #e5e5e5;display:flex;align-items:center;justify-content:space-between">
+      <div><div style="font-size:0.72rem;color:#65676b;text-transform:uppercase">campaignbrain.netlify.app</div><div style="font-weight:700;font-size:0.9rem">${esc(ad.headline)}</div><div style="font-size:0.82rem;color:#65676b">${esc(ad.description)}</div></div>
+      <button style="background:#e7e7e7;border:none;border-radius:6px;padding:0.5rem 1rem;font-weight:600;font-size:0.85rem;cursor:pointer;white-space:nowrap;margin-right:0.5rem">${esc(ad.cta)}</button>
+    </div>
+  </div>
+  <div style="margin-top:1rem;padding:0.75rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0">
+    <strong style="font-size:0.8rem;color:#166534">💡 תיאור ויזואל מומלץ:</strong>
+    <p style="margin:0.25rem 0 0;font-size:0.82rem;color:#374151">${esc(ad.image_prompt)}</p>
+  </div>`;
 }
 
 function renderMarkdown(text) {
