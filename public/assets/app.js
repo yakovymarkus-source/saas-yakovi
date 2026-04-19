@@ -2060,9 +2060,13 @@ function _renderAICreationShell(bp, saved) {
           <label class="form-label">קריאה לפעולה (CTA)</label>
           <input class="form-input" id="ai-cta" placeholder="לדוגמה: השאר פרטים, קנה עכשיו, קבל הצעת מחיר" />
         </div>
-        <div id="ai-result-ad" style="display:none" class="card mt-4" style="background:#f8fafc">
+        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
+          id="ai-gen-ad-btn" onclick="generateAdScript()">
+          ✨ צור תסריט
+        </button>
+        <div id="ai-result-ad" style="display:none" class="card mt-4">
           <div class="flex items-center justify-between mb-2">
-            <div class="card-title" style="margin:0">התסריט שלך</div>
+            <div class="card-title" style="margin:0">✅ התסריט שלך</div>
             <div class="flex gap-2">
               <button id="ai-save-ad-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
               <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-ad-text')">📋 העתק</button>
@@ -2070,10 +2074,6 @@ function _renderAICreationShell(bp, saved) {
           </div>
           <div id="ai-result-ad-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
         </div>
-        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
-          id="ai-gen-ad-btn" onclick="generateAdScript()">
-          ✨ צור תסריט
-        </button>
       </div>`,
 
     landing_page: `
@@ -2104,9 +2104,13 @@ function _renderAICreationShell(bp, saved) {
           <label class="form-label">ההבטחה / ה-USP המרכזי</label>
           <input class="form-input" id="lp-promise" value="${(bp.main_promise||'').replace(/"/g,'&quot;')}" placeholder="מה ההבטחה שתגרום לגולש להישאר?" />
         </div>
-        <div id="ai-result-lp" style="display:none" class="card mt-4" style="background:#f8fafc">
+        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
+          id="ai-gen-lp-btn" onclick="generateLandingPage()">
+          ✨ צור מבנה דף נחיתה
+        </button>
+        <div id="ai-result-lp" style="display:none" class="card mt-4">
           <div class="flex items-center justify-between mb-2">
-            <div class="card-title" style="margin:0">מבנה דף הנחיתה</div>
+            <div class="card-title" style="margin:0">✅ מבנה דף הנחיתה</div>
             <div class="flex gap-2">
               <button id="ai-save-lp-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
               <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-lp-text')">📋 העתק</button>
@@ -2114,10 +2118,6 @@ function _renderAICreationShell(bp, saved) {
           </div>
           <div id="ai-result-lp-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
         </div>
-        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
-          id="ai-gen-lp-btn" onclick="generateLandingPage()">
-          ✨ צור מבנה דף נחיתה
-        </button>
       </div>`,
 
     ad_creative: `
@@ -2157,9 +2157,13 @@ function _renderAICreationShell(bp, saved) {
           <label class="form-label">ההצעה / מבצע</label>
           <input class="form-input" id="creative-deal" value="${(bp.main_promise||'').replace(/"/g,'&quot;')}" placeholder="למשל: ניסיון חינם 14 יום, הנחה 30%" />
         </div>
-        <div id="ai-result-creative" style="display:none" class="card mt-4" style="background:#f8fafc">
+        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
+          id="ai-gen-creative-btn" onclick="generateAdCreative()">
+          🖼️ צור מודעה
+        </button>
+        <div id="ai-result-creative" style="display:none" class="card mt-4">
           <div class="flex items-center justify-between mb-2">
-            <div class="card-title" style="margin:0">המודעה שלך</div>
+            <div class="card-title" style="margin:0">✅ המודעה שלך</div>
             <div class="flex gap-2">
               <button id="ai-save-creative-btn" class="btn btn-sm btn-secondary" style="display:none">💾 שמור</button>
               <button class="btn btn-sm btn-secondary" onclick="copyAIResult('ai-result-creative-text')">📋 העתק</button>
@@ -2167,10 +2171,6 @@ function _renderAICreationShell(bp, saved) {
           </div>
           <div id="ai-result-creative-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
         </div>
-        <button class="btn btn-gradient mt-4" style="width:auto;padding:0.75rem 2.5rem"
-          id="ai-gen-creative-btn" onclick="generateAdCreative()">
-          🖼️ צור מודעה
-        </button>
       </div>`,
 
     saved: `
@@ -2233,11 +2233,11 @@ async function generateAdScript() {
       history: [],
     });
     const text = result.reply || '';
-    if (resBox) resBox.style.display = '';
+    if (resBox) { resBox.style.display = ''; resBox.style.cssText += ';border:2px solid #6366f1;background:#f8f7ff'; resBox.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     if (resText) resText.innerHTML = renderMarkdown(text);
     const saveBtn = document.getElementById('ai-save-ad-btn');
     if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_script', 'תסריט מודעה', text); }
-    toast('התסריט נוצר!', 'success');
+    toast('התסריט נוצר! ↑ גלול למעלה לצפייה', 'success');
   } catch (err) {
     toast(err.message || 'שגיאה ביצירת תסריט', 'error');
   } finally {
@@ -2262,7 +2262,7 @@ async function generateLandingPage() {
       history: [],
     });
     const text = result.reply || '';
-    if (resBox) resBox.style.display = '';
+    if (resBox) { resBox.style.display = ''; resBox.style.cssText += ';border:2px solid #6366f1;background:#f8f7ff'; resBox.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     if (resText) resText.innerHTML = renderMarkdown(text);
     const saveBtn = document.getElementById('ai-save-lp-btn');
     if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('landing_page', 'מבנה דף נחיתה', text); }
@@ -2293,7 +2293,7 @@ async function generateAdCreative() {
       history: [],
     });
     const text = result.reply || '';
-    if (resBox) resBox.style.display = '';
+    if (resBox) { resBox.style.display = ''; resBox.style.cssText += ';border:2px solid #6366f1;background:#f8f7ff'; resBox.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     if (resText) resText.innerHTML = renderMarkdown(text);
     const saveBtn = document.getElementById('ai-save-creative-btn');
     if (saveBtn) { saveBtn.style.display = ''; saveBtn.onclick = () => saveAIWork('ad_creative', 'מודעה מוכנה', text); }
