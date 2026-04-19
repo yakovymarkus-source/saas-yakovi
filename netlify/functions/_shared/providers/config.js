@@ -22,13 +22,12 @@ const { CAPABILITIES } = require('./contract');
 // Change these defaults by setting env vars — never edit this file.
 
 const DEFAULT_CAPABILITY_MAP = {
-  // ── Text / analysis — OpenAI ────────────────────────────────────────────────
-  [CAPABILITIES.AD_COPY]:           'openai',
-  [CAPABILITIES.CAMPAIGN_STRATEGY]: 'openai',
-  [CAPABILITIES.ANALYSIS_SUMMARY]:  'openai',
-  [CAPABILITIES.ISSUE_EXPLANATION]: 'openai',
-  [CAPABILITIES.ITERATION_ADVICE]:  'openai',
-  // ── Visual / structured long-form — Claude (Anthropic) ──────────────────────
+  // ── All text + structured generation — Claude (Anthropic) ───────────────────
+  [CAPABILITIES.AD_COPY]:           'claude',
+  [CAPABILITIES.CAMPAIGN_STRATEGY]: 'claude',
+  [CAPABILITIES.ANALYSIS_SUMMARY]:  'claude',
+  [CAPABILITIES.ISSUE_EXPLANATION]: 'claude',
+  [CAPABILITIES.ITERATION_ADVICE]:  'claude',
   [CAPABILITIES.LANDING_PAGE]:      'claude',
   [CAPABILITIES.AD_CREATIVE]:       'claude',
   // ── Image generation (future) ───────────────────────────────────────────────
