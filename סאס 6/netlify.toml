@@ -48,6 +48,18 @@
 [functions."process-execution-job"]
   timeout = 26
 
+[functions."qa-start"]
+  timeout = 10
+
+[functions."qa-status"]
+  timeout = 10
+
+[functions."qa-report"]
+  timeout = 10
+
+[functions."process-qa-job"]
+  timeout = 26
+
 # Scheduled functions
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"

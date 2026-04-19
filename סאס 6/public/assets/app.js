@@ -4132,7 +4132,7 @@ function renderBusinessFromScratch() {
     { id: 'research',   icon: '🔍', label: 'סוכן מחקר',     status: 'active',    desc: 'מחקר שוק, מתחרים ואווטר קהל יעד' },
     { id: 'strategy',   icon: '🎯', label: 'סוכן אסטרטגיה', status: 'active',    desc: 'קובע כיוון, קהל, זווית והצעה' },
     { id: 'execution',  icon: '🧱', label: 'סוכן ביצוע',    status: 'active',    desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
-    { id: 'qa',         icon: '🧪', label: 'סוכן QA',        status: 'soon',      desc: 'בודק ומדרג את התוצרים' },
+    { id: 'qa',         icon: '🧪', label: 'סוכן QA',        status: 'active',    desc: 'בודק ומדרג את התוצרים' },
     { id: 'analysis',   icon: '📊', label: 'סוכן ניתוח',    status: 'soon',      desc: 'מנתח דאטה אמיתי מהקמפיינים' },
   ];
 
@@ -4347,6 +4347,35 @@ function renderBusinessFromScratch() {
 
     <div id="exec-report-area" style="display:none;margin-top:1.5rem"></div>`;
 
+  const qaPanel = `
+    <div class="card" style="margin-top:1.5rem">
+      <div class="card-title">🧪 סוכן QA — בקרת איכות נכסים</div>
+      <p class="text-sm text-muted mb-4">בודק את כל הנכסים שנוצרו: הוקים, מודעות, דף נחיתה, CTA. 12 קטגוריות בדיקה + סימולציה + תוכנית A/B</p>
+
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.75rem;padding:0.85rem;margin-bottom:1rem;font-size:0.82rem;color:#374151">
+        <div style="font-weight:600;margin-bottom:0.3rem">מה QA בודק:</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.2rem">
+          ${['🎣 עוצמת הוק','💢 עומק כאב','🎯 בידול','💎 הצעת ערך','🧲 שכנוע','🗣️ שפה ואנושיות','🧠 עומס קוגניטיבי','🔐 אמון','📊 התאמת מודעות','📡 Tracking','🔁 Flow מלא','💀 Kill Signals'].map(item => `<div>• ${item}</div>`).join('')}
+        </div>
+      </div>
+
+      <button class="btn btn-gradient w-full" onclick="startQa()" style="background:linear-gradient(135deg,#7c3aed,#db2777)">🧪 הרץ QA Agent על הנכסים</button>
+
+      <div id="qa-panel-area" style="display:none;margin-top:1.5rem">
+        <div style="background:#0f0f1a;border-radius:1rem 1rem 0 0;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center">
+          <span id="qa-status-label" style="color:#a78bfa;font-weight:600;font-size:0.88rem">בודק נכסים...</span>
+          <div style="display:flex;align-items:center;gap:0.75rem">
+            <div style="width:120px;height:6px;background:rgba(255,255,255,0.1);border-radius:9999px;overflow:hidden">
+              <div id="qa-progress-bar" style="height:100%;background:linear-gradient(90deg,#a78bfa,#db2777);border-radius:9999px;transition:width 0.5s;width:0%"></div>
+            </div>
+            <span id="qa-progress-pct" style="color:rgba(255,255,255,0.7);font-size:0.75rem">0%</span>
+          </div>
+        </div>
+        <div id="qa-log" style="background:#0f0f1a;border-radius:0 0 1rem 1rem;padding:1rem 1.25rem;min-height:150px;max-height:300px;overflow-y:auto;font-family:'Courier New',monospace;font-size:0.8rem;direction:rtl"></div>
+      </div>
+    </div>
+    <div id="qa-report-area" style="margin-top:1.5rem"></div>`;
+
   renderShell(`
     <div class="page-header">
       <h1 class="page-title">🧠 בניית עסק מאפס</h1>
@@ -4362,7 +4391,7 @@ function renderBusinessFromScratch() {
       <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. סוכני מחקר, אסטרטגיה וביצוע פעילים.</span>
     </div>
 
-    ${bfsAgentTab === 'strategy' ? strategyPanel : bfsAgentTab === 'execution' ? executionPanel : researchPanel}
+    ${bfsAgentTab === 'strategy' ? strategyPanel : bfsAgentTab === 'execution' ? executionPanel : bfsAgentTab === 'qa' ? qaPanel : researchPanel}
   `);
 
   // Restore active job if exists
@@ -4372,6 +4401,8 @@ function renderBusinessFromScratch() {
     setTimeout(() => restoreStrategyJob(), 50);
   } else if (bfsAgentTab === 'execution') {
     setTimeout(() => restoreExecutionJob(), 50);
+  } else if (bfsAgentTab === 'qa') {
+    setTimeout(() => restoreQaJob(), 50);
   }
 }
 
@@ -5384,6 +5415,7 @@ function _executionRenderReport(report) {
 
     <div style="display:flex;gap:0.75rem;margin-top:1rem">
       <button class="btn btn-sm btn-secondary" onclick="startExecution()">🔄 ריצה חדשה</button>
+      <button class="btn btn-sm btn-gradient" onclick="startQa()" style="background:linear-gradient(135deg,#7c3aed,#db2777)">🧪 הרץ QA Agent</button>
     </div>
   `;
 }
@@ -5422,12 +5454,279 @@ async function restoreExecutionJob() {
   } catch {}
 }
 
+// ── QA Agent ──────────────────────────────────────────────────────────────────
+var bfsQaJob = null; // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
+
+async function startQa() {
+  const execReportId = bfsExecutionJob?.reportId || localStorage.getItem('lastExecutionReportId');
+  if (!execReportId) { alert('יש להריץ סוכן ביצוע תחילה'); return; }
+
+  const researchReportId = localStorage.getItem('lastResearchReportId') || null;
+
+  const qaArea = document.getElementById('qa-panel-area');
+  if (qaArea) { qaArea.style.display = ''; }
+  const qaReport = document.getElementById('qa-report-area');
+  if (qaReport) qaReport.innerHTML = '';
+  _qaUpdateStatus('queued', 0);
+  _qaLog('מתחיל QA Agent...', 'info');
+
+  try {
+    const resp = await apiFetch('/qa-start', {
+      method: 'POST',
+      body: JSON.stringify({ executionReportId: execReportId, researchReportId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { _qaLog(`שגיאה: ${data.error}`, 'error'); return; }
+
+    bfsQaJob = { jobId: data.jobId, status: 'queued', steps: [], lastStepIndex: 0 };
+    localStorage.setItem('lastQaJob', JSON.stringify({ jobId: data.jobId }));
+    _qaStartPolling(data.jobId);
+  } catch (e) { _qaLog(`שגיאה: ${e.message}`, 'error'); }
+}
+
+function _qaStartPolling(jobId) {
+  if (bfsQaJob?.pollTimer) clearInterval(bfsQaJob.pollTimer);
+  const timer = setInterval(async () => {
+    try {
+      const since  = bfsQaJob?.lastStepIndex || 0;
+      const resp   = await apiFetch(`/qa-status?jobId=${jobId}&since=${since}`);
+      const result = await resp.json();
+      if (!resp.ok) return;
+
+      (result.steps || []).forEach(s => {
+        _qaLog(s.message, s.status === 'done' ? 'done' : 'running', s.created_at);
+        if (bfsQaJob) bfsQaJob.lastStepIndex = Math.max(bfsQaJob.lastStepIndex, s.step_index);
+      });
+
+      _qaUpdateStatus(result.status, result.progress || 0);
+
+      if (result.status === 'completed') {
+        clearInterval(bfsQaJob.pollTimer);
+        bfsQaJob.status   = 'completed';
+        bfsQaJob.reportId = result.reportId;
+        _qaUpdateStatus('completed', 100);
+        if (result.reportId) await _qaLoadReport(result.reportId);
+      } else if (result.status === 'failed') {
+        clearInterval(bfsQaJob.pollTimer);
+        _qaLog(`נכשל: ${result.errorMessage || 'שגיאה לא ידועה'}`, 'error');
+        _qaUpdateStatus('failed', 0);
+      }
+    } catch {}
+  }, 3000);
+  if (bfsQaJob) bfsQaJob.pollTimer = timer;
+}
+
+function _qaUpdateStatus(status, pct) {
+  const bar = document.getElementById('qa-progress-bar');
+  const pctEl = document.getElementById('qa-progress-pct');
+  const statusEl = document.getElementById('qa-status-label');
+  if (bar)   bar.style.width = pct + '%';
+  if (pctEl) pctEl.textContent = pct + '%';
+  const labels = { queued:'ממתין...', running:'בודק נכסים...', completed:'QA הושלם', failed:'נכשל' };
+  if (statusEl) statusEl.textContent = labels[status] || status;
+}
+
+function _qaLog(msg, type, ts) {
+  const el = document.getElementById('qa-log');
+  if (!el) return;
+  const color = type === 'done' ? '#34d399' : type === 'error' ? '#f87171' : type === 'info' ? '#60a5fa' : '#94a3b8';
+  const icon  = type === 'done' ? '✓' : type === 'error' ? '✗' : type === 'info' ? '→' : '…';
+  el.innerHTML += `<div style="color:${color};font-size:0.78rem;padding:0.15rem 0">${icon} ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function _qaLoadReport(reportId) {
+  try {
+    const resp   = await apiFetch(`/qa-report?reportId=${reportId}`);
+    const result = await resp.json();
+    if (!resp.ok) return;
+    _qaRenderReport(result.report);
+  } catch {}
+}
+
+function _qaRenderReport(report) {
+  const area = document.getElementById('qa-report-area');
+  if (!area) return;
+
+  const verdict  = report.verdict || 'improve';
+  const score    = report.overall_score || 0;
+  const checks   = report.checks || {};
+  const sim      = report.simulation || {};
+  const routing  = report.routing || {};
+  const testPlan = report.test_plan || {};
+  const corrections = report.corrections || [];
+  const summary  = report.summary || {};
+
+  const vColors = {
+    approve: { bg:'#f0fdf4', border:'#bbf7d0', color:'#15803d', emoji:'✅', label:'מאושר לשיגור' },
+    improve: { bg:'#fffbeb', border:'#fde68a', color:'#92400e', emoji:'⚠️', label:'נדרש שיפור' },
+    reject:  { bg:'#fef2f2', border:'#fecaca', color:'#991b1b', emoji:'❌', label:'נדחה — שלח לתיקון' },
+  };
+  const vc = vColors[verdict] || vColors.improve;
+
+  // Score bar
+  const scoreColor = score >= 72 ? '#15803d' : score >= 45 ? '#d97706' : '#dc2626';
+
+  // Checks grid
+  const checkItems = [
+    { key:'hook',           label:'הוק',         score: checks.hook?.overall_hook_score },
+    { key:'pain',           label:'כאב',         score: checks.pain?.pain_score },
+    { key:'differentiation',label:'בידול',       score: checks.differentiation?.score },
+    { key:'offer',          label:'הצעה',         score: checks.offer?.offer_score },
+    { key:'persuasion',     label:'שכנוע',        score: checks.persuasion?.persuasion_score },
+    { key:'language',       label:'שפה',          score: checks.language?.score },
+    { key:'trust',          label:'אמון',         score: checks.trust?.score },
+    { key:'cognitive_load', label:'עומס',         score: checks.cognitive_load?.score },
+    { key:'awareness',      label:'מודעות',       score: checks.awareness?.passed ? 80 : 40 },
+    { key:'tracking',       label:'Tracking',     score: checks.tracking?.ready ? 80 : 30 },
+    { key:'flow',           label:'Flow',         score: checks.flow?.passed ? 80 : 40 },
+    { key:'kill_signals',   label:'Kill Signals', score: checks.kill_signals?.count === 0 ? 100 : Math.max(0, 100 - checks.kill_signals?.count * 25) },
+  ];
+
+  const checksHtml = checkItems.map(c => {
+    const s = c.score ?? 50;
+    const bg = s >= 70 ? '#f0fdf4' : s >= 45 ? '#fffbeb' : '#fef2f2';
+    const col = s >= 70 ? '#15803d' : s >= 45 ? '#92400e' : '#991b1b';
+    return `<div style="background:${bg};border-radius:0.5rem;padding:0.5rem;text-align:center">
+      <div style="font-size:1rem;font-weight:700;color:${col}">${s}</div>
+      <div style="font-size:0.68rem;color:#64748b">${c.label}</div>
+    </div>`;
+  }).join('');
+
+  // Simulation
+  const simHtml = sim.scroll_stop_probability !== undefined ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">📊 סימולציית ביצוע</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem">
+        ${[
+          { label:'עצירת גלילה', val: Math.round((sim.scroll_stop_probability||0)*100)+'%' },
+          { label:'קליק',        val: Math.round((sim.click_probability||0)*100)+'%' },
+          { label:'המרה',        val: Math.round((sim.conversion_probability||0)*100)+'%' },
+        ].map(s => `<div style="background:#f8fafc;border-radius:0.6rem;padding:0.75rem;text-align:center">
+          <div style="font-size:1.4rem;font-weight:700;color:#6366f1">${s.val}</div>
+          <div style="font-size:0.72rem;color:#64748b">${s.label}</div>
+        </div>`).join('')}
+      </div>
+      <div style="margin-top:0.5rem;font-size:0.75rem;color:#94a3b8;text-align:center">תחזית — לא מדויק 100%, מבוסס על ניתוח הנכסים</div>
+    </div>` : '';
+
+  // Corrections
+  const corrHtml = corrections.length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">🔧 הוראות תיקון (${corrections.length})</div>
+      ${corrections.map(c => `
+        <div style="background:${c.priority==='critical'?'#fef2f2':c.priority==='high'?'#fffbeb':'#f8fafc'};border-radius:0.5rem;padding:0.6rem 0.85rem;margin-bottom:0.4rem;font-size:0.82rem">
+          <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.2rem">
+            <span style="background:${c.priority==='critical'?'#dc2626':c.priority==='high'?'#d97706':'#6b7280'};color:#fff;font-size:0.65rem;padding:1px 6px;border-radius:9999px">${c.priority}</span>
+            <span style="font-weight:600">[${c.asset}]</span> ${c.issue}
+          </div>
+          <div style="color:#6366f1;font-size:0.78rem">💡 ${c.fix}</div>
+          ${c.example ? `<div style="color:#94a3b8;font-size:0.72rem;margin-top:0.2rem">${c.example}</div>` : ''}
+        </div>`).join('')}
+    </div>` : '';
+
+  // Routing
+  const routingHtml = routing.should_redo ? `
+    <div class="card" style="margin-bottom:1.25rem;border:2px solid ${routing.priority==='full_rerun'?'#dc2626':'#d97706'}">
+      <div class="card-title">🔁 ניתוב — שלח ל${routing.target_agent === 'execution' ? 'סוכן ביצוע' : 'סוכן אסטרטגיה'}</div>
+      <div style="font-size:0.85rem;color:#374151;margin-bottom:0.5rem">${routing.reason}</div>
+      ${(routing.instructions || []).slice(0,4).map(i => `
+        <div style="display:flex;gap:0.4rem;align-items:flex-start;margin-bottom:0.3rem;font-size:0.8rem">
+          <span style="color:${i.priority==='critical'?'#dc2626':'#d97706'};font-size:0.9rem">→</span>
+          <span>${i.instruction}</span>
+        </div>`).join('')}
+      ${routing.target_agent === 'execution' ? `<button class="btn btn-sm" style="margin-top:0.75rem;background:#7c3aed;color:#fff" onclick="startExecution()">🔄 הרץ מחדש סוכן ביצוע</button>` : ''}
+    </div>` : '';
+
+  // Test plan
+  const testHtml = (testPlan.tests || []).length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">🧪 תוכנית A/B Testing (${testPlan.tests.length} בדיקות)</div>
+      ${(testPlan.tests || []).map(t => `
+        <div style="border:1px solid #e2e8f0;border-radius:0.6rem;padding:0.75rem;margin-bottom:0.5rem;font-size:0.82rem">
+          <div style="font-weight:700;margin-bottom:0.3rem">${t.variable} <span style="background:${t.priority==='high'?'#dcfce7':'#fef9c3'};color:${t.priority==='high'?'#15803d':'#a16207'};font-size:0.68rem;padding:1px 6px;border-radius:9999px">${t.priority}</span></div>
+          <div style="color:#64748b;margin-bottom:0.2rem">${t.hypothesis}</div>
+          <div style="font-size:0.75rem;color:#94a3b8">מדד: ${t.metric}</div>
+        </div>`).join('')}
+      ${testPlan.estimatedBudget ? `<div style="font-size:0.75rem;color:#6366f1;margin-top:0.25rem">תקציב מומלץ: ${testPlan.estimatedBudget.recommended_total} · ${testPlan.estimatedBudget.note}</div>` : ''}
+    </div>` : '';
+
+  area.innerHTML = `
+    <div style="background:${vc.bg};border:2px solid ${vc.border};border-radius:1rem;padding:1rem 1.25rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem">
+      <span style="font-size:2rem">${vc.emoji}</span>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:1rem;color:${vc.color}">QA Agent — ${vc.label}</div>
+        <div style="font-size:0.78rem;color:${vc.color}">עבר ${summary.passed||0}/${summary.totalChecks||12} בדיקות · ${summary.kill_signals||0} Kill Signals · ${summary.corrections_needed||0} תיקונים</div>
+      </div>
+      <div style="background:#fff;border-radius:0.75rem;padding:0.5rem 1rem;text-align:center;min-width:70px">
+        <div style="font-size:1.6rem;font-weight:700;color:${scoreColor}">${score}</div>
+        <div style="font-size:0.65rem;color:#94a3b8">ציון כולל</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">📋 12 בדיקות איכות</div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:0.5rem">
+        ${checksHtml}
+      </div>
+    </div>
+
+    ${simHtml}
+    ${corrHtml}
+    ${routingHtml}
+    ${testHtml}
+
+    ${(report.all_issues || []).length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">⚠️ כל הבעיות שנמצאו (${report.all_issues.length})</div>
+      ${(report.all_issues || []).map(i => `
+        <div style="background:${i.severity==='critical'?'#fef2f2':i.severity==='high'?'#fffbeb':'#f8fafc'};border-radius:0.4rem;padding:0.4rem 0.75rem;margin-bottom:0.3rem;font-size:0.79rem">
+          <span style="font-weight:600;color:#64748b">[${i.source}]</span> ${i.issue}
+          ${i.fix ? `<div style="color:#6366f1;font-size:0.74rem">→ ${i.fix}</div>` : ''}
+        </div>`).join('')}
+    </div>` : ''}
+
+    <div style="display:flex;gap:0.75rem;margin-top:1rem">
+      <button class="btn btn-sm btn-secondary" onclick="startQa()">🔄 הרץ QA מחדש</button>
+    </div>
+  `;
+}
+
+async function restoreQaJob() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('lastQaJob') || '{}');
+    if (!saved?.jobId) return;
+    const jobId = saved.jobId;
+    const resp   = await apiFetch(`/qa-status?jobId=${jobId}&since=0`);
+    const result = await resp.json();
+    if (!resp.ok) return;
+    const qaArea = document.getElementById('qa-panel-area');
+    if (qaArea) qaArea.style.display = '';
+    if (result.status === 'completed' && result.reportId) {
+      bfsQaJob = { jobId, status: 'completed', reportId: result.reportId, steps: [], lastStepIndex: 0 };
+      _qaUpdateStatus('completed', 100);
+      (result.steps || []).forEach(s => _qaLog(s.message, 'done', s.created_at));
+      await _qaLoadReport(result.reportId);
+    } else if (result.status === 'running' || result.status === 'queued') {
+      bfsQaJob = { jobId, status: result.status, steps: [], lastStepIndex: 0 };
+      _qaUpdateStatus(result.status, result.progress || 0);
+      (result.steps || []).forEach(s => {
+        _qaLog(s.message, s.status === 'done' ? 'done' : 'running', s.created_at);
+        bfsQaJob.lastStepIndex = Math.max(bfsQaJob.lastStepIndex, s.step_index);
+      });
+      _qaLog('🔄 מחבר מחדש ל-QA פעיל...', 'info');
+      _qaStartPolling(jobId);
+    }
+  } catch {}
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
 window.startResearch         = startResearch;
 window.startStrategy         = startStrategy;
 window.startExecution        = startExecution;
+window.startQa               = startQa;
 window.renderBusinessFromScratch = renderBusinessFromScratch;
 window.saveBusinessProfile   = saveBusinessProfile;
 window.switchAITab           = switchAITab;
