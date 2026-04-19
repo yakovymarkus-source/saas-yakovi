@@ -4248,6 +4248,37 @@ async function startResearch() {
 
   if (!niche) { toast('נא להזין נישה / תחום עסקי', 'error'); return; }
 
+  // ── No sources popup ─────────────────────────────────────────────────
+  const hasConnected = (state.integrations || []).some(i => i.connection_status !== 'revoked');
+  if (!hasConnected) {
+    const proceed = await new Promise(resolve => {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="modal" style="max-width:440px;text-align:center">
+          <div style="font-size:2.5rem;margin-bottom:0.75rem">🔌</div>
+          <h3 style="font-size:1.1rem;font-weight:700;margin-bottom:0.5rem">אין מקורות מחוברים</h3>
+          <p style="font-size:0.875rem;color:#64748b;margin-bottom:1.25rem;line-height:1.6">
+            הסוכן יעבוד עם מאגר הידע של הבינה המלאכותית בלבד.<br>
+            לתוצאות מדויקות יותר, מומלץ לחבר את חשבונות הפרסום שלך
+            (Google Ads, Meta, TikTok).
+          </p>
+          <div style="display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-secondary" style="width:auto" onclick="this.closest('.modal-overlay').remove();navigate('settings')">
+              🔌 חבר מקורות
+            </button>
+            <button class="btn btn-gradient" style="width:auto" id="_bfs-proceed-btn">
+              המשך בכל זאת
+            </button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      document.getElementById('_bfs-proceed-btn').onclick = () => { overlay.remove(); resolve(true); };
+      overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); resolve(false); } });
+    });
+    if (!proceed) return;
+  }
+
   btn.disabled = true; btn.textContent = 'מתחיל...';
 
   // Show progress area
