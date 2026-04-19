@@ -3,7 +3,7 @@
 // Load .env for local dev — netlify dev sometimes skips long/special values
 (function loadDotEnv() {
   const fs = require('node:fs'), path = require('node:path');
-  const envPath = path.resolve(__dirname, '../../../..', '.env');
+  const envPath = path.resolve(__dirname, '../../..', '.env');
   if (!fs.existsSync(envPath)) return;
   for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
     const m = line.match(/^([A-Z0-9_]+)=(.+)$/);

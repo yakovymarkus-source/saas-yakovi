@@ -18,6 +18,7 @@
  */
 
 'use strict';
+require('./_shared/env');
 
 const { ok, fail, options }                     = require('./_shared/http');
 const { createRequestContext, buildLogPayload } = require('./_shared/observability');
