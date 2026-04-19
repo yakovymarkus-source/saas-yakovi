@@ -4123,14 +4123,15 @@ async function boot() {
 // ══════════════════════════════════════════════════════════════════════════════
 
 var bfsAgentTab = 'research'; // active agent tab
-var bfsResearchJob  = null;   // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
-var bfsStrategyJob  = null;   // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
+var bfsResearchJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
+var bfsStrategyJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
+var bfsExecutionJob  = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 
 function renderBusinessFromScratch() {
   const agents = [
     { id: 'research',   icon: '🔍', label: 'סוכן מחקר',     status: 'active',    desc: 'מחקר שוק, מתחרים ואווטר קהל יעד' },
     { id: 'strategy',   icon: '🎯', label: 'סוכן אסטרטגיה', status: 'active',    desc: 'קובע כיוון, קהל, זווית והצעה' },
-    { id: 'execution',  icon: '🧱', label: 'סוכן ביצוע',    status: 'soon',      desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
+    { id: 'execution',  icon: '🧱', label: 'סוכן ביצוע',    status: 'active',    desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
     { id: 'qa',         icon: '🧪', label: 'סוכן QA',        status: 'soon',      desc: 'בודק ומדרג את התוצרים' },
     { id: 'analysis',   icon: '📊', label: 'סוכן ניתוח',    status: 'soon',      desc: 'מנתח דאטה אמיתי מהקמפיינים' },
   ];
@@ -4264,6 +4265,88 @@ function renderBusinessFromScratch() {
 
     <div id="strategy-report-area" style="display:none;margin-top:1.5rem"></div>`;
 
+  // ── Execution Panel ────────────────────────────────────────────────────────
+  const savedStrategyReportId = bfsStrategyJob?.reportId || (() => {
+    try { return JSON.parse(localStorage.getItem('lastStrategyJob') || '{}').reportId || ''; } catch { return ''; }
+  })();
+
+  const executionPanel = `
+    <div class="card" style="margin-top:1.5rem">
+      <div class="card-title">🧱 סוכן ביצוע — יצירת נכסי שיווק</div>
+      <p class="text-sm text-muted mb-4">הסוכן מייצר מודעות, דפי נחיתה, hooks, סקריפטים ואימיילים בהתאם לאסטרטגיה שנבנתה</p>
+
+      <div class="form-group">
+        <label class="form-label">מזהה דוח אסטרטגיה <span style="color:#ef4444">*</span></label>
+        <input class="form-input" id="exec-strategy-report-id" placeholder="הכנס את מזהה דוח האסטרטגיה (UUID)"
+          value="${savedStrategyReportId.replace(/"/g,'&quot;')}" />
+        <div style="font-size:0.75rem;color:#64748b;margin-top:0.3rem">
+          ${savedStrategyReportId ? '✅ נמצא דוח אסטרטגיה אחרון — ניתן להתחיל' : '⚠️ הכנס מזהה דוח אסטרטגיה מלשונית אסטרטגיה'}
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem">
+        <div class="form-group">
+          <label class="form-label">פלטפורמה</label>
+          <select class="form-input" id="exec-platform">
+            <option value="meta">Meta / Facebook</option>
+            <option value="instagram">Instagram</option>
+            <option value="tiktok">TikTok</option>
+            <option value="google">Google Ads</option>
+            <option value="youtube">YouTube</option>
+            <option value="linkedin">LinkedIn</option>
+            <option value="email">Email</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">מצב ביצוע</label>
+          <select class="form-input" id="exec-mode">
+            <option value="draft">טיוטה (וריאנט 1 — מהיר)</option>
+            <option value="smart" selected>חכם (3 וריאנטים + ציון)</option>
+            <option value="premium">פרימיום (5 וריאנטים + מלא)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top:0.5rem">
+        <label class="form-label">נכסים ליצירה</label>
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.4rem">
+          ${[['ads','מודעות'],['hooks','Hooks'],['cta','CTA'],['landing_page','דף נחיתה'],['scripts','סקריפט וידאו'],['email','אימייל']].map(([val,lbl]) => `
+            <label style="display:flex;align-items:center;gap:0.4rem;background:#f1f5f9;border:1.5px solid #e2e8f0;border-radius:0.6rem;padding:0.4rem 0.75rem;cursor:pointer;font-size:0.82rem">
+              <input type="checkbox" id="exec-asset-${val}" value="${val}" ${['ads','hooks','cta'].includes(val) ? 'checked' : ''} style="accent-color:#6366f1">
+              ${lbl}
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-top:1rem">
+        <button class="btn btn-gradient" style="width:auto;padding:0.75rem 2rem;background:linear-gradient(135deg,#059669,#0ea5e9)"
+          id="exec-start-btn" onclick="startExecution()">
+          🧱 צור נכסי שיווק
+        </button>
+        <div style="font-size:0.78rem;color:#64748b;flex:1">
+          ⚡ ~8-18 קריאות AI | ~2-3 דקות | 18 שלבי ביצוע
+        </div>
+      </div>
+    </div>
+
+    <div id="exec-progress-area" style="display:none;margin-top:1.5rem">
+      <div class="card" style="padding:0">
+        <div style="background:linear-gradient(135deg,#064e3b,#065f46);border-radius:1rem 1rem 0 0;padding:1rem 1.25rem;display:flex;align-items:center;gap:0.75rem">
+          <div id="exec-status-dot" style="width:10px;height:10px;border-radius:50%;background:#34d399;animation:pulse 1.5s infinite"></div>
+          <div style="color:#fff;font-weight:600;font-size:0.9rem" id="exec-status-label">מייצר נכסים...</div>
+          <div style="margin-right:auto;display:flex;align-items:center;gap:0.5rem">
+            <div style="width:120px;height:6px;background:rgba(255,255,255,0.15);border-radius:9999px;overflow:hidden">
+              <div id="exec-progress-bar" style="height:100%;background:linear-gradient(90deg,#34d399,#0ea5e9);border-radius:9999px;transition:width 0.5s;width:0%"></div>
+            </div>
+            <span id="exec-progress-pct" style="color:rgba(255,255,255,0.7);font-size:0.75rem">0%</span>
+          </div>
+        </div>
+        <div id="exec-steps-log" style="background:#022c22;border-radius:0 0 1rem 1rem;padding:1rem 1.25rem;min-height:200px;max-height:420px;overflow-y:auto;font-family:'Courier New',monospace;font-size:0.8rem;direction:rtl"></div>
+      </div>
+    </div>
+
+    <div id="exec-report-area" style="display:none;margin-top:1.5rem"></div>`;
+
   renderShell(`
     <div class="page-header">
       <h1 class="page-title">🧠 בניית עסק מאפס</h1>
@@ -4276,10 +4359,10 @@ function renderBusinessFromScratch() {
 
     <div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 1rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:0.75rem;margin-bottom:0.5rem">
       <span style="font-size:1rem">💡</span>
-      <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. סוכן מחקר ואסטרטגיה פעילים.</span>
+      <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. סוכני מחקר, אסטרטגיה וביצוע פעילים.</span>
     </div>
 
-    ${bfsAgentTab === 'strategy' ? strategyPanel : researchPanel}
+    ${bfsAgentTab === 'strategy' ? strategyPanel : bfsAgentTab === 'execution' ? executionPanel : researchPanel}
   `);
 
   // Restore active job if exists
@@ -4287,6 +4370,8 @@ function renderBusinessFromScratch() {
     setTimeout(() => restoreResearchJob(), 50);
   } else if (bfsAgentTab === 'strategy') {
     setTimeout(() => restoreStrategyJob(), 50);
+  } else if (bfsAgentTab === 'execution') {
+    setTimeout(() => restoreExecutionJob(), 50);
   }
 }
 
@@ -4678,6 +4763,7 @@ async function _strategyPoll(jobId) {
       if (bfsStrategyJob?.pollTimer) clearInterval(bfsStrategyJob.pollTimer);
       bfsStrategyJob.status   = 'completed';
       bfsStrategyJob.reportId = reportId;
+      if (reportId) localStorage.setItem('lastStrategyJob', JSON.stringify({ jobId: bfsStrategyJob?.jobId, reportId }));
       const btn = document.getElementById('strategy-start-btn');
       if (btn) { btn.disabled = false; btn.textContent = '🎯 אסטרטגיה חדשה'; }
       if (reportId) {
@@ -4791,6 +4877,7 @@ function _strategyRenderReport(report) {
       </div>
       <div style="margin-right:auto">
         <button class="btn btn-sm btn-secondary" onclick="startStrategy()" style="font-size:0.8rem">🔄 אסטרטגיה חדשה</button>
+        <button class="btn btn-sm btn-gradient" onclick="bfsAgentTab='execution';renderBusinessFromScratch()" style="font-size:0.8rem;background:linear-gradient(135deg,#059669,#0ea5e9)">🧱 צור נכסי ביצוע</button>
       </div>
     </div>
 
@@ -4964,11 +5051,333 @@ async function restoreStrategyJob() {
   } catch {}
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 🧱 EXECUTION AGENT
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function startExecution() {
+  const btn        = document.getElementById('exec-start-btn');
+  const reportId   = document.getElementById('exec-strategy-report-id')?.value.trim();
+  const platform   = document.getElementById('exec-platform')?.value || 'meta';
+  const mode       = document.getElementById('exec-mode')?.value || 'smart';
+  const assetTypes = ['ads','hooks','cta','landing_page','scripts','email']
+    .filter(t => document.getElementById(`exec-asset-${t}`)?.checked);
+
+  if (!reportId) { toast('נא להזין מזהה דוח אסטרטגיה', 'error'); return; }
+  if (assetTypes.length === 0) { toast('נא לבחור לפחות נכס אחד', 'error'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ מתחיל...'; }
+
+  try {
+    const resp = await apiFetch('/execution-start', {
+      method: 'POST',
+      body: JSON.stringify({ strategyReportId: reportId, assetTypes, executionMode: mode, platform }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'שגיאה בהפעלת סוכן ביצוע');
+
+    const { jobId } = data;
+    bfsExecutionJob = { jobId, status: 'queued', steps: [], lastStepIndex: 0 };
+    localStorage.setItem('lastExecutionJob', JSON.stringify({ jobId, reportId }));
+
+    document.getElementById('exec-progress-area').style.display = '';
+    _executionLog('✅ סוכן ביצוע הופעל — ממתין לעיבוד...', 'running');
+    _executionStartPolling(jobId);
+  } catch (err) {
+    toast(err.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '🧱 צור נכסי שיווק'; }
+  }
+}
+
+function _executionStartPolling(jobId) {
+  if (bfsExecutionJob?.pollTimer) clearInterval(bfsExecutionJob.pollTimer);
+  const timer = setInterval(() => _executionPoll(jobId), 3000);
+  if (bfsExecutionJob) bfsExecutionJob.pollTimer = timer;
+}
+
+async function _executionPoll(jobId) {
+  try {
+    const since  = bfsExecutionJob?.lastStepIndex || 0;
+    const resp   = await apiFetch(`/execution-status?jobId=${jobId}&since=${since}`);
+    const result = await resp.json();
+    if (!resp.ok) return;
+
+    (result.steps || []).forEach(s => {
+      _executionLog(s.message, s.status === 'done' ? 'done' : 'running', s.created_at);
+      if (bfsExecutionJob) bfsExecutionJob.lastStepIndex = Math.max(bfsExecutionJob.lastStepIndex, s.step_index);
+    });
+
+    _executionUpdateStatus(result.status, result.progress || 0);
+
+    if (result.status === 'completed' && result.reportId) {
+      if (bfsExecutionJob?.pollTimer) clearInterval(bfsExecutionJob.pollTimer);
+      bfsExecutionJob.status   = 'completed';
+      bfsExecutionJob.reportId = result.reportId;
+      localStorage.setItem('lastExecutionJob', JSON.stringify({ jobId, reportId: result.reportId }));
+      _executionLog('🎉 סוכן ביצוע הסתיים בהצלחה!', 'done');
+      await _executionLoadReport(result.reportId);
+    } else if (result.status === 'failed') {
+      if (bfsExecutionJob?.pollTimer) clearInterval(bfsExecutionJob.pollTimer);
+      _executionLog(`❌ שגיאה: ${result.error || 'תקלה לא ידועה'}`, 'error');
+      _executionUpdateStatus('failed', 0);
+    }
+  } catch {}
+}
+
+function _executionUpdateStatus(status, progress) {
+  const dot   = document.getElementById('exec-status-dot');
+  const label = document.getElementById('exec-status-label');
+  const bar   = document.getElementById('exec-progress-bar');
+  const pct   = document.getElementById('exec-progress-pct');
+  if (!label) return;
+
+  const MAP = {
+    queued:    { label: 'ממתין בתור...', color: '#fbbf24' },
+    running:   { label: `מייצר נכסים... ${progress}%`, color: '#34d399' },
+    completed: { label: 'הושלם!', color: '#10b981' },
+    failed:    { label: 'שגיאה', color: '#ef4444' },
+  };
+  const s = MAP[status] || MAP.running;
+  label.textContent = s.label;
+  if (dot) dot.style.background = s.color;
+  if (bar) bar.style.width = progress + '%';
+  if (pct) pct.textContent = progress + '%';
+}
+
+function _executionLog(message, type, ts) {
+  const log = document.getElementById('exec-steps-log');
+  if (!log) return;
+  const colors = { done: '#34d399', running: '#fbbf24', error: '#ef4444', info: '#94a3b8' };
+  const icons  = { done: '✅', running: '⏳', error: '❌', info: 'ℹ️' };
+  const time   = ts ? new Date(ts).toLocaleTimeString('he-IL') : new Date().toLocaleTimeString('he-IL');
+  const div = document.createElement('div');
+  div.style.cssText = `color:${colors[type]||'#e2e8f0'};margin-bottom:0.3rem;display:flex;gap:0.5rem`;
+  div.innerHTML = `<span style="color:#4b5563;flex-shrink:0">${time}</span><span>${icons[type]||'•'} ${message}</span>`;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function _executionLoadReport(reportId) {
+  try {
+    const resp   = await apiFetch(`/execution-report?reportId=${reportId}`);
+    const result = await resp.json();
+    if (!resp.ok || !result.report) return;
+    _executionRenderReport(result.report);
+  } catch {}
+}
+
+function _executionRenderReport(report) {
+  const area = document.getElementById('exec-report-area');
+  if (!area) return;
+  area.style.display = '';
+
+  const bundle   = report.assets || {};
+  const mc       = report.message_core || {};
+  const awareness = report.awareness || {};
+  const decision  = report.decision || {};
+  const offer     = report.offer || {};
+  const qa        = report.qa_handoff || {};
+  const ranking   = report.ranking || null;
+  const feedback  = report.self_feedback || {};
+  const summary   = report.summary || {};
+
+  // ── QA status banner ───────────────────────────────────────────────────────
+  const qaColors = { APPROVED: { bg:'#f0fdf4', border:'#bbf7d0', color:'#15803d', emoji:'✅' },
+                     REVIEW_RECOMMENDED: { bg:'#fffbeb', border:'#fde68a', color:'#92400e', emoji:'⚠️' },
+                     NEEDS_REVISION: { bg:'#fef2f2', border:'#fecaca', color:'#991b1b', emoji:'❌' } };
+  const qac = qaColors[qa.status] || qaColors.REVIEW_RECOMMENDED;
+
+  // ── Ads ───────────────────────────────────────────────────────────────────
+  const adsHtml = (bundle.ads || []).map((ad, i) => {
+    const t = ad.text || ad;
+    return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.75rem;padding:1rem;margin-bottom:0.75rem">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+        <span style="background:#6366f1;color:#fff;font-size:0.7rem;padding:2px 8px;border-radius:9999px;font-weight:700">וריאנט ${i+1}</span>
+        ${ad.theme ? `<span style="font-size:0.78rem;color:#64748b">${ad.theme}</span>` : ''}
+        ${ad.score ? `<span style="margin-right:auto;background:#dcfce7;color:#15803d;font-size:0.72rem;padding:2px 6px;border-radius:9999px">ציון ${ad.score}</span>` : ''}
+      </div>
+      ${t.headline ? `<div style="font-weight:700;font-size:0.95rem;margin-bottom:0.3rem">${t.headline}</div>` : ''}
+      ${t.primary_text ? `<div style="font-size:0.82rem;color:#374151;margin-bottom:0.4rem;line-height:1.5">${t.primary_text}</div>` : ''}
+      ${t.description ? `<div style="font-size:0.78rem;color:#64748b;margin-bottom:0.4rem">${t.description}</div>` : ''}
+      ${t.cta_button ? `<span style="display:inline-block;background:#6366f1;color:#fff;font-size:0.78rem;padding:0.3rem 0.75rem;border-radius:0.4rem;margin-top:0.25rem">${t.cta_button}</span>` : ''}
+    </div>`;
+  }).join('') || '<div style="color:#94a3b8;font-size:0.85rem">לא נוצרו מודעות</div>';
+
+  // ── Hooks ─────────────────────────────────────────────────────────────────
+  const hooksHtml = (bundle.hooks || []).map(h =>
+    `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:0.5rem;padding:0.6rem 0.85rem;margin-bottom:0.4rem;font-size:0.85rem;color:#14532d">
+      ${h.text || h}
+      ${h.type && h.type !== 'general' ? `<span style="margin-right:0.5rem;color:#6b7280;font-size:0.72rem">[${h.type}]</span>` : ''}
+    </div>`
+  ).join('') || '<div style="color:#94a3b8;font-size:0.85rem">לא נוצרו hooks</div>';
+
+  // ── CTA ───────────────────────────────────────────────────────────────────
+  const ctaHtml = (bundle.cta || []).map(c =>
+    `<div style="display:inline-block;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;padding:0.5rem 1.25rem;border-radius:0.6rem;font-size:0.85rem;font-weight:600;margin:0.25rem">
+      ${c.text || c}
+      ${c.style ? `<span style="opacity:0.7;font-size:0.7rem;margin-right:0.4rem">(${c.style})</span>` : ''}
+    </div>`
+  ).join('') || '';
+
+  // ── Landing Page ──────────────────────────────────────────────────────────
+  const lp = bundle.landing_page?.content?.sections || {};
+  const lpHtml = Object.keys(lp).length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">🌐 דף נחיתה</div>
+      ${lp.hero ? `<div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:0.75rem;padding:1.25rem;margin-bottom:0.75rem;color:#fff">
+        <div style="font-size:1.05rem;font-weight:700;margin-bottom:0.4rem">${lp.hero.headline||''}</div>
+        ${lp.hero.subheadline ? `<div style="opacity:0.8;font-size:0.85rem;margin-bottom:0.75rem">${lp.hero.subheadline}</div>` : ''}
+        ${lp.hero.cta ? `<span style="background:#fbbf24;color:#78350f;padding:0.4rem 1rem;border-radius:0.4rem;font-weight:700;font-size:0.85rem">${lp.hero.cta}</span>` : ''}
+      </div>` : ''}
+      ${lp.offer ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:0.75rem;padding:1rem">
+        <div style="font-weight:700;margin-bottom:0.4rem;color:#14532d">${lp.offer.headline||''}</div>
+        ${(lp.offer.value_stack||[]).map(v=>`<div style="font-size:0.8rem;color:#374151">• ${v}</div>`).join('')}
+        ${lp.offer.guarantee ? `<div style="font-size:0.78rem;color:#64748b;margin-top:0.4rem">✅ ${lp.offer.guarantee}</div>` : ''}
+      </div>` : ''}
+    </div>` : '';
+
+  // ── Email sequence ────────────────────────────────────────────────────────
+  const emailHtml = (bundle.email || []).length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">📧 סדרת אימיילים (${bundle.email.length} אימיילים)</div>
+      ${bundle.email.map((e,i) => {
+        const c = e.content || e;
+        return `<div style="border:1px solid #e2e8f0;border-radius:0.6rem;padding:0.75rem;margin-bottom:0.5rem">
+          <div style="font-weight:600;font-size:0.88rem;margin-bottom:0.3rem">📨 אימייל ${i+1}: ${c.subject||''}</div>
+          ${c.preview ? `<div style="font-size:0.78rem;color:#64748b;margin-bottom:0.25rem">Preview: ${c.preview}</div>` : ''}
+          ${c.body ? `<div style="font-size:0.8rem;color:#374151;line-height:1.5;max-height:100px;overflow:hidden">${c.body}</div>` : ''}
+          ${c.cta_text ? `<div style="margin-top:0.4rem"><span style="background:#6366f1;color:#fff;font-size:0.75rem;padding:0.2rem 0.6rem;border-radius:0.4rem">${c.cta_text}</span></div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>` : '';
+
+  // ── Quality scores ─────────────────────────────────────────────────────────
+  const qualityHtml = feedback?.scores ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">⭐ ציוני איכות</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem">
+        ${Object.entries(feedback.scores).map(([k,v]) => {
+          const labels = { message_clarity:'בהירות מסר', pain_resonance:'תהודת כאב', cta_strength:'עוצמת CTA', tone_consistency:'עקביות טון', uniqueness:'ייחודיות' };
+          const color  = v >= 70 ? '#15803d' : v >= 50 ? '#92400e' : '#991b1b';
+          const bg     = v >= 70 ? '#f0fdf4' : v >= 50 ? '#fffbeb' : '#fef2f2';
+          return `<div style="background:${bg};border-radius:0.6rem;padding:0.6rem;text-align:center">
+            <div style="font-size:1.1rem;font-weight:700;color:${color}">${v}</div>
+            <div style="font-size:0.7rem;color:#64748b">${labels[k]||k}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      ${feedback.overall_score ? `<div style="text-align:center;margin-top:0.75rem;font-size:0.9rem;font-weight:700;color:#6366f1">ציון כולל: ${feedback.overall_score}/100</div>` : ''}
+    </div>` : '';
+
+  // ── QA Checklist ──────────────────────────────────────────────────────────
+  const qaChecklistHtml = qa.testChecklist?.length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">✅ רשימת בדיקות לפני שיגור</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem">
+        ${qa.testChecklist.map(item => `
+          <div style="display:flex;align-items:flex-start;gap:0.5rem;background:#f8fafc;border-radius:0.4rem;padding:0.4rem 0.6rem;font-size:0.78rem">
+            <span>${item.critical ? '🔴' : '🟡'}</span>
+            <span style="color:#374151">${item.item}</span>
+          </div>`).join('')}
+      </div>
+    </div>` : '';
+
+  area.innerHTML = `
+    <div style="background:${qac.bg};border:1px solid ${qac.border};border-radius:1rem;padding:1rem 1.25rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem">
+      <span style="font-size:1.5rem">${qac.emoji}</span>
+      <div>
+        <div style="font-weight:700;font-size:0.95rem;color:${qac.color}">סוכן ביצוע — ${qa.status === 'APPROVED' ? 'מאושר לשיגור' : qa.status === 'REVIEW_RECOMMENDED' ? 'מומלץ לסקירה' : 'נדרש תיקון'}</div>
+        <div style="font-size:0.78rem;color:${qac.color}">${summary.totalAssets||0} נכסים נוצרו · ${summary.funnelCoverage?.length||0} שלבי משפך · מצב: ${summary.executionMode||''} · פלטפורמה: ${summary.assetTypes?.join(', ')||''}</div>
+      </div>
+      ${ranking?.recommendation ? `<div style="margin-right:auto;font-size:0.8rem;color:#6366f1;font-weight:600">${ranking.recommendation}</div>` : ''}
+    </div>
+
+    ${mc.headline ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">💬 מסר מרכזי</div>
+      <div style="font-size:1.1rem;font-weight:700;color:#1e293b;margin-bottom:0.4rem">${mc.headline}</div>
+      ${mc.subheadline ? `<div style="font-size:0.88rem;color:#64748b;margin-bottom:0.5rem">${mc.subheadline}</div>` : ''}
+      ${mc.painLine ? `<div style="background:#fef2f2;border-radius:0.5rem;padding:0.5rem 0.75rem;font-size:0.82rem;color:#991b1b">${mc.painLine}</div>` : ''}
+    </div>` : ''}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
+      <div class="card">
+        <div class="card-title">🎣 Hooks (${(bundle.hooks||[]).length})</div>
+        ${hooksHtml}
+      </div>
+      <div class="card">
+        <div class="card-title">👆 CTA</div>
+        ${ctaHtml || '<div style="color:#94a3b8;font-size:0.85rem">לא נוצרו CTAs</div>'}
+      </div>
+    </div>
+
+    ${(bundle.ads||[]).length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">📢 מודעות (${bundle.ads.length} וריאנטים)</div>
+      ${adsHtml}
+    </div>` : ''}
+
+    ${lpHtml}
+    ${emailHtml}
+    ${qualityHtml}
+    ${qaChecklistHtml}
+
+    ${qa.flagged?.length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem;border:1px solid #fde68a">
+      <div class="card-title">⚠️ פריטים לתשומת לב (${qa.flagged.length})</div>
+      ${qa.flagged.map(f => `
+        <div style="background:${f.severity==='error'?'#fef2f2':f.severity==='warning'?'#fffbeb':'#f8fafc'};border-radius:0.5rem;padding:0.6rem 0.85rem;margin-bottom:0.4rem;font-size:0.82rem">
+          <span style="font-weight:600">[${f.source}]</span> ${f.message}
+          ${f.fix ? `<div style="color:#6366f1;margin-top:0.2rem;font-size:0.78rem">💡 ${f.fix}</div>` : ''}
+        </div>`).join('')}
+    </div>` : ''}
+
+    <div style="display:flex;gap:0.75rem;margin-top:1rem">
+      <button class="btn btn-sm btn-secondary" onclick="startExecution()">🔄 ריצה חדשה</button>
+    </div>
+  `;
+}
+
+async function restoreExecutionJob() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('lastExecutionJob') || '{}');
+    if (!saved?.jobId) return;
+    const jobId = saved.jobId;
+
+    const resp   = await apiFetch(`/execution-status?jobId=${jobId}&since=0`);
+    const result = await resp.json();
+    if (!resp.ok) return;
+
+    if (result.status === 'completed' && result.reportId) {
+      bfsExecutionJob = { jobId, status: 'completed', reportId: result.reportId, steps: [], lastStepIndex: 0 };
+      const progressArea = document.getElementById('exec-progress-area');
+      if (progressArea) progressArea.style.display = '';
+      _executionUpdateStatus('completed', 100);
+      if (result.steps?.length) {
+        result.steps.forEach(s => _executionLog(s.message, s.status === 'done' ? 'done' : 'running', s.created_at));
+      }
+      await _executionLoadReport(result.reportId);
+    } else if (result.status === 'running' || result.status === 'queued') {
+      bfsExecutionJob = { jobId, status: result.status, steps: [], lastStepIndex: 0 };
+      const progressArea = document.getElementById('exec-progress-area');
+      if (progressArea) progressArea.style.display = '';
+      _executionUpdateStatus(result.status, result.progress || 0);
+      if (result.steps?.length) {
+        result.steps.forEach(s => _executionLog(s.message, s.status === 'done' ? 'done' : 'running', s.created_at));
+        bfsExecutionJob.lastStepIndex = result.steps[result.steps.length - 1]?.step_index || 0;
+      }
+      _executionLog('🔄 מחבר מחדש לביצוע פעיל...', 'info');
+      _executionStartPolling(jobId);
+    }
+  } catch {}
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
 window.startResearch         = startResearch;
 window.startStrategy         = startStrategy;
+window.startExecution        = startExecution;
 window.renderBusinessFromScratch = renderBusinessFromScratch;
 window.saveBusinessProfile   = saveBusinessProfile;
 window.switchAITab           = switchAITab;
