@@ -1361,7 +1361,18 @@ exports.handler = async (event) => {
     if (message.startsWith('[DIRECT_AD]') || message.startsWith('[DIRECT_GENERATE]')) {
       const rawPrompt = message.replace(/^\[(DIRECT_AD|DIRECT_GENERATE)\]\s*/, '');
 
-      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      // Read key fresh from .env every call — avoids netlify dev caching stale keys
+      let anthropicKey = process.env.ANTHROPIC_API_KEY || '';
+      try {
+        const _fs = require('node:fs'), _path = require('node:path');
+        const _envFile = _path.resolve(__dirname, '../..', '.env');
+        if (_fs.existsSync(_envFile)) {
+          for (const _line of _fs.readFileSync(_envFile, 'utf8').split('\n')) {
+            const _m = _line.match(/^ANTHROPIC_API_KEY=(.+)/);
+            if (_m) { anthropicKey = _m[1].trim(); break; }
+          }
+        }
+      } catch {}
       if (!anthropicKey) {
         return ok({ reply: '⚠️ שגיאה: לא נמצא ANTHROPIC_API_KEY. אנא הגדר אותו בהגדרות הסביבה של Netlify.', quickActions: [] }, context.requestId);
       }
