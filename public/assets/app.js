@@ -4123,12 +4123,13 @@ async function boot() {
 // ══════════════════════════════════════════════════════════════════════════════
 
 var bfsAgentTab = 'research'; // active agent tab
-var bfsResearchJob = null;    // { jobId, status, steps, lastStepIndex, pollTimer }
+var bfsResearchJob  = null;   // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
+var bfsStrategyJob  = null;   // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 
 function renderBusinessFromScratch() {
   const agents = [
     { id: 'research',   icon: '🔍', label: 'סוכן מחקר',     status: 'active',    desc: 'מחקר שוק, מתחרים ואווטר קהל יעד' },
-    { id: 'strategy',   icon: '🎯', label: 'סוכן אסטרטגיה', status: 'soon',      desc: 'קובע כיוון, קהל, זווית והצעה' },
+    { id: 'strategy',   icon: '🎯', label: 'סוכן אסטרטגיה', status: 'active',    desc: 'קובע כיוון, קהל, זווית והצעה' },
     { id: 'execution',  icon: '🧱', label: 'סוכן ביצוע',    status: 'soon',      desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
     { id: 'qa',         icon: '🧪', label: 'סוכן QA',        status: 'soon',      desc: 'בודק ומדרג את התוצרים' },
     { id: 'analysis',   icon: '📊', label: 'סוכן ניתוח',    status: 'soon',      desc: 'מנתח דאטה אמיתי מהקמפיינים' },
@@ -4215,6 +4216,54 @@ function renderBusinessFromScratch() {
 
     <div id="bfs-report-area" style="display:none;margin-top:1.5rem"></div>`;
 
+  // ── Strategy Panel ─────────────────────────────────────────────────────────
+  const savedResearchReportId = bfsResearchJob?.reportId || (() => {
+    try { return JSON.parse(localStorage.getItem('lastResearchJob') || '{}').reportId || ''; } catch { return ''; }
+  })();
+
+  const strategyPanel = `
+    <div class="card" style="margin-top:1.5rem">
+      <div class="card-title">🎯 סוכן אסטרטגיה — בניית אסטרטגיה שיווקית</div>
+      <p class="text-sm text-muted mb-4">הסוכן בונה מוצר, בידול, מסר ליבה, משפך שיווקי ותכנית בדיקות — הכל על בסיס דוח המחקר שלך</p>
+
+      <div class="form-group">
+        <label class="form-label">מזהה דוח מחקר <span style="color:#ef4444">*</span></label>
+        <input class="form-input" id="strategy-report-id" placeholder="הכנס את מזהה דוח המחקר (UUID)"
+          value="${savedResearchReportId.replace(/"/g,'&quot;')}" />
+        <div style="font-size:0.75rem;color:#64748b;margin-top:0.3rem">
+          ${savedResearchReportId ? '✅ נמצא דוח מחקר אחרון — ניתן להתחיל' : '⚠️ הכנס מזהה דוח מחקר מהכרטיס "דוח מוכן" בלשונית מחקר'}
+        </div>
+      </div>
+
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-top:1rem">
+        <button class="btn btn-gradient" style="width:auto;padding:0.75rem 2rem;background:linear-gradient(135deg,#f59e0b,#ef4444)"
+          id="strategy-start-btn" onclick="startStrategy()">
+          🎯 התחל בניית אסטרטגיה
+        </button>
+        <div style="font-size:0.78rem;color:#64748b;flex:1">
+          ⚡ ~6 קריאות AI | ~2 דקות | 20 מודולים של ניתוח אסטרטגי
+        </div>
+      </div>
+    </div>
+
+    <div id="strategy-progress-area" style="display:none;margin-top:1.5rem">
+      <div class="card" style="padding:0">
+        <div style="background:linear-gradient(135deg,#78350f,#92400e);border-radius:1rem 1rem 0 0;padding:1rem 1.25rem;display:flex;align-items:center;gap:0.75rem">
+          <div id="strategy-status-dot" style="width:10px;height:10px;border-radius:50%;background:#fbbf24;animation:pulse 1.5s infinite"></div>
+          <div style="color:#fff;font-weight:600;font-size:0.9rem" id="strategy-status-label">מכין אסטרטגיה...</div>
+          <div style="margin-right:auto;display:flex;align-items:center;gap:0.5rem">
+            <div style="width:120px;height:6px;background:rgba(255,255,255,0.15);border-radius:9999px;overflow:hidden">
+              <div id="strategy-progress-bar" style="height:100%;background:linear-gradient(90deg,#f59e0b,#ef4444);border-radius:9999px;transition:width 0.5s;width:0%"></div>
+            </div>
+            <span id="strategy-progress-pct" style="color:rgba(255,255,255,0.7);font-size:0.75rem">0%</span>
+          </div>
+        </div>
+        <div id="strategy-steps-log" style="background:#1c0a00;border-radius:0 0 1rem 1rem;padding:1rem 1.25rem;min-height:200px;max-height:420px;overflow-y:auto;font-family:'Courier New',monospace;font-size:0.8rem;direction:rtl"></div>
+      </div>
+    </div>
+
+    <div id="strategy-report-area" style="display:none;margin-top:1.5rem"></div>`;
+
   renderShell(`
     <div class="page-header">
       <h1 class="page-title">🧠 בניית עסק מאפס</h1>
@@ -4227,14 +4276,18 @@ function renderBusinessFromScratch() {
 
     <div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 1rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:0.75rem;margin-bottom:0.5rem">
       <span style="font-size:1rem">💡</span>
-      <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. כרגע סוכן המחקר פעיל.</span>
+      <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. סוכן מחקר ואסטרטגיה פעילים.</span>
     </div>
 
-    ${researchPanel}
+    ${bfsAgentTab === 'strategy' ? strategyPanel : researchPanel}
   `);
 
   // Restore active job if exists
-  setTimeout(() => restoreResearchJob(), 50);
+  if (bfsAgentTab === 'research') {
+    setTimeout(() => restoreResearchJob(), 50);
+  } else if (bfsAgentTab === 'strategy') {
+    setTimeout(() => restoreStrategyJob(), 50);
+  }
 }
 
 // ── Research Agent: Start ──────────────────────────────────────────────────────
@@ -4348,6 +4401,7 @@ async function _bfsPoll(jobId) {
       if (bfsResearchJob?.pollTimer) clearInterval(bfsResearchJob.pollTimer);
       bfsResearchJob.status   = 'completed';
       bfsResearchJob.reportId = reportId;
+      try { const saved = JSON.parse(localStorage.getItem('lastResearchJob') || '{}'); saved.reportId = reportId; localStorage.setItem('lastResearchJob', JSON.stringify(saved)); } catch {}
       const btn = document.getElementById('bfs-start-btn');
       if (btn) { btn.disabled = false; btn.textContent = '🔍 התחל מחקר חדש'; }
       if (reportId) {
@@ -4480,6 +4534,7 @@ function _bfsRenderReport(report) {
       </div>
       <div style="margin-right:auto;display:flex;gap:0.5rem">
         <button class="btn btn-sm btn-secondary" onclick="startResearch()" style="font-size:0.8rem">🔄 מחקר חדש</button>
+        <button class="btn btn-sm btn-gradient" onclick="bfsAgentTab='strategy';renderBusinessFromScratch()" style="font-size:0.8rem;background:linear-gradient(135deg,#f59e0b,#ef4444)">🎯 בנה אסטרטגיה</button>
       </div>
     </div>
 
@@ -4557,10 +4612,336 @@ async function restoreResearchJob() {
   } catch {}
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 🎯 STRATEGY AGENT — Client Functions
+// ══════════════════════════════════════════════════════════════════════════════
+
+async function startStrategy() {
+  const btn            = document.getElementById('strategy-start-btn');
+  const researchReportId = document.getElementById('strategy-report-id')?.value.trim();
+
+  if (!researchReportId) { toast('נא להזין מזהה דוח מחקר', 'error'); return; }
+
+  btn.disabled = true; btn.textContent = 'מתחיל...';
+
+  const progressArea = document.getElementById('strategy-progress-area');
+  const stepsLog     = document.getElementById('strategy-steps-log');
+  if (progressArea) progressArea.style.display = '';
+  if (stepsLog) stepsLog.innerHTML = '';
+  _strategyLog('🚀 שולח בקשת אסטרטגיה...', 'info');
+
+  try {
+    const result = await api('POST', 'strategy-start', { researchReportId });
+    const { jobId, estimatedMinutes, niche } = result;
+
+    bfsStrategyJob = { jobId, status: 'queued', steps: [], lastStepIndex: 0 };
+    try { localStorage.setItem('lastStrategyJob', JSON.stringify({ jobId, researchReportId, niche })); } catch {}
+
+    _strategyLog(`✅ בניית אסטרטגיה עבור "${niche}" התחילה! צפוי לקחת כ-${estimatedMinutes} דקות`, 'success');
+    _strategyLog('⏳ הסוכן עובד על 20 מודולים של ניתוח אסטרטגי...', 'info');
+    _strategyUpdateStatus('running', 5);
+
+    btn.textContent = 'אסטרטגיה בבנייה...';
+    _strategyStartPolling(jobId);
+
+  } catch (err) {
+    _strategyLog(`❌ שגיאה: ${err.message}`, 'error');
+    btn.disabled = false;
+    btn.textContent = '🎯 התחל בניית אסטרטגיה';
+  }
+}
+
+function _strategyStartPolling(jobId) {
+  if (bfsStrategyJob?.pollTimer) clearInterval(bfsStrategyJob.pollTimer);
+  const timer = setInterval(() => _strategyPoll(jobId), 2500);
+  if (bfsStrategyJob) bfsStrategyJob.pollTimer = timer;
+}
+
+async function _strategyPoll(jobId) {
+  if (!jobId) return;
+  try {
+    const since  = bfsStrategyJob?.lastStepIndex || 0;
+    const result = await api('GET', `strategy-status?jobId=${jobId}&since=${since}`);
+    const { status, progress, steps, reportId, error } = result;
+
+    if (steps?.length > 0) {
+      steps.forEach(s => {
+        const type = s.status === 'error' ? 'error' : s.status === 'done' ? 'done' : s.status === 'skipped' ? 'info' : 'running';
+        _strategyLog(s.message, type, s.created_at);
+        if (bfsStrategyJob) bfsStrategyJob.lastStepIndex = Math.max(bfsStrategyJob.lastStepIndex, s.step_index);
+      });
+    }
+
+    _strategyUpdateStatus(status, progress);
+
+    if (status === 'completed') {
+      if (bfsStrategyJob?.pollTimer) clearInterval(bfsStrategyJob.pollTimer);
+      bfsStrategyJob.status   = 'completed';
+      bfsStrategyJob.reportId = reportId;
+      const btn = document.getElementById('strategy-start-btn');
+      if (btn) { btn.disabled = false; btn.textContent = '🎯 אסטרטגיה חדשה'; }
+      if (reportId) {
+        _strategyLog('📋 טוען דוח אסטרטגיה...', 'info');
+        await _strategyLoadReport(reportId);
+      }
+    } else if (status === 'failed') {
+      if (bfsStrategyJob?.pollTimer) clearInterval(bfsStrategyJob.pollTimer);
+      _strategyLog(`❌ האסטרטגיה נכשלה: ${error || 'שגיאה לא ידועה'}`, 'error');
+      const btn = document.getElementById('strategy-start-btn');
+      if (btn) { btn.disabled = false; btn.textContent = '🎯 נסה שוב'; }
+    }
+  } catch (e) {
+    console.warn('[strategy-poll] error:', e.message);
+  }
+}
+
+function _strategyUpdateStatus(status, progress) {
+  const dot    = document.getElementById('strategy-status-dot');
+  const label  = document.getElementById('strategy-status-label');
+  const bar    = document.getElementById('strategy-progress-bar');
+  const pct    = document.getElementById('strategy-progress-pct');
+  const labels = { queued: 'ממתין בתור...', running: 'סוכן אסטרטגיה עובד...', completed: 'האסטרטגיה הושלמה!', failed: 'נכשל' };
+  const colors = { queued: '#fbbf24', running: '#f59e0b', completed: '#22c55e', failed: '#ef4444' };
+  if (dot)   dot.style.background = colors[status] || '#fbbf24';
+  if (dot)   dot.style.animation  = status === 'running' ? 'pulse 1.5s infinite' : 'none';
+  if (label) label.textContent    = labels[status] || status;
+  if (bar)   bar.style.width      = (progress || 0) + '%';
+  if (pct)   pct.textContent      = (progress || 0) + '%';
+}
+
+function _strategyLog(message, type = 'info', timestamp = null) {
+  const log = document.getElementById('strategy-steps-log');
+  if (!log) return;
+  const colors = { info: '#94a3b8', success: '#4ade80', error: '#f87171', done: '#4ade80', running: '#fbbf24' };
+  const color  = colors[type] || '#94a3b8';
+  const time   = timestamp ? new Date(timestamp).toLocaleTimeString('he-IL') : new Date().toLocaleTimeString('he-IL');
+  const line   = document.createElement('div');
+  line.style.cssText = `color:${color};margin-bottom:4px;line-height:1.5;direction:rtl`;
+  line.innerHTML = `<span style="color:#6b4c1a;font-size:0.72em;margin-left:8px">${time}</span>${message}`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function _strategyLoadReport(reportId) {
+  try {
+    const { report } = await api('GET', `strategy-report?reportId=${reportId}`);
+    _strategyRenderReport(report);
+  } catch (e) {
+    _strategyLog(`⚠️ שגיאה בטעינת דוח: ${e.message}`, 'error');
+  }
+}
+
+function _strategyRenderReport(report) {
+  const area = document.getElementById('strategy-report-area');
+  if (!area) return;
+  area.style.display = '';
+
+  const prod = report.product     || {};
+  const pos  = report.positioning || {};
+  const strat= report.strategy    || {};
+  const tp   = report.test_plan   || {};
+  const met  = report.metrics     || {};
+  const risks= report.risks       || [];
+  const conf = report.confidence  || 0;
+  const goSig= report.go_signal || (conf >= 70 ? 'ירוק' : conf >= 45 ? 'צהוב' : 'אדום');
+
+  const goColor = goSig === 'ירוק' ? '#16a34a' : goSig === 'צהוב' ? '#d97706' : '#dc2626';
+  const goBg    = goSig === 'ירוק' ? '#f0fdf4' : goSig === 'צהוב' ? '#fefce8' : '#fef2f2';
+  const goBorder= goSig === 'ירוק' ? '#bbf7d0' : goSig === 'צהוב' ? '#fde68a' : '#fecaca';
+  const goEmoji = goSig === 'ירוק' ? '🟢' : goSig === 'צהוב' ? '🟡' : '🔴';
+
+  const riskBadge = r => `<div style="background:${r.severity==='high'?'#fee2e2':r.severity==='medium'?'#fef3c7':'#f1f5f9'};
+    border-right:3px solid ${r.severity==='high'?'#ef4444':r.severity==='medium'?'#f59e0b':'#94a3b8'};
+    padding:0.5rem 0.75rem;border-radius:0 0.5rem 0.5rem 0;font-size:0.8rem;color:#374151;margin-bottom:0.5rem">
+    ${r.severity==='high'?'🚩':r.severity==='medium'?'⚠️':'ℹ️'} ${r.description}
+  </div>`;
+
+  const angleCard = a => `
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.75rem;padding:0.875rem;margin-bottom:0.6rem">
+      <div style="font-size:0.7rem;color:#6366f1;font-weight:600;margin-bottom:0.25rem;text-transform:uppercase">${a.type || ''}</div>
+      <div style="font-size:0.82rem;color:#374151;margin-bottom:0.3rem">${a.text || ''}</div>
+      ${a.hook ? `<div style="font-size:0.78rem;color:#64748b;font-style:italic">💬 "${a.hook}"</div>` : ''}
+    </div>`;
+
+  const hypoCard = h => `
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:0.75rem;padding:1rem;margin-bottom:0.75rem">
+      <div style="font-weight:700;font-size:0.88rem;color:#14532d;margin-bottom:0.4rem">${h.what || h.id}</div>
+      <div style="font-size:0.8rem;color:#374151;margin-bottom:0.5rem">${h.hypothesis || ''}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;font-size:0.78rem">
+        <div style="background:#fff;border-radius:0.4rem;padding:0.4rem 0.6rem"><strong>A:</strong> ${h.variant_a || ''}</div>
+        <div style="background:#fff;border-radius:0.4rem;padding:0.4rem 0.6rem"><strong>B:</strong> ${h.variant_b || ''}</div>
+      </div>
+      <div style="font-size:0.72rem;color:#166534;margin-top:0.4rem">מדד הצלחה: ${h.success_metric || ''} | מינימום: ${h.min_impressions ? h.min_impressions.toLocaleString() : '—'} חשיפות</div>
+    </div>`;
+
+  const metricRow = (label, obj) => obj?.kpi ? `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0;border-bottom:1px solid #f1f5f9;font-size:0.82rem">
+      <span style="color:#64748b">${label}</span>
+      <strong style="color:#1e293b">${obj.kpi}</strong>
+    </div>` : '';
+
+  area.innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem;padding:1rem 1.25rem;
+      background:${goBg};border-radius:1rem;border:1px solid ${goBorder}">
+      <div style="font-size:2rem">${goEmoji}</div>
+      <div>
+        <div style="font-weight:700;font-size:1.05rem;color:${goColor}">אסטרטגיה מוכנה — אות: ${goSig}</div>
+        <div style="font-size:0.8rem;color:${goColor}">ביטחון ${conf}% · ${(risks.filter(r=>r.severity==='high')).length} סיכונים קריטיים · ${(strat.angles||[]).length} זוויות שיווק</div>
+      </div>
+      <div style="margin-right:auto">
+        <button class="btn btn-sm btn-secondary" onclick="startStrategy()" style="font-size:0.8rem">🔄 אסטרטגיה חדשה</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
+
+      <div class="card">
+        <div class="card-title">📦 המוצר</div>
+        <div style="font-size:0.8rem;color:#6366f1;font-weight:600;margin-bottom:0.4rem">${prod.productType || ''}</div>
+        ${prod.productName ? `<div style="font-weight:700;font-size:0.95rem;margin-bottom:0.4rem">${prod.productName}</div>` : ''}
+        ${prod.outcome ? `<div style="font-size:0.85rem;color:#374151;margin-bottom:0.75rem;line-height:1.5">${prod.outcome}</div>` : ''}
+        <div style="background:#f8fafc;border-radius:0.5rem;padding:0.75rem;font-size:0.8rem">
+          <div style="margin-bottom:0.3rem"><strong>כאב מרכזי:</strong> ${prod.selectedPain || '—'}</div>
+          ${prod.timeToResult ? `<div style="margin-bottom:0.3rem"><strong>זמן לתוצאה:</strong> ${prod.timeToResult}</div>` : ''}
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.4rem">
+            <strong>כדאיות:</strong>
+            <div style="flex:1;height:6px;background:#e2e8f0;border-radius:9999px">
+              <div style="height:100%;background:${(prod.viabilityScore||0)>=70?'#22c55e':(prod.viabilityScore||0)>=50?'#f59e0b':'#ef4444'};
+                border-radius:9999px;width:${prod.viabilityScore||0}%"></div>
+            </div>
+            <span>${prod.viabilityScore||0}%</span>
+          </div>
+        </div>
+        ${(prod.productStructure||[]).length>0 ? `
+          <div style="margin-top:0.75rem">
+            <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.4rem">מבנה המוצר:</div>
+            ${prod.productStructure.slice(0,4).map(s=>`
+              <div style="display:flex;gap:0.5rem;align-items:flex-start;margin-bottom:0.3rem;font-size:0.78rem">
+                <span style="background:#6366f1;color:#fff;border-radius:50%;width:18px;height:18px;font-size:0.65rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${s.step}</span>
+                <span><strong>${s.title}:</strong> ${s.description||''}</span>
+              </div>`).join('')}
+          </div>` : ''}
+      </div>
+
+      <div class="card">
+        <div class="card-title">🎯 בידול ומיצוב</div>
+        ${pos.selectedPositioning ? `
+          <div style="background:linear-gradient(135deg,#f0f9ff,#e0f2fe);border:1px solid #bae6fd;border-radius:0.75rem;padding:0.875rem;margin-bottom:0.75rem">
+            <div style="font-weight:700;font-size:0.95rem;color:#0c4a6e;line-height:1.4">"${pos.selectedPositioning}"</div>
+            ${pos.whyUs ? `<div style="font-size:0.78rem;color:#0369a1;margin-top:0.4rem">${pos.whyUs}</div>` : ''}
+          </div>` : ''}
+        ${pos.angleType ? `<div style="font-size:0.8rem;margin-bottom:0.3rem"><strong>סוג זווית:</strong> ${pos.angleType}</div>` : ''}
+        ${pos.gapUsed ? `<div style="font-size:0.8rem;margin-bottom:0.3rem"><strong>פער מנוצל:</strong> ${pos.gapUsed}</div>` : ''}
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.4rem;font-size:0.8rem">
+          <strong>ציון בידול:</strong>
+          <div style="flex:1;height:6px;background:#e2e8f0;border-radius:9999px">
+            <div style="height:100%;background:#6366f1;border-radius:9999px;width:${pos.positionScore||0}%"></div>
+          </div>
+          <span>${pos.positionScore||0}%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">📢 מסר ליבה וזוויות שיווק</div>
+      ${strat.coreMessage ? `
+        <div style="background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:1px solid #c4b5fd;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;text-align:center">
+          <div style="font-size:0.75rem;color:#7c3aed;font-weight:600;margin-bottom:0.25rem">מסר ליבה</div>
+          <div style="font-size:1.05rem;font-weight:700;color:#4c1d95">"${strat.coreMessage}"</div>
+          ${strat.targetCustomer ? `<div style="font-size:0.78rem;color:#6d28d9;margin-top:0.4rem">לקוח: ${strat.targetCustomer}</div>` : ''}
+        </div>` : ''}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+        <div>
+          <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.5rem">זוויות שיווק (${(strat.angles||[]).length})</div>
+          ${(strat.angles||[]).map(angleCard).join('')}
+        </div>
+        <div>
+          <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.5rem">שיטה ופלטפורמה</div>
+          ${strat.method?.primary ? `
+            <div style="background:#f8fafc;border-radius:0.5rem;padding:0.75rem;font-size:0.8rem;margin-bottom:0.5rem">
+              <div><strong>שיטה:</strong> ${strat.method.primary.label || ''}</div>
+              ${strat.tone?.label ? `<div><strong>טון:</strong> ${strat.tone.label}</div>` : ''}
+              ${strat.platforms?.primary ? `<div><strong>פלטפורמה ראשית:</strong> ${strat.platforms.primary}</div>` : ''}
+            </div>` : ''}
+          ${strat.funnel?.hook_strategy ? `
+            <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.4rem">המשפך</div>
+            <div style="font-size:0.78rem;background:#f8fafc;border-radius:0.5rem;padding:0.75rem">
+              ${strat.funnel.traffic_source ? `<div style="margin-bottom:0.25rem">📍 <strong>תנועה:</strong> ${strat.funnel.traffic_source}</div>` : ''}
+              ${strat.funnel.hook_strategy ? `<div style="margin-bottom:0.25rem">🪝 <strong>הוק:</strong> ${strat.funnel.hook_strategy}</div>` : ''}
+              ${strat.funnel.trust_builder ? `<div style="margin-bottom:0.25rem">🤝 <strong>אמינות:</strong> ${strat.funnel.trust_builder}</div>` : ''}
+              ${strat.funnel.offer_structure ? `<div style="margin-bottom:0.25rem">💰 <strong>הצעה:</strong> ${strat.funnel.offer_structure}</div>` : ''}
+              ${strat.funnel.conversion_method ? `<div>✅ <strong>המרה:</strong> ${strat.funnel.conversion_method}</div>` : ''}
+            </div>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
+
+      ${(tp.hypotheses||[]).length > 0 ? `
+      <div class="card">
+        <div class="card-title">🧪 תכנית בדיקות A/B</div>
+        ${tp.priority_reason ? `<div style="font-size:0.78rem;color:#64748b;margin-bottom:0.75rem">${tp.priority_reason}</div>` : ''}
+        ${tp.hypotheses.map(hypoCard).join('')}
+      </div>` : '<div></div>'}
+
+      <div class="card">
+        <div class="card-title">📊 מדדי הצלחה (KPIs)</div>
+        ${metricRow('חשיפות (CTR)', met.exposure)}
+        ${metricRow('עמוד נחיתה (conv%)', met.interest)}
+        ${metricRow('אמון / Lead', met.trust)}
+        ${metricRow('פעולה (CPL)', met.action)}
+        ${metricRow('מכירה (CAC)', met.payment)}
+        ${met.unitEconomics?.roasBreakeven ? `
+          <div style="margin-top:0.75rem;background:#f0fdf4;border-radius:0.5rem;padding:0.6rem 0.75rem;font-size:0.78rem;color:#166534">
+            ROAS ל-break-even: <strong>${met.unitEconomics.roasBreakeven}x</strong>
+          </div>` : ''}
+      </div>
+    </div>
+
+    ${risks.length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">🚩 סיכונים</div>
+      ${risks.map(riskBadge).join('')}
+    </div>` : ''}
+  `;
+
+  area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function restoreStrategyJob() {
+  try {
+    const saved = localStorage.getItem('lastStrategyJob');
+    if (!saved) return;
+    const { jobId } = JSON.parse(saved);
+    if (!jobId) return;
+    const result = await api('GET', `strategy-status?jobId=${jobId}&since=0`);
+    if (result.status === 'completed' && result.reportId) {
+      const progressArea = document.getElementById('strategy-progress-area');
+      if (progressArea) progressArea.style.display = '';
+      _strategyUpdateStatus('completed', 100);
+      _strategyLog('📋 טוען דוח קיים...', 'info');
+      await _strategyLoadReport(result.reportId);
+    } else if (result.status === 'running' || result.status === 'queued') {
+      bfsStrategyJob = { jobId, status: result.status, steps: [], lastStepIndex: 0 };
+      const progressArea = document.getElementById('strategy-progress-area');
+      if (progressArea) progressArea.style.display = '';
+      _strategyUpdateStatus(result.status, result.progress || 0);
+      if (result.steps?.length) {
+        result.steps.forEach(s => _strategyLog(s.message, s.status === 'done' ? 'done' : 'running', s.created_at));
+        bfsStrategyJob.lastStepIndex = result.steps[result.steps.length - 1]?.step_index || 0;
+      }
+      _strategyLog('🔄 מחבר מחדש לאסטרטגיה פעילה...', 'info');
+      _strategyStartPolling(jobId);
+    }
+  } catch {}
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
 window.startResearch         = startResearch;
+window.startStrategy         = startStrategy;
 window.renderBusinessFromScratch = renderBusinessFromScratch;
 window.saveBusinessProfile   = saveBusinessProfile;
 window.switchAITab           = switchAITab;

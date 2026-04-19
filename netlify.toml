@@ -24,6 +24,18 @@
 [functions."research-providers"]
   timeout = 10
 
+[functions."strategy-start"]
+  timeout = 10
+
+[functions."strategy-status"]
+  timeout = 10
+
+[functions."strategy-report"]
+  timeout = 10
+
+[functions."process-strategy-job"]
+  timeout = 26
+
 # Scheduled functions
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
