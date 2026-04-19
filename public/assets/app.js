@@ -38,16 +38,17 @@ let state = {
 
 // ── Router ────────────────────────────────────────────────────────────────────
 const routes = {
-  dashboard:          renderDashboard,
-  'ai-creation':      renderAICreation,
-  'landing-pages':    renderLandingPages,
-  campaigns:          renderCampaigns,
-  leads:              renderLeads,
-  insights:           renderInsights,
-  settings:           renderSettings,
-  support:            renderSupport,
-  admin:              renderAdmin,
-  updates:            renderUpdates,
+  dashboard:               renderDashboard,
+  'business-from-scratch': renderBusinessFromScratch,
+  'ai-creation':           renderAICreation,
+  'landing-pages':         renderLandingPages,
+  campaigns:               renderCampaigns,
+  leads:                   renderLeads,
+  insights:                renderInsights,
+  settings:                renderSettings,
+  support:                 renderSupport,
+  admin:                   renderAdmin,
+  updates:                 renderUpdates,
   // Legacy routes redirect into consolidated pages
   'business-profile': () => renderSettings('business'),
   integrations:       () => renderSettings('integrations'),
@@ -297,12 +298,13 @@ function renderShell(content) {
   };
 
   const mainNav = [
-    { id: 'dashboard',   icon: '📊', label: 'דשבורד' },
-    { id: 'ai-creation', icon: '🤖', label: 'צור נכסים בAI' },
-    { id: 'campaigns',   icon: '🎯', label: 'קמפיינים' },
-    { id: 'leads',       icon: '📥', label: 'לידים' },
-    { id: 'insights',    icon: '📈', label: 'תובנות' },
-    { id: 'settings',    icon: '⚙️', label: 'הגדרות' },
+    { id: 'dashboard',             icon: '📊', label: 'דשבורד' },
+    { id: 'business-from-scratch', icon: '🧠', label: 'בניית עסק מאפס' },
+    { id: 'ai-creation',           icon: '🤖', label: 'צור נכסים בAI' },
+    { id: 'campaigns',             icon: '🎯', label: 'קמפיינים' },
+    { id: 'leads',                 icon: '📥', label: 'לידים' },
+    { id: 'insights',              icon: '📈', label: 'תובנות' },
+    { id: 'settings',              icon: '⚙️', label: 'הגדרות' },
   ];
 
   const initials    = (state.profile?.name || state.user?.email || '?').charAt(0).toUpperCase();
@@ -4116,9 +4118,419 @@ async function boot() {
 }
 
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 🧠 BUSINESS FROM SCRATCH — Agent System
+// ══════════════════════════════════════════════════════════════════════════════
+
+var bfsAgentTab = 'research'; // active agent tab
+var bfsResearchJob = null;    // { jobId, status, steps, lastStepIndex, pollTimer }
+
+function renderBusinessFromScratch() {
+  const agents = [
+    { id: 'research',   icon: '🔍', label: 'סוכן מחקר',     status: 'active',    desc: 'מחקר שוק, מתחרים ואווטר קהל יעד' },
+    { id: 'strategy',   icon: '🎯', label: 'סוכן אסטרטגיה', status: 'soon',      desc: 'קובע כיוון, קהל, זווית והצעה' },
+    { id: 'execution',  icon: '🧱', label: 'סוכן ביצוע',    status: 'soon',      desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
+    { id: 'qa',         icon: '🧪', label: 'סוכן QA',        status: 'soon',      desc: 'בודק ומדרג את התוצרים' },
+    { id: 'analysis',   icon: '📊', label: 'סוכן ניתוח',    status: 'soon',      desc: 'מנתח דאטה אמיתי מהקמפיינים' },
+  ];
+
+  const bp = state.businessProfile || {};
+
+  const agentCards = agents.map(a => `
+    <div onclick="${a.status === 'active' ? `bfsAgentTab='${a.id}';renderBusinessFromScratch()` : ''}"
+         style="background:${bfsAgentTab === a.id ? 'linear-gradient(135deg,#6366f1,#8b5cf6)' : a.status === 'soon' ? '#f8fafc' : '#fff'};
+                border:2px solid ${bfsAgentTab === a.id ? '#6366f1' : a.status === 'soon' ? '#e2e8f0' : '#e2e8f0'};
+                border-radius:1rem;padding:1.25rem 1rem;cursor:${a.status === 'active' ? 'pointer' : 'default'};
+                opacity:${a.status === 'soon' ? '0.65' : '1'};transition:all 0.2s;text-align:center;position:relative">
+      <div style="font-size:1.8rem;margin-bottom:0.4rem">${a.icon}</div>
+      <div style="font-weight:700;font-size:0.88rem;color:${bfsAgentTab === a.id ? '#fff' : '#1e293b'}">${a.label}</div>
+      <div style="font-size:0.72rem;color:${bfsAgentTab === a.id ? 'rgba(255,255,255,0.8)' : '#64748b'};margin-top:0.25rem">${a.desc}</div>
+      ${a.status === 'soon' ? `<div style="position:absolute;top:0.5rem;left:0.5rem;background:#e2e8f0;color:#64748b;font-size:0.6rem;font-weight:700;padding:2px 6px;border-radius:9999px">בקרוב</div>` : ''}
+      ${a.status === 'active' && bfsAgentTab !== a.id ? `<div style="position:absolute;top:0.5rem;left:0.5rem;background:#dcfce7;color:#16a34a;font-size:0.6rem;font-weight:700;padding:2px 6px;border-radius:9999px">פעיל</div>` : ''}
+    </div>`).join('');
+
+  const researchPanel = `
+    <div class="card" style="margin-top:1.5rem">
+      <div class="card-title">🔍 סוכן מחקר — מודיעין שוק</div>
+      <p class="text-sm text-muted mb-4">הסוכן יחקור את השוק, יזהה מתחרים, יבין את קהל היעד ויחזיר לך דוח מוכן לפעולה</p>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label">נישה / תחום עסקי <span style="color:#ef4444">*</span></label>
+          <input class="form-input" id="bfs-niche" placeholder="לדוגמה: קורסים דיגיטליים, קוסמטיקה, שירותי SEO"
+            value="${(bp.industry || '').replace(/"/g,'&quot;')}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">רמת מחקר</label>
+          <select class="form-input" id="bfs-depth">
+            <option value="low">בדיקת שוק מהירה (1 קרדיט, ~1 דקה)</option>
+            <option value="medium" selected>מחקר שוק אסטרטגי (3 קרדיטים, ~3 דקות)</option>
+            <option value="high">מודיעין שוק עמוק (6 קרדיטים, ~7 דקות)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label">שם העסק</label>
+          <input class="form-input" id="bfs-biz-name" placeholder="שם העסק שלך"
+            value="${(bp.business_name || '').replace(/"/g,'&quot;')}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">קהל יעד</label>
+          <input class="form-input" id="bfs-audience" placeholder="לדוגמה: נשים 25-45, בעלי עסקים קטנים"
+            value="${(bp.target_audience || '').replace(/"/g,'&quot;')}" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">המוצר / שירות המרכזי</label>
+        <input class="form-input" id="bfs-offer" placeholder="מה אתם מוכרים?"
+          value="${(bp.offer || '').replace(/"/g,'&quot;')}" />
+      </div>
+
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;margin-top:1rem">
+        <button class="btn btn-gradient" style="width:auto;padding:0.75rem 2rem" id="bfs-start-btn" onclick="startResearch()">
+          🔍 התחל מחקר שוק
+        </button>
+        <div style="font-size:0.78rem;color:#64748b;flex:1">
+          ⚡ הסוכן יכתוב לך בדיוק מה הוא עושה בזמן אמת
+        </div>
+      </div>
+    </div>
+
+    <div id="bfs-progress-area" style="display:none;margin-top:1.5rem">
+      <div class="card" style="padding:0">
+        <div style="background:linear-gradient(135deg,#1e293b,#334155);border-radius:1rem 1rem 0 0;padding:1rem 1.25rem;display:flex;align-items:center;gap:0.75rem">
+          <div id="bfs-status-dot" style="width:10px;height:10px;border-radius:50%;background:#fbbf24;animation:pulse 1.5s infinite"></div>
+          <div style="color:#fff;font-weight:600;font-size:0.9rem" id="bfs-status-label">מחכה להתחלה...</div>
+          <div style="margin-right:auto;display:flex;align-items:center;gap:0.5rem">
+            <div style="width:120px;height:6px;background:rgba(255,255,255,0.15);border-radius:9999px;overflow:hidden">
+              <div id="bfs-progress-bar" style="height:100%;background:linear-gradient(90deg,#6366f1,#8b5cf6);border-radius:9999px;transition:width 0.5s;width:0%"></div>
+            </div>
+            <span id="bfs-progress-pct" style="color:rgba(255,255,255,0.7);font-size:0.75rem">0%</span>
+          </div>
+        </div>
+        <div id="bfs-steps-log" style="background:#0f172a;border-radius:0 0 1rem 1rem;padding:1rem 1.25rem;min-height:200px;max-height:420px;overflow-y:auto;font-family:'Courier New',monospace;font-size:0.8rem;direction:rtl"></div>
+      </div>
+    </div>
+
+    <div id="bfs-report-area" style="display:none;margin-top:1.5rem"></div>`;
+
+  renderShell(`
+    <div class="page-header">
+      <h1 class="page-title">🧠 בניית עסק מאפס</h1>
+      <p class="page-subtitle">מערכת סוכנים חכמה שבונה את כל אסטרטגיית השיווק שלך — מחקר, אסטרטגיה, ביצוע ובקרת איכות</p>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1rem">
+      ${agentCards}
+    </div>
+
+    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 1rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:0.75rem;margin-bottom:0.5rem">
+      <span style="font-size:1rem">💡</span>
+      <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. כרגע סוכן המחקר פעיל.</span>
+    </div>
+
+    ${researchPanel}
+  `);
+
+  // Restore active job if exists
+  setTimeout(() => restoreResearchJob(), 50);
+}
+
+// ── Research Agent: Start ──────────────────────────────────────────────────────
+async function startResearch() {
+  const btn      = document.getElementById('bfs-start-btn');
+  const niche    = document.getElementById('bfs-niche')?.value.trim();
+  const depth    = document.getElementById('bfs-depth')?.value || 'medium';
+  const bizName  = document.getElementById('bfs-biz-name')?.value.trim();
+  const audience = document.getElementById('bfs-audience')?.value.trim();
+  const offer    = document.getElementById('bfs-offer')?.value.trim();
+
+  if (!niche) { toast('נא להזין נישה / תחום עסקי', 'error'); return; }
+
+  btn.disabled = true; btn.textContent = 'מתחיל...';
+
+  // Show progress area
+  const progressArea = document.getElementById('bfs-progress-area');
+  const stepsLog     = document.getElementById('bfs-steps-log');
+  if (progressArea) progressArea.style.display = '';
+  if (stepsLog) stepsLog.innerHTML = '';
+  _bfsLog('🚀 שולח בקשת מחקר...', 'info');
+
+  try {
+    const result = await api('POST', 'research-start', {
+      niche, depth_level: depth,
+      business_name: bizName || undefined,
+      target_audience: audience || undefined,
+      main_offer: offer || undefined,
+    });
+
+    const { jobId, estimatedMinutes, depthLabel } = result;
+    bfsResearchJob = { jobId, status: 'queued', steps: [], lastStepIndex: 0 };
+
+    // Save to localStorage for persistence
+    try { localStorage.setItem('lastResearchJob', JSON.stringify({ jobId, niche, depth, depthLabel })); } catch {}
+
+    _bfsLog(`✅ מחקר "${depthLabel}" התחיל! צפוי לקחת כ-${estimatedMinutes} דקות`, 'success');
+    _bfsLog('⏳ הסוכן עובד... ניתן לנווט לדפים אחרים ולחזור לאחר מכן', 'info');
+    _bfsUpdateStatus('running', 5);
+
+    btn.textContent = 'מחקר פעיל...';
+
+    // Start polling
+    _bfsStartPolling(jobId);
+
+  } catch (err) {
+    _bfsLog(`❌ שגיאה: ${err.message}`, 'error');
+    btn.disabled = false;
+    btn.textContent = '🔍 התחל מחקר שוק';
+  }
+}
+
+// ── Polling ────────────────────────────────────────────────────────────────────
+function _bfsStartPolling(jobId) {
+  if (bfsResearchJob?.pollTimer) clearInterval(bfsResearchJob.pollTimer);
+  const timer = setInterval(() => _bfsPoll(jobId), 2500);
+  if (bfsResearchJob) bfsResearchJob.pollTimer = timer;
+}
+
+async function _bfsPoll(jobId) {
+  if (!jobId) return;
+  try {
+    const since  = bfsResearchJob?.lastStepIndex || 0;
+    const result = await api('GET', `research-status?jobId=${jobId}&since=${since}`);
+
+    const { status, progress, steps, reportId, error } = result;
+
+    // Render new steps
+    if (steps?.length > 0) {
+      steps.forEach(s => {
+        const type = s.status === 'error' ? 'error' : s.status === 'done' ? 'done' : 'running';
+        _bfsLog(s.message, type, s.created_at);
+        if (bfsResearchJob) bfsResearchJob.lastStepIndex = Math.max(bfsResearchJob.lastStepIndex, s.step_index);
+      });
+    }
+
+    _bfsUpdateStatus(status, progress);
+
+    if (status === 'completed') {
+      if (bfsResearchJob?.pollTimer) clearInterval(bfsResearchJob.pollTimer);
+      bfsResearchJob.status   = 'completed';
+      bfsResearchJob.reportId = reportId;
+      const btn = document.getElementById('bfs-start-btn');
+      if (btn) { btn.disabled = false; btn.textContent = '🔍 התחל מחקר חדש'; }
+      if (reportId) {
+        _bfsLog('📋 טוען דוח מחקר...', 'info');
+        await _bfsLoadReport(reportId);
+      }
+    } else if (status === 'failed') {
+      if (bfsResearchJob?.pollTimer) clearInterval(bfsResearchJob.pollTimer);
+      _bfsLog(`❌ המחקר נכשל: ${error || 'שגיאה לא ידועה'}`, 'error');
+      const btn = document.getElementById('bfs-start-btn');
+      if (btn) { btn.disabled = false; btn.textContent = '🔍 נסה שוב'; }
+    }
+  } catch (e) {
+    console.warn('[bfs-poll] error:', e.message);
+  }
+}
+
+function _bfsUpdateStatus(status, progress) {
+  const dot      = document.getElementById('bfs-status-dot');
+  const label    = document.getElementById('bfs-status-label');
+  const bar      = document.getElementById('bfs-progress-bar');
+  const pct      = document.getElementById('bfs-progress-pct');
+  const labels   = { queued: 'ממתין בתור...', running: 'הסוכן עובד...', completed: 'המחקר הושלם!', failed: 'נכשל' };
+  const colors   = { queued: '#fbbf24', running: '#6366f1', completed: '#22c55e', failed: '#ef4444' };
+  if (dot)   dot.style.background = colors[status] || '#fbbf24';
+  if (dot)   dot.style.animation  = status === 'running' ? 'pulse 1.5s infinite' : 'none';
+  if (label) label.textContent    = labels[status] || status;
+  if (bar)   bar.style.width      = (progress || 0) + '%';
+  if (pct)   pct.textContent      = (progress || 0) + '%';
+}
+
+function _bfsLog(message, type = 'info', timestamp = null) {
+  const log = document.getElementById('bfs-steps-log');
+  if (!log) return;
+  const colors = { info: '#94a3b8', success: '#4ade80', error: '#f87171', done: '#4ade80', running: '#fbbf24' };
+  const color  = colors[type] || '#94a3b8';
+  const time   = timestamp
+    ? new Date(timestamp).toLocaleTimeString('he-IL')
+    : new Date().toLocaleTimeString('he-IL');
+  const line   = document.createElement('div');
+  line.style.cssText = `color:${color};margin-bottom:4px;line-height:1.5;direction:rtl`;
+  line.innerHTML = `<span style="color:#475569;font-size:0.72em;margin-left:8px">${time}</span>${message}`;
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ── Report Renderer ────────────────────────────────────────────────────────────
+async function _bfsLoadReport(reportId) {
+  try {
+    const { report } = await api('GET', `research-report?reportId=${reportId}`);
+    _bfsRenderReport(report);
+  } catch (e) {
+    _bfsLog(`⚠️ שגיאה בטעינת דוח: ${e.message}`, 'error');
+  }
+}
+
+function _bfsRenderReport(report) {
+  const area = document.getElementById('bfs-report-area');
+  if (!area) return;
+  area.style.display = '';
+
+  const mm  = report.market_map  || {};
+  const av  = report.avatar      || {};
+  const ins = report.insights    || {};
+  const rec = report.recommendations || [];
+  const meta= report.meta        || {};
+
+  const competitorCards = (mm.top_competitors || []).map(c => `
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.75rem;padding:1rem;position:relative">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
+        <div style="width:8px;height:8px;border-radius:50%;background:${c.strength==='high'?'#ef4444':c.strength==='medium'?'#f59e0b':'#22c55e'}"></div>
+        <strong style="font-size:0.9rem">${c.name}</strong>
+        ${c.domain ? `<span style="font-size:0.72rem;color:#64748b">${c.domain}</span>` : ''}
+      </div>
+      ${c.main_offering ? `<div style="font-size:0.8rem;color:#374151;margin-bottom:0.3rem">🎯 ${c.main_offering}</div>` : ''}
+      ${c.key_message   ? `<div style="font-size:0.78rem;color:#6366f1;font-style:italic">"${c.key_message}"</div>` : ''}
+      <div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-top:0.5rem">
+        ${(c.platforms||[]).map(p=>`<span style="background:#e0e7ff;color:#4338ca;font-size:0.65rem;padding:2px 6px;border-radius:9999px">${p}</span>`).join('')}
+      </div>
+      <div style="position:absolute;top:0.5rem;left:0.5rem;font-size:0.65rem;color:#fff;background:${c.strength==='high'?'#ef4444':c.strength==='medium'?'#f59e0b':'#22c55e'};padding:2px 6px;border-radius:9999px">
+        ${c.strength==='high'?'חזק':c.strength==='medium'?'בינוני':'חלש'}
+      </div>
+    </div>`).join('');
+
+  const signalSection = (title, icon, items) => items?.length > 0 ? `
+    <div style="margin-bottom:1rem">
+      <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem;color:#1e293b">${icon} ${title}</div>
+      <div style="display:flex;flex-direction:column;gap:0.4rem">
+        ${items.map(s=>`<div style="background:#f8fafc;border-right:3px solid #6366f1;padding:0.5rem 0.75rem;border-radius:0 0.5rem 0.5rem 0;font-size:0.82rem;color:#374151">${s}</div>`).join('')}
+      </div>
+    </div>` : '';
+
+  const insightCards = (arr, color, bgColor) => (arr||[]).filter(i=>i.confidence>=50).map(i=>`
+    <div style="background:${bgColor};border:1px solid ${color}33;border-radius:0.75rem;padding:1rem;margin-bottom:0.75rem">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
+        <div style="font-weight:700;font-size:0.88rem;color:#1e293b">${i.title}</div>
+        <span style="margin-right:auto;background:${color};color:#fff;font-size:0.65rem;padding:2px 6px;border-radius:9999px">${i.priority==='high'?'גבוה':i.priority==='medium'?'בינוני':'נמוך'}</span>
+      </div>
+      <div style="font-size:0.8rem;color:#374151;margin-bottom:0.5rem">${i.description}</div>
+      ${i.evidence?.length>0?`<div style="font-size:0.72rem;color:#64748b">ראיה: ${i.evidence[0]}</div>`:''}
+      <div style="font-size:0.72rem;color:#94a3b8;margin-top:0.4rem">ביטחון: ${i.confidence}%</div>
+    </div>`).join('');
+
+  const recCards = rec.map((r,i)=>`
+    <div style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #bbf7d0;border-radius:0.75rem;padding:1rem;margin-bottom:0.75rem">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+        <div style="width:1.5rem;height:1.5rem;border-radius:50%;background:#16a34a;color:#fff;font-size:0.75rem;font-weight:700;display:flex;align-items:center;justify-content:center">${i+1}</div>
+        <div style="font-weight:700;font-size:0.9rem;color:#14532d">${r.title}</div>
+        <span style="margin-right:auto;background:${r.urgency==='high'?'#ef4444':'#f59e0b'};color:#fff;font-size:0.65rem;padding:2px 6px;border-radius:9999px">${r.urgency==='high'?'דחוף':'בינוני'}</span>
+      </div>
+      ${r.summary?`<div style="font-size:0.82rem;color:#374151;margin-bottom:0.5rem">${r.summary}</div>`:''}
+      ${r.hook?`<div style="background:#fff;border-radius:0.5rem;padding:0.5rem 0.75rem;font-size:0.82rem;color:#6366f1;font-style:italic;margin-bottom:0.5rem">💬 הוק: "${r.hook}"</div>`:''}
+      ${r.action_steps?.length>0?`
+        <div style="font-size:0.78rem;font-weight:600;color:#166534;margin-bottom:0.25rem">שלבי פעולה:</div>
+        <ol style="margin:0;padding-right:1.25rem;font-size:0.78rem;color:#374151;line-height:1.7">
+          ${r.action_steps.map(s=>`<li>${s}</li>`).join('')}
+        </ol>` : ''}
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.5rem">
+        ${r.platform?`<span style="background:#e0e7ff;color:#4338ca;font-size:0.65rem;padding:2px 7px;border-radius:9999px">${r.platform}</span>`:''}
+        ${r.content_type?`<span style="background:#fef3c7;color:#92400e;font-size:0.65rem;padding:2px 7px;border-radius:9999px">${r.content_type}</span>`:''}
+      </div>
+    </div>`).join('');
+
+  area.innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem;padding:1rem 1.25rem;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-radius:1rem;border:1px solid #bbf7d0">
+      <div style="font-size:2rem">✅</div>
+      <div>
+        <div style="font-weight:700;font-size:1.05rem;color:#14532d">דוח מחקר מוכן!</div>
+        <div style="font-size:0.8rem;color:#166534">${meta.entities_count||0} מתחרים · ${meta.signals_count||0} אותות קהל · ${(ins.patterns?.length||0)+(ins.gaps?.length||0)+(ins.opportunities?.length||0)} תובנות · ביטחון ${meta.confidence_score||0}%</div>
+      </div>
+      <div style="margin-right:auto;display:flex;gap:0.5rem">
+        <button class="btn btn-sm btn-secondary" onclick="startResearch()" style="font-size:0.8rem">🔄 מחקר חדש</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
+
+      <div class="card">
+        <div class="card-title">🏢 מפת מתחרים (${(mm.top_competitors||[]).length})</div>
+        <div style="display:flex;flex-direction:column;gap:0.6rem">${competitorCards || '<div class="text-sm text-muted">לא נמצאו מתחרים</div>'}</div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">👤 פרופיל קהל יעד</div>
+        ${av.is_low_confidence ? `<div style="background:#fef3c7;border-radius:0.5rem;padding:0.5rem 0.75rem;font-size:0.78rem;color:#92400e;margin-bottom:0.75rem">⚠️ נתוני אווטר בביטחון חלקי</div>` : ''}
+        ${signalSection('כאבים', '🔥', av.core_pains)}
+        ${signalSection('פחדים', '😰', av.fears)}
+        ${signalSection('רצונות', '✨', av.desires)}
+        ${signalSection('שפה', '💬', av.language_patterns?.slice(0,3))}
+      </div>
+    </div>
+
+    ${(ins.gaps?.length>0||ins.opportunities?.length>0) ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem">
+      <div class="card">
+        <div class="card-title">💡 פערים בשוק</div>
+        ${insightCards(ins.gaps,'#f59e0b','#fffbeb') || '<div class="text-sm text-muted">לא זוהו פערים</div>'}
+      </div>
+      <div class="card">
+        <div class="card-title">🚀 הזדמנויות</div>
+        ${insightCards(ins.opportunities,'#6366f1','#f5f3ff') || '<div class="text-sm text-muted">לא זוהו הזדמנויות</div>'}
+      </div>
+    </div>` : ''}
+
+    ${rec.length > 0 ? `
+    <div class="card">
+      <div class="card-title">🎯 המלצות פעולה מוכנות לביצוע</div>
+      ${recCards}
+    </div>` : ''}
+
+    ${ins.patterns?.length > 0 ? `
+    <div class="card">
+      <div class="card-title">📊 דפוסי שוק</div>
+      ${insightCards(ins.patterns,'#0ea5e9','#f0f9ff')}
+    </div>` : ''}
+  `;
+
+  area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Restore job after navigation ───────────────────────────────────────────────
+async function restoreResearchJob() {
+  try {
+    const saved = localStorage.getItem('lastResearchJob');
+    if (!saved) return;
+    const { jobId } = JSON.parse(saved);
+    if (!jobId) return;
+    const result = await api('GET', `research-status?jobId=${jobId}&since=0`);
+    if (result.status === 'completed' && result.reportId) {
+      const progressArea = document.getElementById('bfs-progress-area');
+      if (progressArea) progressArea.style.display = '';
+      _bfsUpdateStatus('completed', 100);
+      _bfsLog('📋 טוען דוח קיים...', 'info');
+      await _bfsLoadReport(result.reportId);
+    } else if (result.status === 'running' || result.status === 'queued') {
+      bfsResearchJob = { jobId, status: result.status, steps: [], lastStepIndex: 0 };
+      const progressArea = document.getElementById('bfs-progress-area');
+      if (progressArea) progressArea.style.display = '';
+      _bfsUpdateStatus(result.status, result.progress || 0);
+      if (result.steps?.length) {
+        result.steps.forEach(s => _bfsLog(s.message, s.status === 'done' ? 'done' : 'running', s.created_at));
+        bfsResearchJob.lastStepIndex = result.steps[result.steps.length - 1]?.step_index || 0;
+      }
+      _bfsLog('🔄 מחבר מחדש למחקר פעיל...', 'info');
+      _bfsStartPolling(jobId);
+    }
+  } catch {}
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
+window.startResearch         = startResearch;
+window.renderBusinessFromScratch = renderBusinessFromScratch;
 window.saveBusinessProfile   = saveBusinessProfile;
 window.switchAITab           = switchAITab;
 window.generateAdScript      = generateAdScript;

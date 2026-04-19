@@ -9,6 +9,21 @@
 [functions."campaigner-chat"]
   timeout = 26
 
+[functions."process-research-job"]
+  timeout = 26
+
+[functions."research-start"]
+  timeout = 10
+
+[functions."research-status"]
+  timeout = 10
+
+[functions."research-report"]
+  timeout = 10
+
+[functions."research-providers"]
+  timeout = 10
+
 # Scheduled functions
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
