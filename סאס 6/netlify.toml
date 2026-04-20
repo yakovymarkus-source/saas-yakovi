@@ -60,6 +60,18 @@
 [functions."process-qa-job"]
   timeout = 26
 
+[functions."analysis-start"]
+  timeout = 10
+
+[functions."analysis-status"]
+  timeout = 10
+
+[functions."analysis-report"]
+  timeout = 10
+
+[functions."process-analysis-job"]
+  timeout = 26
+
 # Scheduled functions
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"

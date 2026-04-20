@@ -4126,6 +4126,7 @@ var bfsAgentTab = 'research'; // active agent tab
 var bfsResearchJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 var bfsStrategyJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 var bfsExecutionJob  = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
+var bfsAnalysisJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 
 function renderBusinessFromScratch() {
   const agents = [
@@ -4133,7 +4134,7 @@ function renderBusinessFromScratch() {
     { id: 'strategy',   icon: '🎯', label: 'סוכן אסטרטגיה', status: 'active',    desc: 'קובע כיוון, קהל, זווית והצעה' },
     { id: 'execution',  icon: '🧱', label: 'סוכן ביצוע',    status: 'active',    desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
     { id: 'qa',         icon: '🧪', label: 'סוכן QA',        status: 'active',    desc: 'בודק ומדרג את התוצרים' },
-    { id: 'analysis',   icon: '📊', label: 'סוכן ניתוח',    status: 'soon',      desc: 'מנתח דאטה אמיתי מהקמפיינים' },
+    { id: 'analysis',   icon: '📊', label: 'סוכן ניתוח',    status: 'active',    desc: 'מנתח דאטה אמיתי מהקמפיינים' },
   ];
 
   const bp = state.businessProfile || {};
@@ -4388,10 +4389,10 @@ function renderBusinessFromScratch() {
 
     <div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 1rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:0.75rem;margin-bottom:0.5rem">
       <span style="font-size:1rem">💡</span>
-      <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. סוכני מחקר, אסטרטגיה וביצוע פעילים.</span>
+      <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. כל 5 הסוכנים פעילים.</span>
     </div>
 
-    ${bfsAgentTab === 'strategy' ? strategyPanel : bfsAgentTab === 'execution' ? executionPanel : bfsAgentTab === 'qa' ? qaPanel : researchPanel}
+    ${bfsAgentTab === 'strategy' ? strategyPanel : bfsAgentTab === 'execution' ? executionPanel : bfsAgentTab === 'qa' ? qaPanel : bfsAgentTab === 'analysis' ? _buildAnalysisPanel() : researchPanel}
   `);
 
   // Restore active job if exists
@@ -4403,6 +4404,8 @@ function renderBusinessFromScratch() {
     setTimeout(() => restoreExecutionJob(), 50);
   } else if (bfsAgentTab === 'qa') {
     setTimeout(() => restoreQaJob(), 50);
+  } else if (bfsAgentTab === 'analysis') {
+    setTimeout(() => restoreAnalysisJob(), 50);
   }
 }
 
@@ -5771,6 +5774,343 @@ async function restoreQaJob() {
   } catch {}
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Analysis Agent
+// ══════════════════════════════════════════════════════════════════════════════
+
+function _buildAnalysisPanel() {
+  const campaigns = state.campaigns || [];
+  const campaignOptions = campaigns.length
+    ? campaigns.map(c => `<option value="${c.id}">${c.name || c.id}</option>`).join('')
+    : '<option value="">אין קמפיינים — צור קמפיין תחילה</option>';
+
+  return `
+    <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:1.25rem;padding:1.75rem;margin-top:0.5rem">
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem">
+        <span style="font-size:2rem">📊</span>
+        <div>
+          <div style="font-weight:800;font-size:1.15rem;color:#1e293b">סוכן ניתוח</div>
+          <div style="font-size:0.82rem;color:#64748b">ניתוח ביצועים עמוק — KPI, סיבתיות, אנומליות, תובנות ועוד</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <div>
+          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">קמפיין לניתוח</label>
+          <select id="analysis-campaign-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
+            ${campaignOptions}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">מטרת הקמפיין</label>
+          <select id="analysis-goal-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
+            <option value="leads">לידים (CPL)</option>
+            <option value="sales">מכירות (ROAS)</option>
+            <option value="content">תוכן (Engagement)</option>
+            <option value="awareness">מודעות (CPM)</option>
+            <option value="traffic">תנועה (CPC)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-bottom:1rem">
+        <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">שאלה ספציפית (אופציונלי)</label>
+        <input id="analysis-query-input" type="text" placeholder='למשל: "למה ה-CTR ירד?" או "מה הפלטפורמה הטובה ביותר?"'
+               style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem;box-sizing:border-box">
+      </div>
+
+      <button class="btn btn-gradient w-full" onclick="startAnalysis()" style="background:linear-gradient(135deg,#0ea5e9,#6366f1)">
+        📊 הרץ Analysis Agent
+      </button>
+
+      <div id="analysis-panel-area" style="display:none;margin-top:1.5rem"></div>
+    </div>`;
+}
+
+async function startAnalysis() {
+  const campaignId = document.getElementById('analysis-campaign-select')?.value;
+  const goal       = document.getElementById('analysis-goal-select')?.value || 'leads';
+  const query      = document.getElementById('analysis-query-input')?.value?.trim() || '';
+
+  if (!campaignId) { toast('בחר קמפיין לניתוח', 'error'); return; }
+
+  const area = document.getElementById('analysis-panel-area');
+  if (!area) return;
+
+  area.style.display = 'block';
+  area.innerHTML = `<div style="text-align:center;padding:1.5rem;color:#6366f1;font-size:0.9rem">מתחיל ניתוח...</div>`;
+
+  try {
+    const token = state.accessToken;
+    const res   = await fetch(`${CONFIG.apiBase}/analysis-start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ campaignId, goal, query }),
+    });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'שגיאה בהתחלת ניתוח', 'error'); return; }
+
+    bfsAnalysisJob = { jobId: data.jobId, status: 'pending', steps: [], lastStepIndex: 0, pollTimer: null, reportId: null };
+    _analysisLog('⚙️ ניתוח התחיל...', 'info');
+    _analysisStartPolling(data.jobId);
+  } catch (e) {
+    toast('שגיאה בהתחלת ניתוח: ' + e.message, 'error');
+  }
+}
+
+function _analysisLog(message, type = 'info') {
+  const area = document.getElementById('analysis-panel-area');
+  if (!area) return;
+  const colors = { info: '#3b82f6', success: '#10b981', error: '#ef4444', warn: '#f59e0b' };
+  const existing = area.querySelector('.analysis-log-box');
+  if (!existing) {
+    area.innerHTML = `<div class="analysis-log-box" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.75rem;padding:1rem;max-height:280px;overflow-y:auto;font-family:monospace;font-size:0.78rem"></div>`;
+  }
+  const box = area.querySelector('.analysis-log-box');
+  if (!box) return;
+  const line = document.createElement('div');
+  line.style.cssText = `color:${colors[type] || '#374151'};padding:2px 0;border-bottom:1px solid #f1f5f9`;
+  line.textContent = `[${new Date().toLocaleTimeString('he-IL')}] ${message}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function _analysisStartPolling(jobId) {
+  if (bfsAnalysisJob?.pollTimer) clearInterval(bfsAnalysisJob.pollTimer);
+  bfsAnalysisJob.pollTimer = setInterval(() => _analysisPoll(jobId), 2500);
+}
+
+async function _analysisPoll(jobId) {
+  try {
+    const since = bfsAnalysisJob?.lastStepIndex || 0;
+    const token = state.accessToken;
+    const res   = await fetch(`${CONFIG.apiBase}/analysis-status?jobId=${jobId}&since=${since}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    (data.steps || []).forEach(s => {
+      _analysisLog(`${s.step_key}: ${s.message}`, 'info');
+      if (s.step_index > (bfsAnalysisJob?.lastStepIndex || 0)) {
+        if (bfsAnalysisJob) bfsAnalysisJob.lastStepIndex = s.step_index;
+      }
+    });
+
+    if (data.progress !== undefined) {
+      const area = document.getElementById('analysis-panel-area');
+      const prog = area?.querySelector('.analysis-progress-bar');
+      if (prog) prog.style.width = `${data.progress}%`;
+      else if (area) {
+        const bar = document.createElement('div');
+        bar.style.cssText = 'height:4px;background:#e2e8f0;border-radius:9999px;margin-bottom:0.75rem;overflow:hidden';
+        bar.innerHTML = `<div class="analysis-progress-bar" style="height:100%;background:linear-gradient(90deg,#0ea5e9,#6366f1);width:${data.progress}%;transition:width 0.5s;border-radius:9999px"></div>`;
+        area.insertBefore(bar, area.firstChild);
+      }
+    }
+
+    if (data.status === 'completed') {
+      clearInterval(bfsAnalysisJob?.pollTimer);
+      bfsAnalysisJob = { ...bfsAnalysisJob, status: 'completed', reportId: data.reportId };
+      _analysisLog('✅ ניתוח הושלם!', 'success');
+      if (data.reportId) {
+        await _renderAnalysisReport(data.reportId);
+      }
+    } else if (data.status === 'failed') {
+      clearInterval(bfsAnalysisJob?.pollTimer);
+      _analysisLog(`❌ ניתוח נכשל: ${data.errorMessage || 'שגיאה לא ידועה'}`, 'error');
+    }
+  } catch (e) {
+    console.warn('[analysis-poll]', e.message);
+  }
+}
+
+async function _renderAnalysisReport(reportId) {
+  const area = document.getElementById('analysis-panel-area');
+  if (!area) return;
+
+  try {
+    const token = state.accessToken;
+    const res   = await fetch(`${CONFIG.apiBase}/analysis-report?reportId=${reportId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok || !data.report) { _analysisLog('שגיאה בטעינת הדוח', 'error'); return; }
+
+    const r = data.report;
+    const scores      = r.scores || {};
+    const kpi         = r.kpi_hierarchy || {};
+    const anomalies   = r.anomalies || {};
+    const insights    = r.insights || {};
+    const causality   = r.causality || {};
+    const social      = r.social || {};
+    const queryResult = r.query_result;
+    const aiNarrative = r.ai_narrative;
+    const unified     = r.unified || {};
+    const recommendations = r.recommendations || [];
+
+    const verdictColor = scores.verdict === 'healthy' ? '#10b981' : scores.verdict === 'needs_improvement' ? '#f59e0b' : '#ef4444';
+    const verdictLabel = scores.verdict === 'healthy' ? 'תקין' : scores.verdict === 'needs_improvement' ? 'נדרש שיפור' : 'קריטי';
+
+    let html = `
+      <div style="margin-top:1rem;display:flex;flex-direction:column;gap:1rem">
+
+        <!-- Score header -->
+        <div style="background:linear-gradient(135deg,#0ea5e9,#6366f1);border-radius:1rem;padding:1.25rem;color:#fff;text-align:center">
+          <div style="font-size:2.5rem;font-weight:800">${scores.overall || 0}/100</div>
+          <div style="font-size:1rem;font-weight:600;margin-top:0.25rem">ניתוח ביצועים — ${verdictLabel}</div>
+          ${aiNarrative?.narrative || insights.narrative ? `<div style="font-size:0.82rem;margin-top:0.5rem;opacity:0.9">${(aiNarrative?.narrative || insights.narrative || '').slice(0, 120)}</div>` : ''}
+        </div>
+
+        <!-- Key metrics -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem">
+          ${_analysisMetricCard('חשיפות', _fmtNum(unified.impressions))}
+          ${_analysisMetricCard('קליקים', _fmtNum(unified.clicks))}
+          ${_analysisMetricCard('CTR', _fmtPct(unified.ctr))}
+          ${_analysisMetricCard('ROAS', unified.roas ? `${unified.roas.toFixed(2)}x` : 'N/A')}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem">
+          ${_analysisMetricCard('המרות', _fmtNum(unified.conversions))}
+          ${_analysisMetricCard('שיעור המרה', _fmtPct(unified.conversion_rate))}
+          ${_analysisMetricCard('CPA', unified.cpa ? `$${unified.cpa.toFixed(2)}` : 'N/A')}
+          ${_analysisMetricCard('הוצאה', unified.cost ? `$${unified.cost.toFixed(0)}` : 'N/A')}
+        </div>
+
+        <!-- KPI Hierarchy -->
+        ${kpi.primary ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">יעדי KPI — ${kpi.goal || ''}</div>
+          <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:#f0f9ff;border-radius:0.5rem;margin-bottom:0.5rem">
+            <div style="font-size:1.5rem">🎯</div>
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:0.85rem">${kpi.primary.label}</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#0ea5e9">${kpi.primary.value !== null && kpi.primary.value !== undefined ? (typeof kpi.primary.value === 'number' ? kpi.primary.value.toFixed(2) : kpi.primary.value) : 'N/A'}</div>
+            </div>
+            <div style="padding:0.3rem 0.75rem;border-radius:9999px;font-size:0.75rem;font-weight:700;background:${ ['excellent','on_target'].includes(kpi.primary.status) ? '#dcfce7' : '#fee2e2' };color:${ ['excellent','on_target'].includes(kpi.primary.status) ? '#16a34a' : '#dc2626' }">
+              ${ kpi.primary.status === 'excellent' ? 'מצוין' : kpi.primary.status === 'on_target' ? 'ביעד' : kpi.primary.status === 'no_data' ? 'אין נתונים' : 'מתחת ליעד' }
+            </div>
+          </div>
+          ${(kpi.secondary || []).map(s => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0.5rem;border-bottom:1px solid #f1f5f9;font-size:0.8rem">
+              <span style="color:#64748b">${s.label}</span>
+              <span style="font-weight:600">${s.value !== null ? (typeof s.value === 'number' ? s.value.toFixed(3) : s.value) : 'N/A'}</span>
+            </div>`).join('')}
+          <div style="margin-top:0.5rem;text-align:center">
+            <span style="padding:0.3rem 1rem;border-radius:9999px;font-size:0.8rem;font-weight:700;background:${kpi.goal_verdict==='on_track'?'#dcfce7':kpi.goal_verdict==='at_risk'?'#fef3c7':'#fee2e2'};color:${kpi.goal_verdict==='on_track'?'#16a34a':kpi.goal_verdict==='at_risk'?'#d97706':'#dc2626'}">
+              ${kpi.goal_verdict === 'on_track' ? '✅ ביעד' : kpi.goal_verdict === 'at_risk' ? '⚠️ בסיכון' : '❌ לא ביעד'} — ציון מטרה: ${kpi.goal_score || 0}/100
+            </span>
+          </div>
+        </div>` : ''}
+
+        <!-- Anomalies -->
+        ${anomalies.has_anomalies ? `
+        <div style="background:#fff5f5;border:1.5px solid #fca5a5;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#dc2626;margin-bottom:0.75rem">⚠️ אנומליות שזוהו (${anomalies.count})</div>
+          ${(anomalies.signals || []).slice(0,4).map(a => `
+            <div style="padding:0.6rem;background:#fff;border-radius:0.5rem;margin-bottom:0.5rem;border-left:3px solid ${a.priority==='critical'?'#ef4444':'#f59e0b'}">
+              <div style="font-size:0.82rem;font-weight:600;color:#1e293b">${a.message}</div>
+              <div style="font-size:0.75rem;color:#64748b;margin-top:0.2rem">פעולה: ${a.action}</div>
+            </div>`).join('')}
+        </div>` : `<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:0.75rem;padding:0.75rem;text-align:center;font-size:0.85rem;color:#16a34a">✅ לא זוהו אנומליות</div>`}
+
+        <!-- Causality -->
+        ${(causality.chains || []).length ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">🔗 ניתוח סיבתי</div>
+          ${(causality.chains || []).map(c => `
+            <div style="padding:0.6rem;background:#f8fafc;border-radius:0.5rem;margin-bottom:0.5rem">
+              <div style="font-size:0.82rem;font-weight:600;color:#0ea5e9">${c.change}</div>
+              <div style="font-size:0.78rem;color:#374151;margin-top:0.2rem">${c.reason}</div>
+              <div style="font-size:0.75rem;color:#64748b;margin-top:0.2rem">השפעה: ${c.impact}</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+        <!-- Top Insights -->
+        ${(insights.priorities || []).length ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">💡 תובנות מרכזיות</div>
+          ${(insights.priorities || []).slice(0,5).map(ins => `
+            <div style="padding:0.6rem;background:${ins.priority==='critical'?'#fff5f5':ins.priority==='high'?'#fffbeb':'#f8fafc'};border-radius:0.5rem;margin-bottom:0.5rem;border-left:3px solid ${ins.priority==='critical'?'#ef4444':ins.priority==='high'?'#f59e0b':'#6366f1'}">
+              <div style="font-size:0.82rem;font-weight:600;color:#1e293b">${ins.what}</div>
+              <div style="font-size:0.78rem;color:#374151;margin-top:0.2rem">${ins.why}</div>
+              <div style="font-size:0.75rem;color:#64748b;font-style:italic;margin-top:0.2rem">${ins.impact}</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+        <!-- Social Growth -->
+        ${social.has_social_data ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">📱 גידול מדיה חברתית</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem">
+            ${_analysisMetricCard('עוקבים', _fmtNum(social.combined?.total_followers))}
+            ${_analysisMetricCard('פלטפורמות גדלות', social.combined?.platforms_growing + '/' + social.combined?.platforms_total)}
+            ${_analysisMetricCard('מעורבות ממוצעת', _fmtPct(social.combined?.avg_engagement_rate))}
+          </div>
+        </div>` : ''}
+
+        <!-- Query answer -->
+        ${queryResult ? `
+        <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e40af;margin-bottom:0.5rem">🔍 תשובה לשאלתך</div>
+          <div style="font-size:0.88rem;color:#1e293b">${queryResult.answer}</div>
+          <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem">רמת ביטחון: ${Math.round((queryResult.confidence || 0) * 100)}%</div>
+        </div>` : ''}
+
+        <!-- Recommendations -->
+        ${recommendations.length ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">🎯 המלצות לפעולה</div>
+          ${recommendations.slice(0,5).map((rec,i) => `
+            <div style="display:flex;gap:0.75rem;padding:0.6rem;background:#f8fafc;border-radius:0.5rem;margin-bottom:0.5rem">
+              <div style="min-width:1.5rem;height:1.5rem;background:#6366f1;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700">${i+1}</div>
+              <div style="flex:1">
+                <div style="font-size:0.82rem;font-weight:600;color:#1e293b">${rec.issue}</div>
+                <div style="font-size:0.75rem;color:#374151;margin-top:0.15rem">${rec.rootCause || ''}</div>
+                <div style="font-size:0.75rem;color:#6366f1;font-weight:600;margin-top:0.15rem">${rec.action || ''}</div>
+              </div>
+              <div style="font-size:0.72rem;color:#64748b;white-space:nowrap">דחיפות: ${rec.urgency || 0}%</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+        <!-- Re-run -->
+        <div style="text-align:center;margin-top:0.5rem">
+          <button class="btn btn-sm btn-secondary" onclick="startAnalysis()">🔄 הרץ ניתוח מחדש</button>
+        </div>
+      </div>`;
+
+    // Replace log box with full report
+    area.innerHTML = html;
+  } catch (e) {
+    _analysisLog('שגיאה בטעינת דוח: ' + e.message, 'error');
+  }
+}
+
+function _analysisMetricCard(label, value) {
+  return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.5rem;padding:0.6rem;text-align:center">
+    <div style="font-size:0.72rem;color:#64748b">${label}</div>
+    <div style="font-size:1rem;font-weight:700;color:#1e293b;margin-top:0.15rem">${value || 'N/A'}</div>
+  </div>`;
+}
+
+function _fmtNum(v) { if (!v) return '0'; if (v >= 1000000) return (v/1000000).toFixed(1)+'M'; if (v >= 1000) return (v/1000).toFixed(1)+'K'; return Math.round(v).toString(); }
+function _fmtPct(v) { return v ? `${(v*100).toFixed(2)}%` : '0%'; }
+
+async function restoreAnalysisJob() {
+  try {
+    if (!bfsAnalysisJob?.jobId) return;
+    if (bfsAnalysisJob.status === 'completed' && bfsAnalysisJob.reportId) {
+      await _renderAnalysisReport(bfsAnalysisJob.reportId);
+      return;
+    }
+    if (['pending', 'running'].includes(bfsAnalysisJob.status)) {
+      const area = document.getElementById('analysis-panel-area');
+      if (area) { area.style.display = 'block'; area.innerHTML = `<div class="analysis-log-box" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.75rem;padding:1rem;font-family:monospace;font-size:0.78rem"></div>`; }
+      _analysisLog('🔄 מחבר מחדש לניתוח פעיל...', 'info');
+      _analysisStartPolling(bfsAnalysisJob.jobId);
+    }
+  } catch {}
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
@@ -5778,6 +6118,7 @@ window.startResearch         = startResearch;
 window.startStrategy         = startStrategy;
 window.startExecution        = startExecution;
 window.startQa               = startQa;
+window.startAnalysis         = startAnalysis;
 window.renderBusinessFromScratch = renderBusinessFromScratch;
 window.saveBusinessProfile   = saveBusinessProfile;
 window.switchAITab           = switchAITab;
