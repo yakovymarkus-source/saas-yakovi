@@ -18,6 +18,7 @@ const envSchema = z.object({
   GA4_ACCESS_TOKEN: z.string().optional().default(''),
   SUPABASE_URL: z.string().url().optional().or(z.literal('')).default(''),
   SUPABASE_ANON_KEY: z.string().optional().default(''),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional().default(''),
   SUPABASE_JWKS_TTL_SECONDS: z.coerce.number().int().positive().default(300)
 });
 

@@ -7,14 +7,9 @@ import { HttpError } from '../utils/http';
 export const authRoutes = Router();
 
 async function persistSupabaseUser(auth: Awaited<ReturnType<typeof signUpWithSupabase>>): Promise<void> {
-  if (!auth.user?.id || !auth.user.email) {
-    throw new HttpError(502, 'Supabase auth response did not include a user identity');
-  }
-
-  await syncSupabaseUser({
-    id: auth.user.id,
-    email: auth.user.email
-  });
+  if (!auth.user?.id || !auth.user.email) return;
+  // Fire-and-forget — DB sync failure must not block auth
+  syncSupabaseUser({ id: auth.user.id, email: auth.user.email }).catch(() => undefined);
 }
 
 authRoutes.post('/register', async (req, res, next) => {

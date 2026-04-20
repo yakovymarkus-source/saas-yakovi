@@ -62,29 +62,47 @@
   <script>
     let token = '';
     const output = document.getElementById('output');
+    function showStatus(msg, isError) {
+      output.textContent = msg;
+      output.style.color = isError ? '#f87171' : '#86efac';
+    }
     async function request(path, method, body) {
-      const response = await fetch(path, {
-        method,
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-        body: body ? JSON.stringify(body) : undefined
-      });
-      const data = await response.json();
-      output.textContent = JSON.stringify(data, null, 2);
-      if (!response.ok) throw new Error(data.error || 'Request failed');
-      return data;
+      try {
+        const response = await fetch(path, {
+          method,
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+          body: body ? JSON.stringify(body) : undefined
+        });
+        const data = await response.json();
+        output.style.color = '#f3f4f6';
+        output.textContent = JSON.stringify(data, null, 2);
+        if (!response.ok) {
+          const msg = data.error || data.message || 'בקשה נכשלה';
+          showStatus('שגיאה: ' + msg, true);
+          throw new Error(msg);
+        }
+        return data;
+      } catch (err) {
+        if (err.name === 'TypeError') showStatus('שגיאת רשת — ודא שהשרת פועל', true);
+        throw err;
+      }
     }
     async function registerUser() {
-      await request('/api/auth/register', 'POST', {
+      showStatus('נרשם...', false);
+      const data = await request('/api/auth/register', 'POST', {
         email: document.getElementById('register-email').value,
         password: document.getElementById('register-password').value
       });
+      showStatus('נרשמת בהצלחה! כעת תוכל להתחבר.', false);
     }
     async function loginUser() {
+      showStatus('מתחבר...', false);
       const data = await request('/api/auth/login', 'POST', {
         email: document.getElementById('login-email').value,
         password: document.getElementById('login-password').value
       });
       token = data.token;
+      showStatus('התחברת בהצלחה! ✓  userId: ' + (data.user?.id || '—'), false);
     }
     async function analyzeCampaign() {
       const payload = JSON.parse(document.getElementById('campaign-payload').value);
