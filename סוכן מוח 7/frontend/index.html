@@ -93,7 +93,8 @@
         email: document.getElementById('register-email').value,
         password: document.getElementById('register-password').value
       });
-      showStatus('נרשמת בהצלחה! כעת תוכל להתחבר.', false);
+      token = data.token;
+      showStatus('נרשמת והתחברת בהצלחה! ✓', false);
     }
     async function loginUser() {
       showStatus('מתחבר...', false);
@@ -102,7 +103,7 @@
         password: document.getElementById('login-password').value
       });
       token = data.token;
-      showStatus('התחברת בהצלחה! ✓  userId: ' + (data.user?.id || '—'), false);
+      showStatus('התחברת בהצלחה! ✓', false);
     }
     async function analyzeCampaign() {
       const payload = JSON.parse(document.getElementById('campaign-payload').value);
