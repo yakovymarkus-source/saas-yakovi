@@ -5938,18 +5938,28 @@ async function _renderAnalysisReport(reportId) {
     if (!res.ok || !data.report) { _analysisLog('שגיאה בטעינת הדוח', 'error'); return; }
 
     const r = data.report;
-    const scores      = r.scores || {};
-    const kpi         = r.kpi_hierarchy || {};
-    const anomalies   = r.anomalies || {};
-    const insights    = r.insights || {};
-    const causality   = r.causality || {};
-    const social      = r.social || {};
-    const queryResult = r.query_result;
-    const aiNarrative = r.ai_narrative;
-    const unified     = r.unified || {};
+    const scores         = r.scores || {};
+    const kpi            = r.kpi_hierarchy || {};
+    const anomalies      = r.anomalies || {};
+    const insights       = r.insights || {};
+    const causality      = r.causality || {};
+    const social         = r.social || {};
+    const queryResult    = r.query_result;
+    const aiNarrative    = r.ai_narrative;
+    const unified        = r.unified || {};
     const recommendations = r.recommendations || [];
+    // Extended sections
+    const funnel         = r.funnel || {};
+    const trends         = r.trends || {};
+    const attribution    = r.attribution || {};
+    const business       = r.business || {};
+    const experimentsObj = r.experiments || {};
+    const alertsObj      = r.alerts || {};
+    const tradeoffs      = r.tradeoffs || {};
+    const patterns       = r.patterns || {};
+    const priorityActions = r.priority_actions || [];
+    const uncertainty    = r.uncertainty || {};
 
-    const verdictColor = scores.verdict === 'healthy' ? '#10b981' : scores.verdict === 'needs_improvement' ? '#f59e0b' : '#ef4444';
     const verdictLabel = scores.verdict === 'healthy' ? 'תקין' : scores.verdict === 'needs_improvement' ? 'נדרש שיפור' : 'קריטי';
 
     let html = `
