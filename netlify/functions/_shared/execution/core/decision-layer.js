@@ -25,29 +25,50 @@ const DEPTH_MAP = {
 
 const EXECUTION_MODES_TABLE = {
   draft: {
-    variantCount:   1,
-    withFeedback:   false,
-    withRanking:    false,
-    assetDepth:     'short',
-    parallelAssets: false,
-    label:          'טיוטה',
+    variantCount:     1,
+    withFeedback:     false,
+    withRanking:      false,
+    assetDepth:       'short',
+    parallelAssets:   false,
+    useMemory:        false,
+    consistencyCheck: false,
+    selfFeedback:     false,
+    angleTypes:       1,
+    label:            'טיוטה',
   },
   smart: {
-    variantCount:   3,
-    withFeedback:   true,
-    withRanking:    true,
-    assetDepth:     'medium',
-    parallelAssets: true,
-    label:          'חכם',
+    variantCount:     3,
+    withFeedback:     true,
+    withRanking:      true,
+    assetDepth:       'medium',
+    parallelAssets:   true,
+    useMemory:        true,
+    consistencyCheck: true,
+    selfFeedback:     true,
+    angleTypes:       3,
+    label:            'חכם',
   },
   premium: {
-    variantCount:   5,
-    withFeedback:   true,
-    withRanking:    true,
-    assetDepth:     'deep',
-    parallelAssets: true,
-    label:          'פרימיום',
+    variantCount:     5,
+    withFeedback:     true,
+    withRanking:      true,
+    assetDepth:       'deep',
+    parallelAssets:   true,
+    useMemory:        true,
+    consistencyCheck: true,
+    selfFeedback:     true,
+    angleTypes:       5,
+    label:            'פרימיום',
   },
+};
+
+// CTA type taxonomy (maps to platform-behavior.js CTA_TYPES)
+const CTA_TYPE_MAP = {
+  soft:      { label: 'רך',     strength: 1, examples: ['גלה עוד', 'קרא עוד', 'בדוק'] },
+  medium:    { label: 'בינוני', strength: 3, examples: ['שמור מקום', 'הצטרף חינם', 'נסה'] },
+  hard:      { label: 'חזק',    strength: 4, examples: ['קנה עכשיו', 'הצטרף היום', 'רכוש'] },
+  curiosity: { label: 'סקרנות', strength: 2, examples: ['גלה את הסוד', 'ראה מה קורה'] },
+  urgency:   { label: 'דחיפות', strength: 5, examples: ['רק היום', 'מקומות אחרונים', 'לפני שנגמר'] },
 };
 
 function buildDecisionProfile(brief, awarenessProfile) {
@@ -173,4 +194,15 @@ function _lpSections(intensity, awarenessProfile) {
   return base;
 }
 
-module.exports = { buildDecisionProfile, INTENSITY_SCALE, DEPTH_MAP, EXECUTION_MODES_TABLE };
+function selectCtaType({ awarenessLevel, funnelStage, intensity, platform }) {
+  if (awarenessLevel === 'unaware') return 'curiosity';
+  if (awarenessLevel === 'problem_aware') return intensity >= 4 ? 'medium' : 'soft';
+  if (awarenessLevel === 'product_aware') return intensity >= 4 ? 'urgency' : 'hard';
+  if (funnelStage === 'top') return 'soft';
+  if (funnelStage === 'bottom') return intensity >= 4 ? 'urgency' : 'hard';
+  if (platform === 'tiktok') return 'curiosity';
+  if (platform === 'google') return 'hard';
+  return 'medium';
+}
+
+module.exports = { buildDecisionProfile, selectCtaType, INTENSITY_SCALE, DEPTH_MAP, EXECUTION_MODES_TABLE, CTA_TYPE_MAP };

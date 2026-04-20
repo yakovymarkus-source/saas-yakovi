@@ -5,7 +5,7 @@
  * Summary of what was built, what needs review, and what's flagged.
  */
 
-function buildQaHandoff({ brief, bundle, ranking, selfFeedback, decisionExplanation, conflictResult, consistencyResult, warnings }) {
+function buildQaHandoff({ brief, bundle, ranking, selfFeedback, decisionExplanation, conflictResult, consistencyResult, preQaResult, warnings }) {
   const { selectedPain, executionMode, platform, assetTypes } = brief;
 
   // ── Flagged Items ─────────────────────────────────────────────────────────
@@ -19,6 +19,11 @@ function buildQaHandoff({ brief, bundle, ranking, selfFeedback, decisionExplanat
   // Consistency issues across assets
   for (const issue of (consistencyResult?.issues || [])) {
     flagged.push({ source: 'consistency_check', severity: issue.severity, message: issue.message, fix: issue.fix });
+  }
+
+  // Pre-QA simulation issues
+  if (preQaResult && !preQaResult.skipped && !preQaResult.ready_for_qa) {
+    flagged.push({ source: 'pre_qa_simulation', severity: 'warning', message: `Pre-QA: ${preQaResult.top_fix || 'נדרש שיפור לפני QA'}`, fix: preQaResult.top_fix });
   }
 
   // Self-feedback issues
@@ -46,6 +51,8 @@ function buildQaHandoff({ brief, bundle, ranking, selfFeedback, decisionExplanat
     status,
     flagged,
     testChecklist,
+    preQaScores: preQaResult?.scores || null,
+    preQaOverall: preQaResult?.overall || null,
     selfFeedbackScores: selfFeedback?.scores || null,
     overallQualityScore: selfFeedback?.overall_score || null,
     decisionExplanation: decisionExplanation || null,

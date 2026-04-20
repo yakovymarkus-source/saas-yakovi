@@ -1,28 +1,37 @@
 'use strict';
 /**
  * execution/pipeline.js
- * 18-step Execution Agent pipeline.
- * Enforced order. Steps written to DB as they complete.
+ * 18-step Execution Agent pipeline — enforced order.
+ * Full protocol: emotion + angle + platform behavior + tracking + dependencies.
  */
 
 const { createClient } = require('@supabase/supabase-js');
 
-const { normalizeInput }       = require('./core/input-normalizer');
-const { buildMessageCore }     = require('./core/message-core');
-const { buildAwarenessProfile } = require('./core/awareness-engine');
-const { buildDecisionProfile } = require('./core/decision-layer');
-const { buildOffer }           = require('./core/offer-builder');
-const { detectConflicts }      = require('./core/conflict-detector');
-const { buildAntiRepetitionGuard } = require('./core/anti-repetition');
-const { checkConsistency }     = require('./core/consistency-check');
-const { runTextEngine }        = require('./engines/text-engine');
-const { runVisualEngine }      = require('./engines/visual-engine');
-const { bundleAssets }         = require('./output/asset-bundler');
-const { buildQaHandoff }       = require('./output/qa-handoff');
-const { generateSelfFeedback, generateDecisionExplanation } = require('./collectors/claude-execution-engine');
+const { normalizeInput }            = require('./core/input-normalizer');
+const { buildMessageCore }          = require('./core/message-core');
+const { buildAwarenessProfile }     = require('./core/awareness-engine');
+const { buildDecisionProfile }      = require('./core/decision-layer');
+const { buildOffer }                = require('./core/offer-builder');
+const { detectConflicts }           = require('./core/conflict-detector');
+const { buildAntiRepetitionGuard }  = require('./core/anti-repetition');
+const { checkConsistency }          = require('./core/consistency-check');
+const { buildEmotionProfile }       = require('./core/emotion-engine');
+const { buildAngleTesting }         = require('./core/angle-tester');
+const { getPlatformBehavior, buildPlatformConstraints } = require('./core/platform-behavior');
+const { buildTrackingLayer }        = require('./core/tracking-layer');
+const { validateDependencies, sortByDependencies, checkMessageCoreCoverage } = require('./core/asset-dependencies');
+const { runTextEngine }             = require('./engines/text-engine');
+const { runVisualEngine }           = require('./engines/visual-engine');
+const { bundleAssets }              = require('./output/asset-bundler');
+const { buildQaHandoff }            = require('./output/qa-handoff');
+const {
+  generateSelfFeedback,
+  generateDecisionExplanation,
+  runPreQaSimulation,
+} = require('./collectors/claude-execution-engine');
 
-// Token Guard constants
-const MIN_PAIN_LENGTH   = 5;
+// Token Guard — minimum brief quality thresholds
+const MIN_PAIN_LENGTH    = 5;
 const MIN_MESSAGE_LENGTH = 10;
 
 function _supabase() {
@@ -115,8 +124,54 @@ async function runExecutionPipeline({ jobId, userId, strategyReport, assetTypes,
   }
 
   // ── Step 8: Build Anti-Repetition Guard ───────────────────────────────────
-  const antiRepGuard = await step('anti_repetition_guard', 'הכנת מגן נגד חזרות', async () => {
+  await step('anti_repetition_guard', 'הכנת מגן נגד חזרות', async () => {
     return buildAntiRepetitionGuard([]);
+  });
+
+  // ── Step 8b: Emotion Profile ──────────────────────────────────────────────
+  let emotionProfile;
+  await step('emotion_profile', 'ניתוח פרופיל רגשי לקהל', async () => {
+    emotionProfile = buildEmotionProfile(brief, awarenessProfile);
+    return { primary: emotionProfile.primary, secondary: emotionProfile.secondary };
+  });
+
+  // ── Step 8c: Angle Testing ────────────────────────────────────────────────
+  let angleProfile;
+  await step('angle_testing', 'בחירת זוויות שיווק (5 סוגים)', async () => {
+    angleProfile = buildAngleTesting({
+      brief, awarenessProfile,
+      variantCount: decisionProfile.modeParams.variantCount,
+      existingAngles: [],
+    });
+    return { primary: angleProfile.primaryAngle, distribution: angleProfile.angleDistribution };
+  });
+
+  // ── Step 8d: Platform Behavior + Constraints ──────────────────────────────
+  let platformConstraints;
+  await step('platform_behavior', 'טעינת מגבלות פלטפורמה', async () => {
+    platformConstraints = buildPlatformConstraints(brief.platform);
+    return platformConstraints;
+  });
+
+  // ── Step 8e: Tracking Layer ───────────────────────────────────────────────
+  let trackingLayer;
+  await step('tracking_layer', 'בניית שכבת Tracking ו-Pixel events', async () => {
+    trackingLayer = buildTrackingLayer({
+      brief,
+      landingPageSections: decisionProfile?.assetRouting?.landing_page?.sections || [],
+      funnelStage: 'bottom',
+    });
+    return { pixels: trackingLayer.pixels, events: trackingLayer.eventMap.length };
+  });
+
+  // ── Step 8f: Asset Dependency Check ──────────────────────────────────────
+  await step('asset_dependencies', 'בדיקת תלויות בין נכסים', async () => {
+    const coreCheck = checkMessageCoreCoverage(brief.assetTypes, messageCore);
+    if (!coreCheck.complete) {
+      // Log warnings but don't block
+      coreCheck.missing.forEach(m => inputWarnings.push(`dependency: ${m.message}`));
+    }
+    return { complete: coreCheck.complete, missingCount: coreCheck.missing.length };
   });
 
   // ── Step 9: Run Text Engine ────────────────────────────────────────────────
@@ -124,6 +179,7 @@ async function runExecutionPipeline({ jobId, userId, strategyReport, assetTypes,
   await step('text_engine', 'מפעיל מנוע טקסט — מייצר נכסים', async () => {
     textAssets = await runTextEngine({
       brief, messageCore, offer, awarenessProfile, decisionProfile,
+      emotionProfile, angleProfile, trackingLayer,
       onStep: onAssetStep,
     });
     aiCallsMade += _countTextAiCalls(brief, decisionProfile);
@@ -135,7 +191,7 @@ async function runExecutionPipeline({ jobId, userId, strategyReport, assetTypes,
   await step('visual_engine', 'מפעיל מנוע ויזואל — מייצר briefים', async () => {
     visualAssets = await runVisualEngine({
       brief, messageCore, awarenessProfile, decisionProfile,
-      textAssets, onStep: onAssetStep,
+      textAssets, angleProfile, onStep: onAssetStep,
     });
     if (!visualAssets?.skipped) aiCallsMade += _countVisualAiCalls(brief);
     return { skipped: visualAssets?.skipped || false };
@@ -155,7 +211,19 @@ async function runExecutionPipeline({ jobId, userId, strategyReport, assetTypes,
     return { issues: consistencyResult.issues.length, status: consistencyResult.passedChecks };
   });
 
-  // ── Step 13: Self-Feedback ────────────────────────────────────────────────
+  // ── Step 13: Pre-QA Self Simulation ──────────────────────────────────────
+  let preQaResult;
+  await step('pre_qa_simulation', 'Pre-QA: האם זה ברור? חזק? ממוקד?', async () => {
+    if (brief.executionMode === 'draft') {
+      preQaResult = { skipped: true, ready_for_qa: true };
+      return preQaResult;
+    }
+    preQaResult = await runPreQaSimulation({ assets: textAssets, brief, messageCore });
+    aiCallsMade++;
+    return preQaResult;
+  });
+
+  // ── Step 14: Self-Feedback ────────────────────────────────────────────────
   let selfFeedback;
   await step('self_feedback', 'Quality check עצמי על הנכסים', async () => {
     if (brief.executionMode === 'draft') {
@@ -167,43 +235,80 @@ async function runExecutionPipeline({ jobId, userId, strategyReport, assetTypes,
     return selfFeedback;
   });
 
-  // ── Step 14: Decision Explanation ─────────────────────────────────────────
+  // ── Step 15: Decision Explanation (with emotion + angle + persuasion logic) ──
   let decisionExplanation;
-  await step('decision_explanation', 'מייצר הסבר החלטות שיווקיות', async () => {
-    decisionExplanation = await generateDecisionExplanation({ brief, decisionProfile, awarenessProfile, consistencyResult });
+  await step('decision_explanation', 'מייצר הסבר החלטות + לוגיקת שכנוע', async () => {
+    decisionExplanation = await generateDecisionExplanation({
+      brief, decisionProfile, awarenessProfile, consistencyResult,
+      emotionProfile, angleProfile,
+    });
     aiCallsMade++;
     return decisionExplanation;
   });
 
-  // ── Step 15: Build QA Handoff ──────────────────────────────────────────────
+  // ── Step 16: Build QA Handoff ──────────────────────────────────────────────
   let qaHandoff;
   await step('qa_handoff', 'בונה חבילת מסירה ל-QA', async () => {
     qaHandoff = buildQaHandoff({
       brief, bundle: bundleResult.bundle, ranking: bundleResult.ranking,
       selfFeedback, decisionExplanation, conflictResult, consistencyResult,
+      preQaResult,
       warnings: [...inputWarnings, ...(conflictResult.warnings || [])],
     });
     return { status: qaHandoff.status, flagged: qaHandoff.summary.totalFlagged };
   });
 
-  // ── Step 16: Build Final Report ───────────────────────────────────────────
+  // ── Step 17: Build Final Report — Strict Output Schema ────────────────────
   const generationMs = Date.now() - startMs;
   const report = await step('build_report', 'בונה דוח ביצוע סופי', async () => {
+    // Strict output schema per protocol
     return {
-      brief,
-      message_core:  messageCore,
-      awareness:     awarenessProfile,
-      decision:      decisionProfile,
-      offer,
-      assets:        bundleResult.bundle,
-      ranking:       bundleResult.ranking,
-      branding:      bundleResult.brandingDirection,
-      summary:       bundleResult.summary,
-      self_feedback: selfFeedback,
-      consistency:   { issues: consistencyResult.issues, status: consistencyResult.passedChecks },
-      conflicts:     { warnings: conflictResult.warnings, count: conflictResult.totalIssues },
-      qa_handoff:    qaHandoff,
+      ok:               true,
+      agent:            'execution',
+      // Input summary
+      input_summary: {
+        platform:       brief.platform,
+        executionMode:  brief.executionMode,
+        assetTypes:     brief.assetTypes,
+        selectedPain:   brief.selectedPain,
+        confidence:     brief.confidence,
+        goSignal:       brief.goSignal,
+        businessType:   brief.businessType,
+        priceTier:      brief.priceTier,
+      },
+      // Decision layer
+      decision_layer: {
+        emotionPrimary:    emotionProfile?.primary,
+        emotionSecondary:  emotionProfile?.secondary,
+        primaryAngle:      angleProfile?.primaryAngle,
+        angleDistribution: angleProfile?.angleDistribution,
+        intensity:         decisionProfile?.intensity,
+        depth:             decisionProfile?.depth,
+        awarenessLevel:    awarenessProfile?.level,
+        ctaType:           decisionProfile?.assetRouting?.[brief.assetTypes?.[0]]?.ctaStrength,
+        platformConstraints,
+      },
+      // Assets
+      campaign_assets:  bundleResult.bundle,
+      ranking:          bundleResult.ranking,
+      branding:         bundleResult.brandingDirection,
+      tracking:         trackingLayer,
+      // Quality
+      pre_qa:           preQaResult,
+      self_feedback:    selfFeedback,
+      // Meta
+      notes: {
+        consistency:      { issues: consistencyResult.issues, status: consistencyResult.passedChecks },
+        messageHierarchy: messageCore?.messageHierarchy,
+        offer:            { mainOffer: offer?.mainOfferLine, guarantee: offer?.guaranteeLine },
+      },
+      warnings: [...inputWarnings, ...(conflictResult.warnings || [])],
+      // QA Handoff
+      handoff_to_qa:    qaHandoff,
+      // Explanation
       decision_explanation: decisionExplanation,
+      // Summary
+      summary: bundleResult.summary,
       ai_calls_made: aiCallsMade,
       generation_ms: generationMs,
     };
@@ -213,21 +318,34 @@ async function runExecutionPipeline({ jobId, userId, strategyReport, assetTypes,
   let reportId;
   await step('save_report', 'שומר דוח ל-DB', async () => {
     const { data, error } = await db.from('execution_reports').insert({
-      job_id:            jobId,
-      user_id:           userId,
+      job_id:             jobId,
+      user_id:            userId,
       strategy_report_id: strategyReport?.id || null,
-      platform:          brief.platform,
-      execution_mode:    brief.executionMode,
-      asset_types:       brief.assetTypes,
-      brief:             brief,
-      message_core:      messageCore,
-      assets:            bundleResult.bundle,
-      ranking:           bundleResult.ranking || null,
-      self_feedback:     selfFeedback || null,
-      qa_handoff:        qaHandoff,
-      warnings:          [...inputWarnings, ...(conflictResult.warnings || [])],
-      ai_calls_made:     aiCallsMade,
-      generation_ms:     generationMs,
+      platform:           brief.platform,
+      execution_mode:     brief.executionMode,
+      asset_types:        brief.assetTypes,
+      brief:              brief,
+      message_core:       messageCore,
+      assets:             bundleResult.bundle,
+      ranking:            bundleResult.ranking || null,
+      self_feedback:      selfFeedback || null,
+      qa_handoff:         qaHandoff,
+      decision_layer:     {
+        emotionPrimary:    emotionProfile?.primary,
+        emotionSecondary:  emotionProfile?.secondary,
+        primaryAngle:      angleProfile?.primaryAngle,
+        angleDistribution: angleProfile?.angleDistribution,
+        intensity:         decisionProfile?.intensity,
+        depth:             decisionProfile?.depth,
+        awarenessLevel:    awarenessProfile?.level,
+        platformConstraints,
+      },
+      tracking:           trackingLayer || null,
+      pre_qa:             preQaResult || null,
+      decision_explanation: decisionExplanation || null,
+      warnings:           [...inputWarnings, ...(conflictResult.warnings || [])],
+      ai_calls_made:      aiCallsMade,
+      generation_ms:      generationMs,
     }).select('id').single();
     if (error) throw new Error(error.message);
     reportId = data.id;

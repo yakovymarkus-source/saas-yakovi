@@ -44,6 +44,9 @@ function buildMessageCore(brief) {
   // ── Narrative Arc ─────────────────────────────────────────────────────────
   const narrativeArc = _buildNarrativeArc({ method, funnel, productType });
 
+  // ── Message Hierarchy (Big Idea → Supporting → Micro) ────────────────────
+  const messageHierarchy = _buildMessageHierarchy({ corePromise, mainPain, proofPoints, outcome, angles });
+
   return {
     corePromise,
     mainPain,
@@ -52,11 +55,13 @@ function buildMessageCore(brief) {
     ctaDirection,
     toneProfile,
     narrativeArc,
+    messageHierarchy,
     // Convenience flat fields for asset generators
     headline:    corePromise.headline,
     subheadline: corePromise.subheadline,
     painLine:    mainPain.line,
     primaryCta:  ctaDirection.primary,
+    bigIdea:     messageHierarchy.bigIdea,
   };
 }
 
@@ -150,6 +155,28 @@ function _buildNarrativeArc({ method, funnel, productType }) {
     methodKey,
     steps: arcs[methodKey] || arcs.direct_response,
     hookType: funnel?.hook_strategy || 'problem',
+  };
+}
+
+function _buildMessageHierarchy({ corePromise, mainPain, proofPoints, outcome, angles }) {
+  const bigIdea = corePromise.transformation || outcome || '';
+
+  const supportingPoints = [
+    mainPain.pain ? `הבעיה: ${mainPain.pain}` : null,
+    ...(proofPoints || []).slice(0, 3).map(p => p.text),
+  ].filter(Boolean);
+
+  const microMessages = [
+    corePromise.headline,
+    mainPain.line,
+    ...(angles || []).slice(0, 3).map(a => typeof a === 'string' ? a : a.angle || a.text || String(a)),
+  ].filter(Boolean).map(m => m.slice(0, 80));
+
+  return {
+    bigIdea,
+    supportingPoints,
+    microMessages,
+    depth: supportingPoints.length >= 3 ? 'full' : supportingPoints.length >= 1 ? 'partial' : 'minimal',
   };
 }
 

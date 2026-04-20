@@ -5,6 +5,16 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Orchestration background function (15 min limit, returns 202 immediately)
+[functions."analyze-campaign-background"]
+  timeout = 900
+
+[functions."orchestrate-start"]
+  timeout = 10
+
+[functions."orchestrate-status"]
+  timeout = 10
+
 # Function timeouts
 [functions."campaigner-chat"]
   timeout = 26
@@ -46,6 +56,30 @@
   timeout = 10
 
 [functions."process-execution-job"]
+  timeout = 26
+
+[functions."qa-start"]
+  timeout = 10
+
+[functions."qa-status"]
+  timeout = 10
+
+[functions."qa-report"]
+  timeout = 10
+
+[functions."process-qa-job"]
+  timeout = 26
+
+[functions."analysis-start"]
+  timeout = 10
+
+[functions."analysis-status"]
+  timeout = 10
+
+[functions."analysis-report"]
+  timeout = 10
+
+[functions."process-analysis-job"]
   timeout = 26
 
 # Scheduled functions

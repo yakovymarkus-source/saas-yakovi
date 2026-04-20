@@ -4126,14 +4126,17 @@ var bfsAgentTab = 'research'; // active agent tab
 var bfsResearchJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 var bfsStrategyJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 var bfsExecutionJob  = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
+var bfsAnalysisJob       = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
+var bfsOrchestrationJob  = null;  // { jobId, status, pollTimer, result }
 
 function renderBusinessFromScratch() {
   const agents = [
-    { id: 'research',   icon: '🔍', label: 'סוכן מחקר',     status: 'active',    desc: 'מחקר שוק, מתחרים ואווטר קהל יעד' },
-    { id: 'strategy',   icon: '🎯', label: 'סוכן אסטרטגיה', status: 'active',    desc: 'קובע כיוון, קהל, זווית והצעה' },
-    { id: 'execution',  icon: '🧱', label: 'סוכן ביצוע',    status: 'active',    desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
-    { id: 'qa',         icon: '🧪', label: 'סוכן QA',        status: 'soon',      desc: 'בודק ומדרג את התוצרים' },
-    { id: 'analysis',   icon: '📊', label: 'סוכן ניתוח',    status: 'soon',      desc: 'מנתח דאטה אמיתי מהקמפיינים' },
+    { id: 'research',      icon: '🔍', label: 'סוכן מחקר',       status: 'active', desc: 'מחקר שוק, מתחרים ואווטר קהל יעד' },
+    { id: 'strategy',      icon: '🎯', label: 'סוכן אסטרטגיה',   status: 'active', desc: 'קובע כיוון, קהל, זווית והצעה' },
+    { id: 'execution',     icon: '🧱', label: 'סוכן ביצוע',      status: 'active', desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
+    { id: 'qa',            icon: '🧪', label: 'סוכן QA',          status: 'active', desc: 'בודק ומדרג את התוצרים' },
+    { id: 'analysis',      icon: '📊', label: 'סוכן ניתוח',      status: 'active', desc: 'מנתח דאטה אמיתי מהקמפיינים' },
+    { id: 'orchestration', icon: '🎭', label: 'שכבת אורקסטרציה', status: 'active', desc: 'ניהול סשן מרובה-סוכנים עם ניהול מצב ואישורים' },
   ];
 
   const bp = state.businessProfile || {};
@@ -4347,6 +4350,35 @@ function renderBusinessFromScratch() {
 
     <div id="exec-report-area" style="display:none;margin-top:1.5rem"></div>`;
 
+  const qaPanel = `
+    <div class="card" style="margin-top:1.5rem">
+      <div class="card-title">🧪 סוכן QA — בקרת איכות נכסים</div>
+      <p class="text-sm text-muted mb-4">בודק את כל הנכסים שנוצרו: הוקים, מודעות, דף נחיתה, CTA. 12 קטגוריות בדיקה + סימולציה + תוכנית A/B</p>
+
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.75rem;padding:0.85rem;margin-bottom:1rem;font-size:0.82rem;color:#374151">
+        <div style="font-weight:600;margin-bottom:0.3rem">מה QA בודק:</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.2rem">
+          ${['🎣 עוצמת הוק','💢 עומק כאב','🎯 בידול','💎 הצעת ערך','🧲 שכנוע','🗣️ שפה ואנושיות','🧠 עומס קוגניטיבי','🔐 אמון','📊 התאמת מודעות','📡 Tracking','🔁 Flow מלא','💀 Kill Signals'].map(item => `<div>• ${item}</div>`).join('')}
+        </div>
+      </div>
+
+      <button class="btn btn-gradient w-full" onclick="startQa()" style="background:linear-gradient(135deg,#7c3aed,#db2777)">🧪 הרץ QA Agent על הנכסים</button>
+
+      <div id="qa-panel-area" style="display:none;margin-top:1.5rem">
+        <div style="background:#0f0f1a;border-radius:1rem 1rem 0 0;padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center">
+          <span id="qa-status-label" style="color:#a78bfa;font-weight:600;font-size:0.88rem">בודק נכסים...</span>
+          <div style="display:flex;align-items:center;gap:0.75rem">
+            <div style="width:120px;height:6px;background:rgba(255,255,255,0.1);border-radius:9999px;overflow:hidden">
+              <div id="qa-progress-bar" style="height:100%;background:linear-gradient(90deg,#a78bfa,#db2777);border-radius:9999px;transition:width 0.5s;width:0%"></div>
+            </div>
+            <span id="qa-progress-pct" style="color:rgba(255,255,255,0.7);font-size:0.75rem">0%</span>
+          </div>
+        </div>
+        <div id="qa-log" style="background:#0f0f1a;border-radius:0 0 1rem 1rem;padding:1rem 1.25rem;min-height:150px;max-height:300px;overflow-y:auto;font-family:'Courier New',monospace;font-size:0.8rem;direction:rtl"></div>
+      </div>
+    </div>
+    <div id="qa-report-area" style="margin-top:1.5rem"></div>`;
+
   renderShell(`
     <div class="page-header">
       <h1 class="page-title">🧠 בניית עסק מאפס</h1>
@@ -4359,10 +4391,10 @@ function renderBusinessFromScratch() {
 
     <div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 1rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:0.75rem;margin-bottom:0.5rem">
       <span style="font-size:1rem">💡</span>
-      <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. סוכני מחקר, אסטרטגיה וביצוע פעילים.</span>
+      <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. כל 5 הסוכנים פעילים.</span>
     </div>
 
-    ${bfsAgentTab === 'strategy' ? strategyPanel : bfsAgentTab === 'execution' ? executionPanel : researchPanel}
+    ${bfsAgentTab === 'strategy' ? strategyPanel : bfsAgentTab === 'execution' ? executionPanel : bfsAgentTab === 'qa' ? qaPanel : bfsAgentTab === 'analysis' ? _buildAnalysisPanel() : bfsAgentTab === 'orchestration' ? renderOrchestrationPanel() : researchPanel}
   `);
 
   // Restore active job if exists
@@ -4372,6 +4404,12 @@ function renderBusinessFromScratch() {
     setTimeout(() => restoreStrategyJob(), 50);
   } else if (bfsAgentTab === 'execution') {
     setTimeout(() => restoreExecutionJob(), 50);
+  } else if (bfsAgentTab === 'qa') {
+    setTimeout(() => restoreQaJob(), 50);
+  } else if (bfsAgentTab === 'analysis') {
+    setTimeout(() => restoreAnalysisJob(), 50);
+  } else if (bfsAgentTab === 'orchestration') {
+    if (bfsOrchestrationJob) setTimeout(() => _orchStartPolling(bfsOrchestrationJob), 100);
   }
 }
 
@@ -5171,15 +5209,16 @@ function _executionRenderReport(report) {
   if (!area) return;
   area.style.display = '';
 
-  const bundle   = report.assets || {};
-  const mc       = report.message_core || {};
-  const awareness = report.awareness || {};
-  const decision  = report.decision || {};
-  const offer     = report.offer || {};
-  const qa        = report.qa_handoff || {};
-  const ranking   = report.ranking || null;
-  const feedback  = report.self_feedback || {};
-  const summary   = report.summary || {};
+  const bundle      = report.assets || {};
+  const mc          = report.message_core || {};
+  const qa          = report.qa_handoff || {};
+  const ranking     = report.ranking || null;
+  const feedback    = report.self_feedback || {};
+  const summary     = report.summary || {};
+  const decisionLayer = report.decision_layer || {};
+  const tracking    = report.tracking || {};
+  const preQa       = report.pre_qa || {};
+  const decisionExp = report.decision_explanation || {};
 
   // ── QA status banner ───────────────────────────────────────────────────────
   const qaColors = { APPROVED: { bg:'#f0fdf4', border:'#bbf7d0', color:'#15803d', emoji:'✅' },
@@ -5319,6 +5358,55 @@ function _executionRenderReport(report) {
 
     ${lpHtml}
     ${emailHtml}
+
+    ${(decisionLayer.emotionPrimary || decisionLayer.primaryAngle) ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">🧠 פרופיל החלטות</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:0.6rem">
+        ${decisionLayer.emotionPrimary ? `<div style="background:#fdf4ff;border-radius:0.5rem;padding:0.5rem 0.75rem;font-size:0.8rem"><span style="color:#a21caf;font-weight:700">רגש ראשי</span><br>${decisionLayer.emotionPrimary}</div>` : ''}
+        ${decisionLayer.emotionSecondary ? `<div style="background:#fdf4ff;border-radius:0.5rem;padding:0.5rem 0.75rem;font-size:0.8rem"><span style="color:#a21caf;font-weight:700">רגש משני</span><br>${decisionLayer.emotionSecondary}</div>` : ''}
+        ${decisionLayer.primaryAngle ? `<div style="background:#eff6ff;border-radius:0.5rem;padding:0.5rem 0.75rem;font-size:0.8rem"><span style="color:#1d4ed8;font-weight:700">זווית ראשית</span><br>${decisionLayer.primaryAngle}</div>` : ''}
+        ${decisionLayer.intensity ? `<div style="background:#f0fdf4;border-radius:0.5rem;padding:0.5rem 0.75rem;font-size:0.8rem"><span style="color:#15803d;font-weight:700">עוצמה</span><br>${decisionLayer.intensity}/5</div>` : ''}
+        ${decisionLayer.awarenessLevel ? `<div style="background:#fefce8;border-radius:0.5rem;padding:0.5rem 0.75rem;font-size:0.8rem"><span style="color:#a16207;font-weight:700">מודעות</span><br>${decisionLayer.awarenessLevel}</div>` : ''}
+      </div>
+      ${decisionLayer.angleDistribution ? `<div style="margin-top:0.6rem;font-size:0.75rem;color:#64748b">חלוקת זוויות: ${Object.entries(decisionLayer.angleDistribution).map(([k,v])=>`${k}:${v}`).join(' · ')}</div>` : ''}
+    </div>` : ''}
+
+    ${(decisionExp.rationale || decisionExp.persuasion_logic) ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">💡 הסבר החלטות + לוגיקת שכנוע</div>
+      ${decisionExp.rationale ? `<div style="font-size:0.85rem;color:#374151;margin-bottom:0.5rem;line-height:1.6">${decisionExp.rationale}</div>` : ''}
+      ${decisionExp.persuasion_logic ? `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:0.6rem;padding:0.75rem;font-size:0.82rem;color:#14532d">${decisionExp.persuasion_logic}</div>` : ''}
+      ${decisionExp.why_this_emotion ? `<div style="margin-top:0.5rem;font-size:0.78rem;color:#64748b">רגש: ${decisionExp.why_this_emotion}</div>` : ''}
+      ${decisionExp.why_this_angle ? `<div style="font-size:0.78rem;color:#64748b">זווית: ${decisionExp.why_this_angle}</div>` : ''}
+    </div>` : ''}
+
+    ${!preQa.skipped && preQa.overall !== undefined ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">🔍 Pre-QA Simulation</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.6rem;margin-bottom:0.5rem">
+        ${(preQa.scores ? Object.entries(preQa.scores) : []).map(([k,v]) => {
+          const labels = { is_clear:'ברור?', is_strong:'חזק?', is_focused:'ממוקד?' };
+          const color = v >= 7 ? '#15803d' : v >= 5 ? '#92400e' : '#991b1b';
+          const bg    = v >= 7 ? '#f0fdf4' : v >= 5 ? '#fffbeb' : '#fef2f2';
+          return `<div style="background:${bg};border-radius:0.5rem;padding:0.5rem;text-align:center"><div style="font-size:1.2rem;font-weight:700;color:${color}">${v}/10</div><div style="font-size:0.7rem;color:#64748b">${labels[k]||k}</div></div>`;
+        }).join('')}
+      </div>
+      ${preQa.top_fix ? `<div style="background:#fffbeb;border-radius:0.5rem;padding:0.5rem 0.75rem;font-size:0.82rem;color:#92400e">💡 תיקון מרכזי: ${preQa.top_fix}</div>` : ''}
+    </div>` : ''}
+
+    ${tracking.eventMap?.length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">📡 Tracking Layer (${tracking.eventMap.length} events)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.5rem">
+        ${(tracking.pixels || []).map(p => `<span style="background:#e0e7ff;color:#3730a3;font-size:0.72rem;padding:0.2rem 0.5rem;border-radius:0.35rem;font-weight:600">${p}</span>`).join('')}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem">
+        ${tracking.eventMap.slice(0,6).map(e => `<div style="background:#f8fafc;border-radius:0.4rem;padding:0.4rem 0.6rem;font-size:0.75rem"><span style="font-weight:600;color:#6366f1">${e.event}</span> <span style="color:#94a3b8">${e.trigger||''}</span></div>`).join('')}
+      </div>
+      ${tracking.eventMap.length > 6 ? `<div style="font-size:0.72rem;color:#94a3b8;margin-top:0.35rem">+ ${tracking.eventMap.length - 6} events נוספים</div>` : ''}
+    </div>` : ''}
+
     ${qualityHtml}
     ${qaChecklistHtml}
 
@@ -5334,6 +5422,7 @@ function _executionRenderReport(report) {
 
     <div style="display:flex;gap:0.75rem;margin-top:1rem">
       <button class="btn btn-sm btn-secondary" onclick="startExecution()">🔄 ריצה חדשה</button>
+      <button class="btn btn-sm btn-gradient" onclick="startQa()" style="background:linear-gradient(135deg,#7c3aed,#db2777)">🧪 הרץ QA Agent</button>
     </div>
   `;
 }
@@ -5372,12 +5461,875 @@ async function restoreExecutionJob() {
   } catch {}
 }
 
+// ── QA Agent ──────────────────────────────────────────────────────────────────
+var bfsQaJob = null; // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
+
+async function startQa() {
+  const execReportId = bfsExecutionJob?.reportId || localStorage.getItem('lastExecutionReportId');
+  if (!execReportId) { alert('יש להריץ סוכן ביצוע תחילה'); return; }
+
+  const researchReportId = localStorage.getItem('lastResearchReportId') || null;
+
+  const qaArea = document.getElementById('qa-panel-area');
+  if (qaArea) { qaArea.style.display = ''; }
+  const qaReport = document.getElementById('qa-report-area');
+  if (qaReport) qaReport.innerHTML = '';
+  _qaUpdateStatus('queued', 0);
+  _qaLog('מתחיל QA Agent...', 'info');
+
+  try {
+    const resp = await apiFetch('/qa-start', {
+      method: 'POST',
+      body: JSON.stringify({ executionReportId: execReportId, researchReportId }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) { _qaLog(`שגיאה: ${data.error}`, 'error'); return; }
+
+    bfsQaJob = { jobId: data.jobId, status: 'queued', steps: [], lastStepIndex: 0 };
+    localStorage.setItem('lastQaJob', JSON.stringify({ jobId: data.jobId }));
+    _qaStartPolling(data.jobId);
+  } catch (e) { _qaLog(`שגיאה: ${e.message}`, 'error'); }
+}
+
+function _qaStartPolling(jobId) {
+  if (bfsQaJob?.pollTimer) clearInterval(bfsQaJob.pollTimer);
+  const timer = setInterval(async () => {
+    try {
+      const since  = bfsQaJob?.lastStepIndex || 0;
+      const resp   = await apiFetch(`/qa-status?jobId=${jobId}&since=${since}`);
+      const result = await resp.json();
+      if (!resp.ok) return;
+
+      (result.steps || []).forEach(s => {
+        _qaLog(s.message, s.status === 'done' ? 'done' : 'running', s.created_at);
+        if (bfsQaJob) bfsQaJob.lastStepIndex = Math.max(bfsQaJob.lastStepIndex, s.step_index);
+      });
+
+      _qaUpdateStatus(result.status, result.progress || 0);
+
+      if (result.status === 'completed') {
+        clearInterval(bfsQaJob.pollTimer);
+        bfsQaJob.status   = 'completed';
+        bfsQaJob.reportId = result.reportId;
+        _qaUpdateStatus('completed', 100);
+        if (result.reportId) await _qaLoadReport(result.reportId);
+      } else if (result.status === 'failed') {
+        clearInterval(bfsQaJob.pollTimer);
+        _qaLog(`נכשל: ${result.errorMessage || 'שגיאה לא ידועה'}`, 'error');
+        _qaUpdateStatus('failed', 0);
+      }
+    } catch {}
+  }, 3000);
+  if (bfsQaJob) bfsQaJob.pollTimer = timer;
+}
+
+function _qaUpdateStatus(status, pct) {
+  const bar = document.getElementById('qa-progress-bar');
+  const pctEl = document.getElementById('qa-progress-pct');
+  const statusEl = document.getElementById('qa-status-label');
+  if (bar)   bar.style.width = pct + '%';
+  if (pctEl) pctEl.textContent = pct + '%';
+  const labels = { queued:'ממתין...', running:'בודק נכסים...', completed:'QA הושלם', failed:'נכשל' };
+  if (statusEl) statusEl.textContent = labels[status] || status;
+}
+
+function _qaLog(msg, type, ts) {
+  const el = document.getElementById('qa-log');
+  if (!el) return;
+  const color = type === 'done' ? '#34d399' : type === 'error' ? '#f87171' : type === 'info' ? '#60a5fa' : '#94a3b8';
+  const icon  = type === 'done' ? '✓' : type === 'error' ? '✗' : type === 'info' ? '→' : '…';
+  el.innerHTML += `<div style="color:${color};font-size:0.78rem;padding:0.15rem 0">${icon} ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function _qaLoadReport(reportId) {
+  try {
+    const resp   = await apiFetch(`/qa-report?reportId=${reportId}`);
+    const result = await resp.json();
+    if (!resp.ok) return;
+    _qaRenderReport(result.report);
+  } catch {}
+}
+
+function _qaRenderReport(report) {
+  const area = document.getElementById('qa-report-area');
+  if (!area) return;
+
+  const verdict  = report.verdict || 'improve';
+  const score    = report.overall_score || 0;
+  const checks   = report.checks || {};
+  const sim      = report.simulation || {};
+  const routing  = report.routing || {};
+  const testPlan = report.test_plan || {};
+  const corrections = report.corrections || [];
+  const summary  = report.summary || {};
+
+  const vColors = {
+    approve: { bg:'#f0fdf4', border:'#bbf7d0', color:'#15803d', emoji:'✅', label:'מאושר לשיגור' },
+    improve: { bg:'#fffbeb', border:'#fde68a', color:'#92400e', emoji:'⚠️', label:'נדרש שיפור' },
+    reject:  { bg:'#fef2f2', border:'#fecaca', color:'#991b1b', emoji:'❌', label:'נדחה — שלח לתיקון' },
+  };
+  const vc = vColors[verdict] || vColors.improve;
+
+  // Score bar
+  const scoreColor = score >= 72 ? '#15803d' : score >= 45 ? '#d97706' : '#dc2626';
+
+  // Checks grid — 20 checks
+  const checkItems = [
+    { key:'hook',               label:'הוק',           score: checks.hook?.overall_hook_score },
+    { key:'pain',               label:'כאב',           score: checks.pain?.pain_score },
+    { key:'differentiation',    label:'בידול',         score: checks.differentiation?.score },
+    { key:'offer',              label:'הצעה',           score: checks.offer?.offer_score },
+    { key:'persuasion',         label:'שכנוע',          score: checks.persuasion?.persuasion_score },
+    { key:'language',           label:'שפה',            score: checks.language?.score },
+    { key:'trust',              label:'אמון',           score: checks.trust?.score },
+    { key:'cognitive_load',     label:'עומס קוגניטיבי',score: checks.cognitive_load?.score },
+    { key:'awareness',          label:'מודעות',         score: checks.awareness?.passed ? 80 : 40 },
+    { key:'tracking',           label:'Tracking',       score: checks.tracking?.ready ? 80 : 30 },
+    { key:'flow',               label:'Flow E2E',       score: checks.flow?.passed ? 80 : 40 },
+    { key:'kill_signals',       label:'Kill Signals',   score: checks.kill_signals?.count === 0 ? 100 : Math.max(0, 100 - (checks.kill_signals?.count||0) * 25) },
+    { key:'friction',           label:'Friction',       score: checks.friction?.score },
+    { key:'lp_hierarchy',       label:'LP Hierarchy',   score: checks.lp_hierarchy?.passed ? 85 : 45 },
+    { key:'implementation',     label:'מוכנות',         score: checks.implementation?.readiness_score },
+    { key:'message_clarity',    label:'בהירות מסר',     score: checks.message_clarity?.score },
+    { key:'edge_cases',         label:'Edge Cases',     score: checks.edge_cases?.edge_case_score },
+    { key:'execution_fidelity', label:'נאמנות ביצוע',   score: checks.execution_fidelity?.fidelity_score },
+    { key:'business',           label:'Business Fit',   score: checks.business?.overall_business_score },
+    { key:'market_saturation',  label:'Market Fit',     score: (checks.market_saturation?.issues||[]).length === 0 ? 80 : 45 },
+  ];
+
+  const checksHtml = checkItems.map(c => {
+    const s = c.score ?? 50;
+    const bg = s >= 70 ? '#f0fdf4' : s >= 45 ? '#fffbeb' : '#fef2f2';
+    const col = s >= 70 ? '#15803d' : s >= 45 ? '#92400e' : '#991b1b';
+    return `<div style="background:${bg};border-radius:0.5rem;padding:0.5rem;text-align:center">
+      <div style="font-size:1rem;font-weight:700;color:${col}">${s}</div>
+      <div style="font-size:0.68rem;color:#64748b">${c.label}</div>
+    </div>`;
+  }).join('');
+
+  // Simulation + ROI
+  const simHtml = sim.scroll_stop_probability !== undefined ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">📊 סימולציית ביצוע + ROI</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;margin-bottom:0.75rem">
+        ${[
+          { label:'עצירת גלילה', val: Math.round((sim.scroll_stop_probability||0)*100)+'%' },
+          { label:'קליק',        val: Math.round((sim.click_probability||0)*100)+'%' },
+          { label:'המרה',        val: Math.round((sim.conversion_probability||0)*100)+'%' },
+        ].map(s => `<div style="background:#f8fafc;border-radius:0.6rem;padding:0.75rem;text-align:center">
+          <div style="font-size:1.4rem;font-weight:700;color:#6366f1">${s.val}</div>
+          <div style="font-size:0.72rem;color:#64748b">${s.label}</div>
+        </div>`).join('')}
+      </div>
+      ${sim.roi_estimate ? `<div style="background:#f0fdf4;border-radius:0.6rem;padding:0.6rem 0.85rem;display:flex;gap:1.5rem;font-size:0.78rem;flex-wrap:wrap">
+        <span>💰 CPC: ${sim.roi_estimate.estimated_cpc}</span>
+        <span>📈 לידים/1K קליקים: ${sim.roi_estimate.leads_per_1k_clicks}</span>
+        <span>💵 הכנסה צפויה/1K: ${sim.roi_estimate.estimated_revenue_1k}</span>
+        <span style="font-weight:700;color:${sim.roi_estimate.roi_verdict==='positive'?'#15803d':sim.roi_estimate.roi_verdict==='break_even'?'#92400e':'#dc2626'}">ROAS: ${sim.roi_estimate.estimated_roas}x (${sim.roi_estimate.roi_verdict})</span>
+      </div>` : ''}
+      ${sim.micro_conversions ? `<div style="margin-top:0.5rem;font-size:0.74rem;color:#64748b">Micro: scroll depth ${Math.round((sim.micro_conversions.scroll_depth||0)*100)}% · זמן עמוד: ${sim.micro_conversions.time_on_page||'?'} · hover CTA: ${Math.round((sim.micro_conversions.cta_hover_chance||0)*100)}%</div>` : ''}
+      <div style="margin-top:0.3rem;font-size:0.72rem;color:#94a3b8">תחזית בלבד — מבוסס ניתוח נכסים + ממוצעי שוק, לא מדד בפועל</div>
+    </div>` : '';
+
+  // Edge Cases + Business + Fidelity insights
+  const edgeCasesData  = checks.edge_cases || {};
+  const businessData   = checks.business || {};
+  const fidelityData   = checks.execution_fidelity || {};
+  const extendedHtml = (edgeCasesData.edge_case_score || businessData.roi_outlook || fidelityData.fidelity_score) ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.25rem">
+      ${edgeCasesData.edge_case_score !== undefined ? `<div class="card" style="margin-bottom:0">
+        <div class="card-title" style="font-size:0.8rem">🚨 Edge Cases</div>
+        <div style="font-size:0.75rem;color:#374151">
+          <div>סקפטי: <b>${edgeCasesData.skeptic_response||'?'}</b></div>
+          <div>קר: <b>${edgeCasesData.cold_user_clarity||'?'}</b></div>
+          <div>ניסה: <b>${edgeCasesData.tried_before_differentiation||'?'}</b></div>
+          ${edgeCasesData.intent_drift?.exists ? `<div style="color:#dc2626;margin-top:0.3rem">⚠️ Intent Drift: ${edgeCasesData.intent_drift.description||''}</div>` : '<div style="color:#15803d;margin-top:0.3rem">✓ אין Intent Drift</div>'}
+        </div>
+      </div>` : '<div></div>'}
+      ${businessData.roi_outlook ? `<div class="card" style="margin-bottom:0">
+        <div class="card-title" style="font-size:0.8rem">💰 Business + ROI</div>
+        <div style="font-size:0.75rem;color:#374151">
+          <div>ROI: <b style="color:${businessData.roi_outlook==='positive'?'#15803d':businessData.roi_outlook==='negative'?'#dc2626':'#92400e'}">${businessData.roi_outlook||'?'}</b></div>
+          <div>Scalable: <b>${businessData.scalable?'כן':'לא'}</b></div>
+          <div>Content Fatigue: <b>${businessData.fatigue_risk||'?'}</b></div>
+          <div>Over-Opt: <b>${businessData.over_optimized?'כן ⚠️':'לא ✓'}</b></div>
+        </div>
+      </div>` : '<div></div>'}
+      ${fidelityData.fidelity_score !== undefined ? `<div class="card" style="margin-bottom:0">
+        <div class="card-title" style="font-size:0.8rem">🎯 נאמנות ביצוע</div>
+        <div style="font-size:0.75rem;color:#374151">
+          <div>זווית: <b>${fidelityData.angle_fidelity||'?'}</b></div>
+          <div>רגש: <b>${fidelityData.emotion_fidelity||'?'}</b></div>
+          <div>פלטפורמה: <b>${fidelityData.platform_format_fit||'?'}</b></div>
+          <div>ויזואל: <b>${fidelityData.visual_platform_fit||'?'}</b></div>
+        </div>
+      </div>` : '<div></div>'}
+    </div>` : '';
+
+  // Corrections
+  const corrHtml = corrections.length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">🔧 הוראות תיקון (${corrections.length})</div>
+      ${corrections.map(c => `
+        <div style="background:${c.priority==='critical'?'#fef2f2':c.priority==='high'?'#fffbeb':'#f8fafc'};border-radius:0.5rem;padding:0.6rem 0.85rem;margin-bottom:0.4rem;font-size:0.82rem">
+          <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.2rem">
+            <span style="background:${c.priority==='critical'?'#dc2626':c.priority==='high'?'#d97706':'#6b7280'};color:#fff;font-size:0.65rem;padding:1px 6px;border-radius:9999px">${c.priority}</span>
+            <span style="font-weight:600">[${c.asset}]</span> ${c.issue}
+          </div>
+          <div style="color:#6366f1;font-size:0.78rem">💡 ${c.fix}</div>
+          ${c.example ? `<div style="color:#94a3b8;font-size:0.72rem;margin-top:0.2rem">${c.example}</div>` : ''}
+        </div>`).join('')}
+    </div>` : '';
+
+  // Routing
+  const routingHtml = routing.should_redo ? `
+    <div class="card" style="margin-bottom:1.25rem;border:2px solid ${routing.priority==='full_rerun'?'#dc2626':'#d97706'}">
+      <div class="card-title">🔁 ניתוב — שלח ל${routing.target_agent === 'execution' ? 'סוכן ביצוע' : 'סוכן אסטרטגיה'}</div>
+      <div style="font-size:0.85rem;color:#374151;margin-bottom:0.5rem">${routing.reason}</div>
+      ${(routing.instructions || []).slice(0,4).map(i => `
+        <div style="display:flex;gap:0.4rem;align-items:flex-start;margin-bottom:0.3rem;font-size:0.8rem">
+          <span style="color:${i.priority==='critical'?'#dc2626':'#d97706'};font-size:0.9rem">→</span>
+          <span>${i.instruction}</span>
+        </div>`).join('')}
+      ${routing.target_agent === 'execution' ? `<button class="btn btn-sm" style="margin-top:0.75rem;background:#7c3aed;color:#fff" onclick="startExecution()">🔄 הרץ מחדש סוכן ביצוע</button>` : ''}
+    </div>` : '';
+
+  // Test plan
+  const testHtml = (testPlan.tests || []).length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">🧪 תוכנית A/B Testing (${testPlan.tests.length} בדיקות)</div>
+      ${(testPlan.tests || []).map(t => `
+        <div style="border:1px solid #e2e8f0;border-radius:0.6rem;padding:0.75rem;margin-bottom:0.5rem;font-size:0.82rem">
+          <div style="font-weight:700;margin-bottom:0.3rem">${t.variable} <span style="background:${t.priority==='high'?'#dcfce7':'#fef9c3'};color:${t.priority==='high'?'#15803d':'#a16207'};font-size:0.68rem;padding:1px 6px;border-radius:9999px">${t.priority}</span></div>
+          <div style="color:#64748b;margin-bottom:0.2rem">${t.hypothesis}</div>
+          <div style="font-size:0.75rem;color:#94a3b8">מדד: ${t.metric}</div>
+        </div>`).join('')}
+      ${testPlan.estimatedBudget ? `<div style="font-size:0.75rem;color:#6366f1;margin-top:0.25rem">תקציב מומלץ: ${testPlan.estimatedBudget.recommended_total} · ${testPlan.estimatedBudget.note}</div>` : ''}
+    </div>` : '';
+
+  area.innerHTML = `
+    <div style="background:${vc.bg};border:2px solid ${vc.border};border-radius:1rem;padding:1rem 1.25rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem">
+      <span style="font-size:2rem">${vc.emoji}</span>
+      <div style="flex:1">
+        <div style="font-weight:700;font-size:1rem;color:${vc.color}">QA Agent — ${vc.label}</div>
+        <div style="font-size:0.78rem;color:${vc.color}">עבר ${summary.passed||0}/${summary.totalChecks||12} בדיקות · ${summary.kill_signals||0} Kill Signals · ${summary.corrections_needed||0} תיקונים</div>
+      </div>
+      <div style="background:#fff;border-radius:0.75rem;padding:0.5rem 1rem;text-align:center;min-width:70px">
+        <div style="font-size:1.6rem;font-weight:700;color:${scoreColor}">${score}</div>
+        <div style="font-size:0.65rem;color:#94a3b8">ציון כולל</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">📋 12 בדיקות איכות</div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:0.5rem">
+        ${checksHtml}
+      </div>
+    </div>
+
+    ${simHtml}
+    ${extendedHtml}
+    ${corrHtml}
+    ${routingHtml}
+    ${testHtml}
+
+    ${(report.all_issues || []).length > 0 ? `
+    <div class="card" style="margin-bottom:1.25rem">
+      <div class="card-title">⚠️ כל הבעיות שנמצאו (${report.all_issues.length})</div>
+      ${(report.all_issues || []).map(i => `
+        <div style="background:${i.severity==='critical'?'#fef2f2':i.severity==='high'?'#fffbeb':'#f8fafc'};border-radius:0.4rem;padding:0.4rem 0.75rem;margin-bottom:0.3rem;font-size:0.79rem">
+          <span style="font-weight:600;color:#64748b">[${i.source}]</span> ${i.issue}
+          ${i.fix ? `<div style="color:#6366f1;font-size:0.74rem">→ ${i.fix}</div>` : ''}
+        </div>`).join('')}
+    </div>` : ''}
+
+    <div style="display:flex;gap:0.75rem;margin-top:1rem">
+      <button class="btn btn-sm btn-secondary" onclick="startQa()">🔄 הרץ QA מחדש</button>
+    </div>
+  `;
+}
+
+async function restoreQaJob() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('lastQaJob') || '{}');
+    if (!saved?.jobId) return;
+    const jobId = saved.jobId;
+    const resp   = await apiFetch(`/qa-status?jobId=${jobId}&since=0`);
+    const result = await resp.json();
+    if (!resp.ok) return;
+    const qaArea = document.getElementById('qa-panel-area');
+    if (qaArea) qaArea.style.display = '';
+    if (result.status === 'completed' && result.reportId) {
+      bfsQaJob = { jobId, status: 'completed', reportId: result.reportId, steps: [], lastStepIndex: 0 };
+      _qaUpdateStatus('completed', 100);
+      (result.steps || []).forEach(s => _qaLog(s.message, 'done', s.created_at));
+      await _qaLoadReport(result.reportId);
+    } else if (result.status === 'running' || result.status === 'queued') {
+      bfsQaJob = { jobId, status: result.status, steps: [], lastStepIndex: 0 };
+      _qaUpdateStatus(result.status, result.progress || 0);
+      (result.steps || []).forEach(s => {
+        _qaLog(s.message, s.status === 'done' ? 'done' : 'running', s.created_at);
+        bfsQaJob.lastStepIndex = Math.max(bfsQaJob.lastStepIndex, s.step_index);
+      });
+      _qaLog('🔄 מחבר מחדש ל-QA פעיל...', 'info');
+      _qaStartPolling(jobId);
+    }
+  } catch {}
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Analysis Agent
+// ══════════════════════════════════════════════════════════════════════════════
+
+function _buildAnalysisPanel() {
+  const campaigns = state.campaigns || [];
+  const campaignOptions = campaigns.length
+    ? campaigns.map(c => `<option value="${c.id}">${c.name || c.id}</option>`).join('')
+    : '<option value="">אין קמפיינים — צור קמפיין תחילה</option>';
+
+  return `
+    <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:1.25rem;padding:1.75rem;margin-top:0.5rem">
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem">
+        <span style="font-size:2rem">📊</span>
+        <div>
+          <div style="font-weight:800;font-size:1.15rem;color:#1e293b">סוכן ניתוח</div>
+          <div style="font-size:0.82rem;color:#64748b">ניתוח ביצועים עמוק — KPI, סיבתיות, אנומליות, תובנות ועוד</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <div>
+          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">קמפיין לניתוח</label>
+          <select id="analysis-campaign-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
+            ${campaignOptions}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">מטרת הקמפיין</label>
+          <select id="analysis-goal-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
+            <option value="leads">לידים (CPL)</option>
+            <option value="sales">מכירות (ROAS)</option>
+            <option value="content">תוכן (Engagement)</option>
+            <option value="awareness">מודעות (CPM)</option>
+            <option value="traffic">תנועה (CPC)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-bottom:1rem">
+        <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">שאלה ספציפית (אופציונלי)</label>
+        <input id="analysis-query-input" type="text" placeholder='למשל: "למה ה-CTR ירד?" או "מה הפלטפורמה הטובה ביותר?"'
+               style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem;box-sizing:border-box">
+      </div>
+
+      <button class="btn btn-gradient w-full" onclick="startAnalysis()" style="background:linear-gradient(135deg,#0ea5e9,#6366f1)">
+        📊 הרץ Analysis Agent
+      </button>
+
+      <div id="analysis-panel-area" style="display:none;margin-top:1.5rem"></div>
+    </div>`;
+}
+
+async function startAnalysis() {
+  const campaignId = document.getElementById('analysis-campaign-select')?.value;
+  const goal       = document.getElementById('analysis-goal-select')?.value || 'leads';
+  const query      = document.getElementById('analysis-query-input')?.value?.trim() || '';
+
+  if (!campaignId) { toast('בחר קמפיין לניתוח', 'error'); return; }
+
+  const area = document.getElementById('analysis-panel-area');
+  if (!area) return;
+
+  area.style.display = 'block';
+  area.innerHTML = `<div style="text-align:center;padding:1.5rem;color:#6366f1;font-size:0.9rem">מתחיל ניתוח...</div>`;
+
+  try {
+    const token = state.accessToken;
+    const res   = await fetch(`${CONFIG.apiBase}/analysis-start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ campaignId, goal, query }),
+    });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'שגיאה בהתחלת ניתוח', 'error'); return; }
+
+    bfsAnalysisJob = { jobId: data.jobId, status: 'pending', steps: [], lastStepIndex: 0, pollTimer: null, reportId: null };
+    _analysisLog('⚙️ ניתוח התחיל...', 'info');
+    _analysisStartPolling(data.jobId);
+  } catch (e) {
+    toast('שגיאה בהתחלת ניתוח: ' + e.message, 'error');
+  }
+}
+
+function _analysisLog(message, type = 'info') {
+  const area = document.getElementById('analysis-panel-area');
+  if (!area) return;
+  const colors = { info: '#3b82f6', success: '#10b981', error: '#ef4444', warn: '#f59e0b' };
+  const existing = area.querySelector('.analysis-log-box');
+  if (!existing) {
+    area.innerHTML = `<div class="analysis-log-box" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.75rem;padding:1rem;max-height:280px;overflow-y:auto;font-family:monospace;font-size:0.78rem"></div>`;
+  }
+  const box = area.querySelector('.analysis-log-box');
+  if (!box) return;
+  const line = document.createElement('div');
+  line.style.cssText = `color:${colors[type] || '#374151'};padding:2px 0;border-bottom:1px solid #f1f5f9`;
+  line.textContent = `[${new Date().toLocaleTimeString('he-IL')}] ${message}`;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function _analysisStartPolling(jobId) {
+  if (bfsAnalysisJob?.pollTimer) clearInterval(bfsAnalysisJob.pollTimer);
+  bfsAnalysisJob.pollTimer = setInterval(() => _analysisPoll(jobId), 2500);
+}
+
+async function _analysisPoll(jobId) {
+  try {
+    const since = bfsAnalysisJob?.lastStepIndex || 0;
+    const token = state.accessToken;
+    const res   = await fetch(`${CONFIG.apiBase}/analysis-status?jobId=${jobId}&since=${since}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    (data.steps || []).forEach(s => {
+      _analysisLog(`${s.step_key}: ${s.message}`, 'info');
+      if (s.step_index > (bfsAnalysisJob?.lastStepIndex || 0)) {
+        if (bfsAnalysisJob) bfsAnalysisJob.lastStepIndex = s.step_index;
+      }
+    });
+
+    if (data.progress !== undefined) {
+      const area = document.getElementById('analysis-panel-area');
+      const prog = area?.querySelector('.analysis-progress-bar');
+      if (prog) prog.style.width = `${data.progress}%`;
+      else if (area) {
+        const bar = document.createElement('div');
+        bar.style.cssText = 'height:4px;background:#e2e8f0;border-radius:9999px;margin-bottom:0.75rem;overflow:hidden';
+        bar.innerHTML = `<div class="analysis-progress-bar" style="height:100%;background:linear-gradient(90deg,#0ea5e9,#6366f1);width:${data.progress}%;transition:width 0.5s;border-radius:9999px"></div>`;
+        area.insertBefore(bar, area.firstChild);
+      }
+    }
+
+    if (data.status === 'completed') {
+      clearInterval(bfsAnalysisJob?.pollTimer);
+      bfsAnalysisJob = { ...bfsAnalysisJob, status: 'completed', reportId: data.reportId };
+      _analysisLog('✅ ניתוח הושלם!', 'success');
+      if (data.reportId) {
+        await _renderAnalysisReport(data.reportId);
+      }
+    } else if (data.status === 'failed') {
+      clearInterval(bfsAnalysisJob?.pollTimer);
+      _analysisLog(`❌ ניתוח נכשל: ${data.errorMessage || 'שגיאה לא ידועה'}`, 'error');
+    }
+  } catch (e) {
+    console.warn('[analysis-poll]', e.message);
+  }
+}
+
+async function _renderAnalysisReport(reportId) {
+  const area = document.getElementById('analysis-panel-area');
+  if (!area) return;
+
+  try {
+    const token = state.accessToken;
+    const res   = await fetch(`${CONFIG.apiBase}/analysis-report?reportId=${reportId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok || !data.report) { _analysisLog('שגיאה בטעינת הדוח', 'error'); return; }
+
+    const r = data.report;
+    const scores         = r.scores || {};
+    const kpi            = r.kpi_hierarchy || {};
+    const anomalies      = r.anomalies || {};
+    const insights       = r.insights || {};
+    const causality      = r.causality || {};
+    const social         = r.social || {};
+    const queryResult    = r.query_result;
+    const aiNarrative    = r.ai_narrative;
+    const unified        = r.unified || {};
+    const recommendations = r.recommendations || [];
+    // Extended sections
+    const funnel         = r.funnel || {};
+    const trends         = r.trends || {};
+    const attribution    = r.attribution || {};
+    const business       = r.business || {};
+    const experimentsObj = r.experiments || {};
+    const alertsObj      = r.alerts || {};
+    const tradeoffs      = r.tradeoffs || {};
+    const patterns       = r.patterns || {};
+    const priorityActions = r.priority_actions || [];
+    const uncertainty    = r.uncertainty || {};
+
+    const verdictLabel = scores.verdict === 'healthy' ? 'תקין' : scores.verdict === 'needs_improvement' ? 'נדרש שיפור' : 'קריטי';
+
+    let html = `
+      <div style="margin-top:1rem;display:flex;flex-direction:column;gap:1rem">
+
+        <!-- Score header -->
+        <div style="background:linear-gradient(135deg,#0ea5e9,#6366f1);border-radius:1rem;padding:1.25rem;color:#fff;text-align:center">
+          <div style="font-size:2.5rem;font-weight:800">${scores.overall || 0}/100</div>
+          <div style="font-size:1rem;font-weight:600;margin-top:0.25rem">ניתוח ביצועים — ${verdictLabel}</div>
+          ${aiNarrative?.narrative || insights.narrative ? `<div style="font-size:0.82rem;margin-top:0.5rem;opacity:0.9">${(aiNarrative?.narrative || insights.narrative || '').slice(0, 120)}</div>` : ''}
+        </div>
+
+        <!-- Key metrics -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem">
+          ${_analysisMetricCard('חשיפות', _fmtNum(unified.impressions))}
+          ${_analysisMetricCard('קליקים', _fmtNum(unified.clicks))}
+          ${_analysisMetricCard('CTR', _fmtPct(unified.ctr))}
+          ${_analysisMetricCard('ROAS', unified.roas ? `${unified.roas.toFixed(2)}x` : 'N/A')}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem">
+          ${_analysisMetricCard('המרות', _fmtNum(unified.conversions))}
+          ${_analysisMetricCard('שיעור המרה', _fmtPct(unified.conversion_rate))}
+          ${_analysisMetricCard('CPA', unified.cpa ? `$${unified.cpa.toFixed(2)}` : 'N/A')}
+          ${_analysisMetricCard('הוצאה', unified.cost ? `$${unified.cost.toFixed(0)}` : 'N/A')}
+        </div>
+
+        <!-- KPI Hierarchy -->
+        ${kpi.primary ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">יעדי KPI — ${kpi.goal || ''}</div>
+          <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:#f0f9ff;border-radius:0.5rem;margin-bottom:0.5rem">
+            <div style="font-size:1.5rem">🎯</div>
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:0.85rem">${kpi.primary.label}</div>
+              <div style="font-size:1.1rem;font-weight:800;color:#0ea5e9">${kpi.primary.value !== null && kpi.primary.value !== undefined ? (typeof kpi.primary.value === 'number' ? kpi.primary.value.toFixed(2) : kpi.primary.value) : 'N/A'}</div>
+            </div>
+            <div style="padding:0.3rem 0.75rem;border-radius:9999px;font-size:0.75rem;font-weight:700;background:${ ['excellent','on_target'].includes(kpi.primary.status) ? '#dcfce7' : '#fee2e2' };color:${ ['excellent','on_target'].includes(kpi.primary.status) ? '#16a34a' : '#dc2626' }">
+              ${ kpi.primary.status === 'excellent' ? 'מצוין' : kpi.primary.status === 'on_target' ? 'ביעד' : kpi.primary.status === 'no_data' ? 'אין נתונים' : 'מתחת ליעד' }
+            </div>
+          </div>
+          ${(kpi.secondary || []).map(s => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0.5rem;border-bottom:1px solid #f1f5f9;font-size:0.8rem">
+              <span style="color:#64748b">${s.label}</span>
+              <span style="font-weight:600">${s.value !== null ? (typeof s.value === 'number' ? s.value.toFixed(3) : s.value) : 'N/A'}</span>
+            </div>`).join('')}
+          <div style="margin-top:0.5rem;text-align:center">
+            <span style="padding:0.3rem 1rem;border-radius:9999px;font-size:0.8rem;font-weight:700;background:${kpi.goal_verdict==='on_track'?'#dcfce7':kpi.goal_verdict==='at_risk'?'#fef3c7':'#fee2e2'};color:${kpi.goal_verdict==='on_track'?'#16a34a':kpi.goal_verdict==='at_risk'?'#d97706':'#dc2626'}">
+              ${kpi.goal_verdict === 'on_track' ? '✅ ביעד' : kpi.goal_verdict === 'at_risk' ? '⚠️ בסיכון' : '❌ לא ביעד'} — ציון מטרה: ${kpi.goal_score || 0}/100
+            </span>
+          </div>
+        </div>` : ''}
+
+        <!-- Anomalies -->
+        ${anomalies.has_anomalies ? `
+        <div style="background:#fff5f5;border:1.5px solid #fca5a5;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#dc2626;margin-bottom:0.75rem">⚠️ אנומליות שזוהו (${anomalies.count})</div>
+          ${(anomalies.signals || []).slice(0,4).map(a => `
+            <div style="padding:0.6rem;background:#fff;border-radius:0.5rem;margin-bottom:0.5rem;border-left:3px solid ${a.priority==='critical'?'#ef4444':'#f59e0b'}">
+              <div style="font-size:0.82rem;font-weight:600;color:#1e293b">${a.message}</div>
+              <div style="font-size:0.75rem;color:#64748b;margin-top:0.2rem">פעולה: ${a.action}</div>
+            </div>`).join('')}
+        </div>` : `<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:0.75rem;padding:0.75rem;text-align:center;font-size:0.85rem;color:#16a34a">✅ לא זוהו אנומליות</div>`}
+
+        <!-- Causality -->
+        ${(causality.chains || []).length ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">🔗 ניתוח סיבתי</div>
+          ${(causality.chains || []).map(c => `
+            <div style="padding:0.6rem;background:#f8fafc;border-radius:0.5rem;margin-bottom:0.5rem">
+              <div style="font-size:0.82rem;font-weight:600;color:#0ea5e9">${c.change}</div>
+              <div style="font-size:0.78rem;color:#374151;margin-top:0.2rem">${c.reason}</div>
+              <div style="font-size:0.75rem;color:#64748b;margin-top:0.2rem">השפעה: ${c.impact}</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+        <!-- Top Insights -->
+        ${(insights.priorities || []).length ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">💡 תובנות מרכזיות</div>
+          ${(insights.priorities || []).slice(0,5).map(ins => `
+            <div style="padding:0.6rem;background:${ins.priority==='critical'?'#fff5f5':ins.priority==='high'?'#fffbeb':'#f8fafc'};border-radius:0.5rem;margin-bottom:0.5rem;border-left:3px solid ${ins.priority==='critical'?'#ef4444':ins.priority==='high'?'#f59e0b':'#6366f1'}">
+              <div style="font-size:0.82rem;font-weight:600;color:#1e293b">${ins.what}</div>
+              <div style="font-size:0.78rem;color:#374151;margin-top:0.2rem">${ins.why}</div>
+              <div style="font-size:0.75rem;color:#64748b;font-style:italic;margin-top:0.2rem">${ins.impact}</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+        <!-- Social Growth -->
+        ${social.has_social_data ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">📱 גידול מדיה חברתית</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem">
+            ${_analysisMetricCard('עוקבים', _fmtNum(social.combined?.total_followers))}
+            ${_analysisMetricCard('פלטפורמות גדלות', social.combined?.platforms_growing + '/' + social.combined?.platforms_total)}
+            ${_analysisMetricCard('מעורבות ממוצעת', _fmtPct(social.combined?.avg_engagement_rate))}
+          </div>
+        </div>` : ''}
+
+        <!-- Query answer -->
+        ${queryResult ? `
+        <div style="background:#eff6ff;border:1.5px solid #93c5fd;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e40af;margin-bottom:0.5rem">🔍 תשובה לשאלתך</div>
+          <div style="font-size:0.88rem;color:#1e293b">${queryResult.answer}</div>
+          <div style="font-size:0.72rem;color:#64748b;margin-top:0.4rem">רמת ביטחון: ${Math.round((queryResult.confidence || 0) * 100)}%</div>
+        </div>` : ''}
+
+        <!-- Recommendations -->
+        ${recommendations.length ? `
+        <div style="background:#fff;border:1.5px solid #e2e8f0;border-radius:0.75rem;padding:1rem">
+          <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem">🎯 המלצות לפעולה</div>
+          ${recommendations.slice(0,5).map((rec,i) => `
+            <div style="display:flex;gap:0.75rem;padding:0.6rem;background:#f8fafc;border-radius:0.5rem;margin-bottom:0.5rem">
+              <div style="min-width:1.5rem;height:1.5rem;background:#6366f1;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700">${i+1}</div>
+              <div style="flex:1">
+                <div style="font-size:0.82rem;font-weight:600;color:#1e293b">${rec.issue}</div>
+                <div style="font-size:0.75rem;color:#374151;margin-top:0.15rem">${rec.rootCause || ''}</div>
+                <div style="font-size:0.75rem;color:#6366f1;font-weight:600;margin-top:0.15rem">${rec.action || ''}</div>
+              </div>
+              <div style="font-size:0.72rem;color:#64748b;white-space:nowrap">דחיפות: ${rec.urgency || 0}%</div>
+            </div>`).join('')}
+        </div>` : ''}
+
+        <!-- Re-run -->
+        <div style="text-align:center;margin-top:0.5rem">
+          <button class="btn btn-sm btn-secondary" onclick="startAnalysis()">🔄 הרץ ניתוח מחדש</button>
+        </div>
+      </div>`;
+
+    // Replace log box with full report
+    area.innerHTML = html;
+  } catch (e) {
+    _analysisLog('שגיאה בטעינת דוח: ' + e.message, 'error');
+  }
+}
+
+function _analysisMetricCard(label, value) {
+  return `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.5rem;padding:0.6rem;text-align:center">
+    <div style="font-size:0.72rem;color:#64748b">${label}</div>
+    <div style="font-size:1rem;font-weight:700;color:#1e293b;margin-top:0.15rem">${value || 'N/A'}</div>
+  </div>`;
+}
+
+function _fmtNum(v) { if (!v) return '0'; if (v >= 1000000) return (v/1000000).toFixed(1)+'M'; if (v >= 1000) return (v/1000).toFixed(1)+'K'; return Math.round(v).toString(); }
+function _fmtPct(v) { return v ? `${(v*100).toFixed(2)}%` : '0%'; }
+
+async function restoreAnalysisJob() {
+  try {
+    if (!bfsAnalysisJob?.jobId) return;
+    if (bfsAnalysisJob.status === 'completed' && bfsAnalysisJob.reportId) {
+      await _renderAnalysisReport(bfsAnalysisJob.reportId);
+      return;
+    }
+    if (['pending', 'running'].includes(bfsAnalysisJob.status)) {
+      const area = document.getElementById('analysis-panel-area');
+      if (area) { area.style.display = 'block'; area.innerHTML = `<div class="analysis-log-box" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:0.75rem;padding:1rem;font-family:monospace;font-size:0.78rem"></div>`; }
+      _analysisLog('🔄 מחבר מחדש לניתוח פעיל...', 'info');
+      _analysisStartPolling(bfsAnalysisJob.jobId);
+    }
+  } catch {}
+}
+
+// ── Orchestration Panel ───────────────────────────────────────────────────────
+function renderOrchestrationPanel() {
+  const campaigns = state.campaigns || [];
+  const campaignOptions = campaigns.length
+    ? campaigns.map(c => `<option value="${c.id}">${c.name || c.id}</option>`).join('')
+    : '<option value="">אין קמפיינים — הוסף קמפיין תחילה</option>';
+
+  return `
+    <div class="card" style="margin-top:1.5rem">
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
+        <span style="font-size:2rem">🎭</span>
+        <div>
+          <div style="font-weight:800;font-size:1.15rem;color:#1e293b">שכבת אורקסטרציה</div>
+          <div style="font-size:0.82rem;color:#64748b">ניהול סשן מרובה-סוכנים: מחקר → אסטרטגיה → ביצוע → QA → ניתוח בתיאום מלא</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <div>
+          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">קמפיין</label>
+          <select id="orch-campaign-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
+            ${campaignOptions}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">פעולה</label>
+          <select id="orch-action-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
+            <option value="analysis">ניתוח ביצועים</option>
+            <option value="research">מחקר שוק</option>
+            <option value="strategy">בניית אסטרטגיה</option>
+            <option value="execution">ביצוע נכסים</option>
+            <option value="qa">בדיקת QA</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <div>
+          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">מטרת קמפיין</label>
+          <select id="orch-goal-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
+            <option value="leads">לידים</option>
+            <option value="sales">מכירות</option>
+            <option value="followers">עוקבים</option>
+            <option value="conversion_improvement">שיפור המרה</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">רמת אוטומציה</label>
+          <select id="orch-auto-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
+            <option value="semi" selected>חצי-אוטומטי (מומלץ)</option>
+            <option value="auto">אוטומטי מלא</option>
+            <option value="manual">ידני</option>
+          </select>
+        </div>
+      </div>
+
+      <button class="btn btn-gradient w-full" onclick="startOrchestration()"
+              style="background:linear-gradient(135deg,#7c3aed,#4f46e5)">
+        🎭 הפעל אורקסטרציה
+      </button>
+
+      <div id="orch-panel-area" style="display:none;margin-top:1.5rem"></div>
+    </div>`;
+}
+
+async function startOrchestration() {
+  const campaignId      = document.getElementById('orch-campaign-select')?.value;
+  const action          = document.getElementById('orch-action-select')?.value || 'analysis';
+  const goalType        = document.getElementById('orch-goal-select')?.value || 'leads';
+  const automationLevel = document.getElementById('orch-auto-select')?.value || 'semi';
+
+  if (!campaignId) { toast('בחר קמפיין', 'error'); return; }
+
+  const area = document.getElementById('orch-panel-area');
+  if (!area) return;
+  area.style.display = 'block';
+  area.innerHTML = `<div style="text-align:center;padding:1.5rem;color:#7c3aed;font-size:0.9rem;animation:pulse 1.5s infinite">🎭 מפעיל אורקסטרציה...</div>`;
+
+  try {
+    const token = state.accessToken;
+    const res = await fetch(`${CONFIG.apiBase}/orchestrate-start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        campaignId,
+        action,
+        automationLevel,
+        goal: { type: goalType, target: 100, timeframe: '30d', metric: goalType },
+        analysisData: action === 'analysis' ? {
+          source: 'meta',
+          campaign: { name: campaignId, objective: goalType, currency: 'ILS' }
+        } : null,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) { toast(data.error || 'שגיאה בהפעלת אורקסטרציה', 'error'); return; }
+
+    bfsOrchestrationJob = { jobId: data.jobId, status: 'pending', pollTimer: null, result: null };
+    _orchLog('⚙️ אורקסטרציה התחילה — jobId: ' + data.jobId, 'info');
+    _orchStartPolling(data.jobId);
+  } catch (e) {
+    toast('שגיאה: ' + e.message, 'error');
+  }
+}
+
+function _orchLog(message, type = 'info') {
+  const area = document.getElementById('orch-panel-area');
+  if (!area) return;
+  const colors = { info: '#7c3aed', success: '#10b981', error: '#ef4444', warn: '#f59e0b' };
+  let box = area.querySelector('.orch-log-box');
+  if (!box) {
+    area.innerHTML = `<div class="orch-log-box" style="background:#faf5ff;border:1.5px solid #e9d5ff;border-radius:0.75rem;padding:1rem;max-height:320px;overflow-y:auto;font-family:monospace;font-size:0.78rem"></div>`;
+    box = area.querySelector('.orch-log-box');
+  }
+  const ts = new Date().toLocaleTimeString('he-IL');
+  box.innerHTML += `<div style="color:${colors[type]};padding:2px 0">[${ts}] ${message}</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+
+function _orchStartPolling(jobId) {
+  if (bfsOrchestrationJob?.pollTimer) clearInterval(bfsOrchestrationJob.pollTimer);
+  bfsOrchestrationJob.pollTimer = setInterval(() => _orchPoll(jobId), 3000);
+}
+
+async function _orchPoll(jobId) {
+  try {
+    const token = state.accessToken;
+    const res = await fetch(`${CONFIG.apiBase}/orchestrate-status?jobId=${jobId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (!res.ok) return;
+
+    if (data.status === 'running' && bfsOrchestrationJob?.status !== 'running') {
+      if (bfsOrchestrationJob) bfsOrchestrationJob.status = 'running';
+      _orchLog('🔄 אורקסטרציה רצה...', 'info');
+    }
+
+    if (data.status === 'completed') {
+      clearInterval(bfsOrchestrationJob?.pollTimer);
+      if (bfsOrchestrationJob) { bfsOrchestrationJob.status = 'completed'; bfsOrchestrationJob.result = data.result; }
+      _orchLog('✅ האורקסטרציה הושלמה', 'success');
+      _orchRenderResult(data);
+    } else if (data.status === 'failed') {
+      clearInterval(bfsOrchestrationJob?.pollTimer);
+      if (bfsOrchestrationJob) bfsOrchestrationJob.status = 'failed';
+      _orchLog('❌ שגיאה: ' + (data.error || 'כשל לא ידוע'), 'error');
+    }
+  } catch {}
+}
+
+function _orchRenderResult(data) {
+  const area = document.getElementById('orch-panel-area');
+  if (!area) return;
+  const result = data.result || {};
+  const state_val = result.state || 'unknown';
+  const summary   = result.summary || 'הושלם';
+  const nextAction = result.nextAction || {};
+  const pending = (result.pendingApprovals || []).length;
+
+  const approvalSection = pending > 0 ? `
+    <div style="margin-top:1rem;padding:1rem;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:0.75rem">
+      <div style="font-weight:700;color:#92400e;margin-bottom:0.5rem">⚠️ ${pending} בקשת אישור ממתינה</div>
+      ${(result.pendingApprovals || []).map(card => `
+        <div style="background:#fff;border-radius:0.5rem;padding:0.75rem;margin-top:0.5rem">
+          <div style="font-weight:600;color:#1e293b">${card.solution || ''}</div>
+          <div style="font-size:0.78rem;color:#64748b;margin-top:0.25rem">${card.why || ''}</div>
+          <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.25rem">סיכון: ${card.riskLevel || ''} | סוכן: ${card.agent || ''}</div>
+        </div>
+      `).join('')}
+    </div>` : '';
+
+  const box = area.querySelector('.orch-log-box');
+  if (box) {
+    box.insertAdjacentHTML('afterend', `
+      <div style="margin-top:1rem;padding:1.25rem;background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:1.5px solid #c4b5fd;border-radius:0.75rem">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem">
+          <span style="font-size:1.5rem">🎭</span>
+          <div style="font-weight:700;font-size:1rem;color:#4c1d95">תוצאת האורקסטרציה</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
+          <div style="background:#fff;border-radius:0.5rem;padding:0.75rem;text-align:center">
+            <div style="font-size:0.72rem;color:#64748b;margin-bottom:0.2rem">מצב</div>
+            <div style="font-weight:700;color:#7c3aed;font-size:0.9rem">${state_val}</div>
+          </div>
+          <div style="background:#fff;border-radius:0.5rem;padding:0.75rem;text-align:center">
+            <div style="font-size:0.72rem;color:#64748b;margin-bottom:0.2rem">הפעולה הבאה</div>
+            <div style="font-weight:700;color:#4f46e5;font-size:0.85rem">${nextAction.type || '—'}</div>
+          </div>
+        </div>
+        <div style="margin-top:0.75rem;font-size:0.82rem;color:#374151;background:#fff;border-radius:0.5rem;padding:0.75rem">${summary}</div>
+        ${approvalSection}
+      </div>
+    `);
+  }
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
 window.startResearch         = startResearch;
 window.startStrategy         = startStrategy;
 window.startExecution        = startExecution;
+window.startQa               = startQa;
+window.startAnalysis         = startAnalysis;
 window.renderBusinessFromScratch = renderBusinessFromScratch;
 window.saveBusinessProfile   = saveBusinessProfile;
 window.switchAITab           = switchAITab;
@@ -5435,5 +6387,7 @@ window.switchInsightsTab      = switchInsightsTab;
 window.renderInsights         = renderInsights;
 window._renderAICreationShell = _renderAICreationShell;
 window.showQuickConnectModal  = showQuickConnectModal;
+window.startOrchestration     = startOrchestration;
+window.renderOrchestrationPanel = renderOrchestrationPanel;
 
 boot();

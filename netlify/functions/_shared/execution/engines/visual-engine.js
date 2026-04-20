@@ -3,25 +3,41 @@
  * execution/engines/visual-engine.js
  * Visual Engine — generates visual concept briefs for each asset type.
  * Outputs structured creative briefs for a design team / AI image generation.
+ * Uses platform behavior rules + visual angle variants.
  */
 
 const { generateVisualConcept } = require('../collectors/claude-execution-engine');
+const { getPlatformBehavior }    = require('../core/platform-behavior');
+const { VISUAL_ANGLE_TYPES }     = require('../core/angle-tester');
 
-async function runVisualEngine({ brief, messageCore, awarenessProfile, decisionProfile, textAssets, onStep }) {
+async function runVisualEngine({ brief, messageCore, awarenessProfile, decisionProfile, textAssets, angleProfile, onStep }) {
   const { assetTypes, platform, executionMode } = brief;
   // draft mode skips visual (optional optimization)
   if (executionMode === 'draft') return { skipped: true, reason: 'draft_mode' };
 
-  const results = {};
+  const results          = {};
+  const platformBehavior = getPlatformBehavior(platform);
+  const visualAngles     = angleProfile?.visualAngles || [];
 
   // ── Ad Visuals ────────────────────────────────────────────────────────────
   if (assetTypes.includes('ads')) {
     onStep?.('visual_ads_start');
-    const adVariants = textAssets?.ads || [];
+    const adVariants   = textAssets?.ads || [];
     const visualVariants = [];
     for (let i = 0; i < adVariants.length; i++) {
-      const concept = await generateVisualConcept({ brief, messageCore, awarenessProfile, assetType: 'ad' });
-      visualVariants.push({ variantIndex: i, adHeadline: adVariants[i]?.headline || '', ...concept });
+      // Use angle-specific visual type
+      const visualType = visualAngles[i]?.visualType || VISUAL_ANGLE_TYPES[i % VISUAL_ANGLE_TYPES.length];
+      const concept    = await generateVisualConcept({
+        brief: { ...brief, visualType, platformBehavior },
+        messageCore, awarenessProfile, assetType: 'ad',
+      });
+      visualVariants.push({
+        variantIndex:  i,
+        visualType,
+        adHeadline:    adVariants[i]?.text?.headline || adVariants[i]?.headline || '',
+        platformSpecs: { ratio: platformBehavior.aspectRatios?.[0], maxText: platformBehavior.textOnImageMax },
+        ...concept,
+      });
     }
     results.ads = visualVariants;
     onStep?.('visual_ads_done', { count: visualVariants.length });
@@ -30,7 +46,11 @@ async function runVisualEngine({ brief, messageCore, awarenessProfile, decisionP
   // ── Landing Page Visuals ──────────────────────────────────────────────────
   if (assetTypes.includes('landing_page')) {
     onStep?.('visual_lp_start');
-    results.landing_page = await generateVisualConcept({ brief, messageCore, awarenessProfile, assetType: 'landing_page' });
+    const lpVisual = await generateVisualConcept({
+      brief: { ...brief, visualType: 'solution_scene' },
+      messageCore, awarenessProfile, assetType: 'landing_page',
+    });
+    results.landing_page = { ...lpVisual, visualType: 'solution_scene' };
     onStep?.('visual_lp_done');
   }
 
@@ -38,22 +58,34 @@ async function runVisualEngine({ brief, messageCore, awarenessProfile, decisionP
   if (assetTypes.includes('scripts')) {
     onStep?.('visual_scripts_start');
     const scriptVariants = textAssets?.scripts || [];
-    const videoVisuals = [];
+    const videoVisuals   = [];
     for (let i = 0; i < scriptVariants.length; i++) {
-      const concept = await generateVisualConcept({ brief, messageCore, awarenessProfile, assetType: 'video' });
-      videoVisuals.push({ variantIndex: i, ...concept });
+      const visualType = visualAngles[i]?.visualType || 'demo';
+      const concept    = await generateVisualConcept({
+        brief: { ...brief, visualType },
+        messageCore, awarenessProfile, assetType: 'video',
+      });
+      videoVisuals.push({
+        variantIndex: i,
+        visualType,
+        // Platform-specific video rules
+        platformRule: platformBehavior.hookRule,
+        hookWindow:   platformBehavior.videoHookSec,
+        retention:    platformBehavior.retentionRule || null,
+        ...concept,
+      });
     }
     results.scripts = videoVisuals;
     onStep?.('visual_scripts_done');
   }
 
   // ── Branding Direction ────────────────────────────────────────────────────
-  results.brandingDirection = _buildBrandingDirection({ brief, awarenessProfile });
+  results.brandingDirection = _buildBrandingDirection({ brief, awarenessProfile, platformBehavior });
 
   return results;
 }
 
-function _buildBrandingDirection({ brief, awarenessProfile }) {
+function _buildBrandingDirection({ brief, awarenessProfile, platformBehavior }) {
   const { platform, tone, productType } = brief;
   const level    = awarenessProfile?.level || 'problem_aware';
   const toneKey  = tone?.tone || 'direct';

@@ -4,6 +4,7 @@
  * Text Engine — orchestrates all text asset generation.
  * Pure routing: determines which AI calls to make, in what order, with what params.
  * Does NOT call AI directly (delegates to claude-execution-engine).
+ * Uses: emotion profile, angle testing, platform behavior, asset dependencies.
  */
 
 const {
@@ -15,20 +16,30 @@ const {
   generateCTA,
 } = require('../collectors/claude-execution-engine');
 
-const { buildVariationInstructions } = require('../core/anti-repetition');
+const { buildVariationInstructions }  = require('../core/anti-repetition');
+const { sortByDependencies }          = require('../core/asset-dependencies');
+const { getPlatformBehavior }         = require('../core/platform-behavior');
+const { getAngleInstructions }        = require('../core/angle-tester');
 
-async function runTextEngine({ brief, messageCore, offer, awarenessProfile, decisionProfile, onStep }) {
+async function runTextEngine({ brief, messageCore, offer, awarenessProfile, decisionProfile, emotionProfile, angleProfile, trackingLayer, onStep }) {
   const { assetTypes, executionMode } = brief;
   const { variantStrategy } = decisionProfile;
+
+  // Sort assets by dependency order
+  const orderedAssets = sortByDependencies(assetTypes);
+  const platformBehavior = getPlatformBehavior(brief.platform);
   const results = {};
 
   // ── Step 1: Hooks (always first — used by all other assets) ───────────────
-  if (_needsHooks(assetTypes)) {
+  if (_needsHooks(orderedAssets)) {
     onStep?.('hooks_start');
     const allHooks = [];
     for (let i = 0; i < variantStrategy.length; i++) {
       const variantInstructions = buildVariationInstructions(i, variantStrategy, allHooks.map(h => h.text));
-      const hookResult = await generateHooks({ brief, messageCore, awarenessProfile, decisionProfile, variantInstructions });
+      const hookResult = await generateHooks({
+        brief, messageCore, awarenessProfile, decisionProfile,
+        variantInstructions, emotionProfile, angleProfile, platformBehavior,
+      });
       allHooks.push(...(hookResult.hooks || []));
     }
     // Deduplicate
@@ -42,36 +53,47 @@ async function runTextEngine({ brief, messageCore, offer, awarenessProfile, deci
   }
 
   // ── Step 2: CTA variants ───────────────────────────────────────────────────
-  if (assetTypes.includes('cta') || assetTypes.includes('ads') || assetTypes.includes('landing_page')) {
+  if (orderedAssets.includes('cta') || orderedAssets.includes('ads') || orderedAssets.includes('landing_page')) {
     onStep?.('cta_start');
     const ctaResult = await generateCTA({ brief, messageCore, offer, awarenessProfile, count: 3 });
     results.cta = ctaResult.ctas || [];
     onStep?.('cta_done');
   }
 
-  // ── Step 3: Ads (per variant) ─────────────────────────────────────────────
-  if (assetTypes.includes('ads')) {
+  // ── Step 3: Ads (per variant with angle) ─────────────────────────────────
+  if (orderedAssets.includes('ads')) {
     onStep?.('ads_start');
     const adVariants = [];
     for (let i = 0; i < variantStrategy.length; i++) {
       const variantInstructions = buildVariationInstructions(i, variantStrategy, adVariants.map(a => a.hook_used));
+      // Add angle instructions to variant
+      const angleType   = angleProfile?.selected?.[i]?.angleType;
+      const angleInstr  = angleType ? getAngleInstructions(angleType) : '';
+      if (angleInstr) variantInstructions.angleInstruction = angleInstr;
       const hooks = results.hooks?.slice(i, i + 1) || [];
       const ad    = await generateAdCopy({ brief, messageCore, offer, awarenessProfile, decisionProfile, hooks, variantInstructions });
-      adVariants.push({ variantIndex: i, theme: variantStrategy[i]?.label, ...ad });
+      adVariants.push({
+        variantIndex: i,
+        theme:        variantStrategy[i]?.label,
+        angleType:    angleType || null,
+        ...ad,
+      });
     }
     results.ads = adVariants;
     onStep?.('ads_done', { count: adVariants.length });
   }
 
-  // ── Step 4: Landing Page ──────────────────────────────────────────────────
-  if (assetTypes.includes('landing_page')) {
+  // ── Step 4: Landing Page (with tracking) ─────────────────────────────────
+  if (orderedAssets.includes('landing_page')) {
     onStep?.('lp_start');
-    results.landing_page = await generateLandingPage({ brief, messageCore, offer, awarenessProfile, decisionProfile });
+    results.landing_page = await generateLandingPage({
+      brief, messageCore, offer, awarenessProfile, decisionProfile, trackingLayer,
+    });
     onStep?.('lp_done');
   }
 
   // ── Step 5: Scripts ───────────────────────────────────────────────────────
-  if (assetTypes.includes('scripts')) {
+  if (orderedAssets.includes('scripts')) {
     onStep?.('scripts_start');
     const scriptVariants = [];
     for (let i = 0; i < variantStrategy.length; i++) {
@@ -83,7 +105,7 @@ async function runTextEngine({ brief, messageCore, offer, awarenessProfile, deci
   }
 
   // ── Step 6: Email sequence ────────────────────────────────────────────────
-  if (assetTypes.includes('email')) {
+  if (orderedAssets.includes('email')) {
     onStep?.('email_start');
     const sequenceLength = decisionProfile?.assetRouting?.email?.sequenceLength || 3;
     const emails = [];

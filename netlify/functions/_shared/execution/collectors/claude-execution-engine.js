@@ -11,22 +11,30 @@ const MODEL  = 'claude-haiku-4-5-20251001';
 const MODEL_HEAVY = 'claude-sonnet-4-6';
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
-async function generateHooks({ brief, messageCore, awarenessProfile, decisionProfile, variantInstructions }) {
-  const { selectedPain, coreMessage, tone, method, targetCustomer } = brief;
+async function generateHooks({ brief, messageCore, awarenessProfile, decisionProfile, variantInstructions, emotionProfile, angleProfile, platformBehavior }) {
+  const { selectedPain, coreMessage, tone, method, targetCustomer, platform } = brief;
   const count = decisionProfile?.depthProfile?.hookCount || 3;
-  const hookApproach = awarenessProfile?.behavior?.hookApproach || 'pain_agitation';
-  const toneKey      = tone?.tone || 'direct';
+  const hookApproach  = awarenessProfile?.behavior?.hookApproach || 'pain_agitation';
+  const toneKey       = tone?.tone || 'direct';
+  const emotion       = emotionProfile?.primary || 'frustration';
+  const angleType     = angleProfile?.primaryAngle || 'pain_based';
+  const anglePattern  = angleProfile?.selected?.[0]?.hookPattern || '';
+  const platformHookRule = platformBehavior?.hookRule || '';
+  const platformWindow   = platformBehavior?.hookWindow || '';
 
   const prompt = `אתה מומחה לכתיבת hooks שיווקיים בעברית.
 
 הקשר:
 - כאב: ${selectedPain}
-- מסר מרכזי: ${coreMessage}
+- Big Idea: ${messageCore?.bigIdea || coreMessage || ''}
 - קהל יעד: ${targetCustomer}
 - גישת hook: ${hookApproach}
 - טון: ${toneKey}
+- רגש מרכזי לעורר: ${emotion}
+- זווית: ${angleType} ${anglePattern ? `— תבנית: "${anglePattern}"` : ''}
 - רמת מודעות: ${awarenessProfile?.level || 'problem_aware'} (${awarenessProfile?.behavior?.label || ''})
 - שיטת שיווק: ${method?.primary?.method || 'direct_response'}
+- פלטפורמה: ${platform} — ${platformHookRule} (חלון: ${platformWindow})
 ${variantInstructions?.avoidInstruction ? `\nאל תשתמש ב: ${variantInstructions.avoidInstruction}` : ''}
 ${variantInstructions?.openingInstruction ? `\nהוראת פתיחה: ${variantInstructions.openingInstruction}` : ''}
 
@@ -34,7 +42,7 @@ ${variantInstructions?.openingInstruction ? `\nהוראת פתיחה: ${variantI
 החזר JSON בלבד:
 {
   "hooks": [
-    { "text": "...", "type": "pain/curiosity/story/stat/contrast", "approach": "..." },
+    { "text": "...", "type": "pain/curiosity/story/stat/contrast", "approach": "...", "emotion_triggered": "..." },
     ...
   ]
 }`;
@@ -81,10 +89,14 @@ ${variantInstructions?.toneInstruction || ''}
 }
 
 // ── Landing Page ──────────────────────────────────────────────────────────────
-async function generateLandingPage({ brief, messageCore, offer, awarenessProfile, decisionProfile }) {
-  const { selectedPain, productName, productType, targetCustomer } = brief;
+async function generateLandingPage({ brief, messageCore, offer, awarenessProfile, decisionProfile, trackingLayer }) {
+  const { selectedPain, productName, productType, targetCustomer, platform } = brief;
   const sections  = decisionProfile?.assetRouting?.landing_page?.sections || ['hero','pain_block','solution','proof','offer','cta'];
   const intensity = decisionProfile?.intensity || 3;
+  const bigIdea   = messageCore?.bigIdea || messageCore?.corePromise?.transformation || '';
+  const microMsgs = messageCore?.messageHierarchy?.microMessages || [];
+  const pixels    = trackingLayer?.pixels || ['meta', 'ga4'];
+  const primaryConversion = trackingLayer?.primaryConversion || 'Lead';
 
   const prompt = `אתה מומחה ל-landing pages בעברית.
 
@@ -96,11 +108,15 @@ async function generateLandingPage({ brief, messageCore, offer, awarenessProfile
 - ערבות: ${offer?.guaranteeLine || ''}
 - דחיפות: ${offer?.urgencyLine || ''}
 - ערך מוצר: ${(offer?.valueStack?.items || []).join(', ')}
+- Big Idea: ${bigIdea}
 - מסר מרכזי: ${messageCore?.corePromise?.transformation || ''}
+- Micro messages: ${microMsgs.join(' | ')}
 - proof points: ${messageCore?.proofPoints?.map(p => p.text).join('; ') || ''}
 - Objection handlers: ${messageCore?.objectionHandlers?.map(o => `"${o.obj}" → "${o.handler}"`).join('; ') || ''}
 - סקציות נדרשות: ${sections.join(', ')}
 - עוצמה: ${intensity}/5
+- פלטפורמת טראקינג: ${pixels.join(', ')}
+- conversion event ראשי: ${primaryConversion}
 
 כתוב תוכן לכל סקציה. החזר JSON:
 {
@@ -287,27 +303,90 @@ ${assetSummary}
   return _parseJSON(result, { scores: {}, overall_score: 0, approved: false });
 }
 
-// ── Decision Explanation ──────────────────────────────────────────────────────
-async function generateDecisionExplanation({ brief, decisionProfile, awarenessProfile, consistencyResult }) {
+// ── Decision Explanation (with persuasion logic) ──────────────────────────────
+async function generateDecisionExplanation({ brief, decisionProfile, awarenessProfile, consistencyResult, emotionProfile, angleProfile }) {
+  const userLevel = brief.requiresSimpleLanguage ? 'beginner' : 'standard';
+
   const prompt = `אתה מסביר למשתמש את ההחלטות השיווקיות שנלקחו.
+רמת משתמש: ${userLevel === 'beginner' ? 'מתחיל — הסבר בפשטות, בלי מונחים טכניים' : 'מתקדם — קצר ועניין'}
 
 הקשר:
 - מצב קהל: ${awarenessProfile?.behavior?.label || ''}
+- רגש מרכזי: ${emotionProfile?.primary || ''} (${emotionProfile?.primaryProfile?.description || ''})
+- זווית: ${angleProfile?.primaryAngle || ''} (${angleProfile?.selected?.[0]?.angleProfile?.description || ''})
 - עוצמה: ${decisionProfile?.intensity}/5
 - מצב ביצוע: ${brief.executionMode}
 - בעיות שזוהו: ${consistencyResult?.issues?.map(i => i.message).join('; ') || 'אין'}
 
-כתוב הסבר קצר (3-4 משפטים) בעברית נגישה למה נבחרו האפשרויות האלה.
-החזר JSON:
+כתוב הסבר ב-4 שדות. החזר JSON:
 {
   "explanation":    "...",
   "key_decision":   "...",
   "why_it_works":   "...",
-  "watch_out_for":  "..."
+  "watch_out_for":  "...",
+  "persuasion_logic": "למה זה אמור לשכנע את הקהל הספציפי הזה"
+}`;
+
+  const result = await callClaude({ model: MODEL, prompt, maxTokens: 500 });
+  return _parseJSON(result, { explanation: '', key_decision: '', why_it_works: '', persuasion_logic: '' });
+}
+
+// ── WhatsApp Message ──────────────────────────────────────────────────────────
+async function generateWhatsApp({ brief, messageCore, offer, awarenessProfile }) {
+  const { selectedPain, targetCustomer, tone } = brief;
+
+  const prompt = `אתה מומחה לכתיבת הודעות WhatsApp שיווקיות בעברית.
+
+הקשר:
+- כאב: ${selectedPain}
+- קהל: ${targetCustomer}
+- הצעה: ${offer?.mainOfferLine || ''}
+- מסר: ${messageCore?.headline || ''}
+- טון: ${tone?.tone || 'conversational'}
+- רמת מודעות: ${awarenessProfile?.level || 'problem_aware'}
+
+כתוב הודעת WhatsApp קצרה (עד 3 פסקאות). החזר JSON:
+{
+  "message":    "...",
+  "emoji_used": true,
+  "char_count": 0,
+  "cta_line":   "..."
 }`;
 
   const result = await callClaude({ model: MODEL, prompt, maxTokens: 400 });
-  return _parseJSON(result, { explanation: '', key_decision: '', why_it_works: '' });
+  return _parseJSON(result, { message: '', cta_line: '' });
+}
+
+// ── Pre-QA Self Simulation ─────────────────────────────────────────────────────
+async function runPreQaSimulation({ assets, brief, messageCore }) {
+  const assetTypes = Object.keys(assets || {}).join(', ');
+  const sample     = JSON.stringify(assets?.ads?.[0] || assets?.hooks?.[0] || {}).slice(0, 300);
+
+  const prompt = `אתה מדמה קורא של נכסים שיווקיים — לפני שהם עוברים ל-QA.
+שאל את עצמך 3 שאלות קריטיות ותן ציון:
+
+נכסים: ${assetTypes}
+דוגמה: ${sample}
+מסר מרכזי: ${messageCore?.headline || ''}
+כאב: ${brief.selectedPain || ''}
+
+3 שאלות לבדוק:
+1. האם זה ברור? (האם הקורא מיד מבין מה מוצע לו?)
+2. האם זה חזק? (האם יש hook שמפסיק את הגלילה?)
+3. האם זה ממוקד? (האם כל מסר מחובר לכאב אחד?)
+
+החזר JSON:
+{
+  "is_clear":   { "score": 0-10, "note": "..." },
+  "is_strong":  { "score": 0-10, "note": "..." },
+  "is_focused": { "score": 0-10, "note": "..." },
+  "overall":    0-10,
+  "ready_for_qa": true,
+  "top_fix":    "..."
+}`;
+
+  const result = await callClaude({ model: MODEL, prompt, maxTokens: 500 });
+  return _parseJSON(result, { is_clear: {}, is_strong: {}, is_focused: {}, overall: 0, ready_for_qa: false });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -330,4 +409,6 @@ module.exports = {
   generateCTA,
   generateSelfFeedback,
   generateDecisionExplanation,
+  generateWhatsApp,
+  runPreQaSimulation,
 };
