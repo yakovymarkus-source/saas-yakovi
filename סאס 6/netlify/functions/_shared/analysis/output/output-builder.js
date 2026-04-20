@@ -5,6 +5,8 @@
  * Also handles failure modes: no data, invalid data, KPI not defined (section 22).
  */
 
+const { attachEndUserInsights } = require('../insights/end-user-translator');
+
 /**
  * Build the final standardized output.
  * All analysis results flow through here.
@@ -97,6 +99,12 @@ function buildAnalysisOutput({
     // ── Data quality ─────────────────────────────────────────────────────────
     integrity,
     scores,
+
+    // ── End-user translated insights (שפה פשוטה למשתמש קצה) ──────────────────
+    end_user_insights: attachEndUserInsights(
+      { issues: insights?.priorities || [], findings: anomalies?.signals || [] },
+      { business_type: brief?.businessProfile?.type || brief?.goal, user_level: 'beginner', display_mode: 'simple' }
+    ).end_user_insights || null,
   };
 }
 
