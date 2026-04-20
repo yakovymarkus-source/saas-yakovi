@@ -3,6 +3,15 @@ import { resolveMetrics } from '../integrations/metricsProvider';
 import { normalizeMetrics } from './normalize';
 import { computeMetrics } from './metrics';
 import { runDecisionEngine } from './decisionEngine';
+import { buildGoalHierarchy } from './goalHierarchy';
+import { detectTradeoffs } from './tradeoffEngine';
+import { buildNarrative } from './narrativeEngine';
+import { matchPatterns, enrichPatternsWithMemory } from './patternLibrary';
+import { calibrateConfidence } from './confidenceCalibration';
+import { buildPriorityDirectives } from './priorityEngine';
+import { initExecutionSync } from './executionSync';
+import { evaluateAutoTriggers } from './autoTrigger';
+import { recordMemory } from './learningMemory';
 import { AnalysisRequest, AuthenticatedUser, EngineResult } from '../types/domain';
 import { stableStringify } from '../utils/stableStringify';
 import { HttpError } from '../utils/http';
@@ -71,7 +80,42 @@ export async function runAnalysis(
     const metrics = await resolveMetrics(input);
     const normalized = normalizeMetrics(metrics);
     const computed = computeMetrics(normalized);
-    const result = runDecisionEngine(input.campaign, normalized, computed);
+    const base = runDecisionEngine(input.campaign, normalized, computed);
+
+    // Enrich with all gap engines
+    const goals = buildGoalHierarchy(input.campaign.objective, computed, normalized);
+    const tradeoffs = detectTradeoffs(computed, normalized);
+    const narrative = buildNarrative(base);
+    const rawPatterns = matchPatterns(computed, normalized);
+    const patternMatches = context.userId ? enrichPatternsWithMemory(rawPatterns, context.userId) : rawPatterns;
+    const confidenceRoute = calibrateConfidence(base.confidence, base.issues);
+    const priorityDirectives = buildPriorityDirectives(base.prioritizedActions, base.verdict);
+    const executionSync = initExecutionSync(context.analysisId ?? 'temp', base.prioritizedActions);
+    const autoTriggers = evaluateAutoTriggers(computed, normalized);
+
+    if (context.userId && context.campaignId) {
+      recordMemory({
+        campaignId: context.campaignId,
+        userId: context.userId,
+        verdict: base.verdict,
+        confidence: base.confidence,
+        topIssueCode: base.issues[0]?.code ?? 'none',
+        patternIds: rawPatterns.map(m => m.pattern.id),
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const result: EngineResult = {
+      ...base,
+      goals,
+      tradeoffs,
+      narrative,
+      patternMatches,
+      confidenceRoute,
+      priorityDirectives,
+      executionSync,
+      autoTriggers
+    };
 
     await logEvent({
       level: 'info',
@@ -85,7 +129,9 @@ export async function runAnalysis(
         source: input.source,
         verdict: result.verdict,
         confidence: result.confidence,
-        engineVersion: result.decisionLog.engineVersion
+        engineVersion: result.decisionLog.engineVersion,
+        autoTriggersCount: autoTriggers.length,
+        patternMatchesCount: patternMatches.length
       }
     });
 

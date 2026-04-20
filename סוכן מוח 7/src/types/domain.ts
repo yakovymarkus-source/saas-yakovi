@@ -108,6 +108,99 @@ export interface Action {
   priorityScore: number;
 }
 
+// ── Goal Hierarchy ────────────────────────────────────────────────────────────
+export type GoalStatus = 'on_track' | 'at_risk' | 'off_track';
+
+export interface GoalLevel {
+  name: string;
+  metric: string;
+  value: number | null;
+  target: number | null;
+  status: GoalStatus;
+}
+
+export interface GoalHierarchy {
+  primary: GoalLevel;
+  secondary: GoalLevel[];
+  operational: GoalLevel[];
+}
+
+// ── Tradeoffs ─────────────────────────────────────────────────────────────────
+export interface Tradeoff {
+  metricA: string;
+  metricB: string;
+  observation: string;
+  recommendation: string;
+}
+
+// ── Narrative ─────────────────────────────────────────────────────────────────
+export interface NarrativeOutput {
+  headline: string;
+  story: string;
+  bottleneck: string;
+  action: string;
+}
+
+// ── Pattern Library ───────────────────────────────────────────────────────────
+export interface KnownPattern {
+  id: string;
+  name: string;
+  diagnosis: string;
+  solution: string;
+  confidence: number;
+}
+
+export interface PatternMatch {
+  pattern: KnownPattern;
+  matchScore: number;
+}
+
+// ── Confidence Routing ────────────────────────────────────────────────────────
+export type ConfidenceRecommendation = 'act_now' | 'test_first' | 'gather_more_data';
+
+export interface ConfidenceRoute {
+  confidence: number;
+  recommendation: ConfidenceRecommendation;
+  rationale: string;
+}
+
+// ── Advanced Priority ─────────────────────────────────────────────────────────
+export interface PriorityDirective {
+  order: number;
+  action: string;
+  reason: string;
+  blockedBy?: string;
+}
+
+// ── Execution Sync ────────────────────────────────────────────────────────────
+export type ExecutionStatus = 'pending' | 'executed' | 'skipped';
+
+export interface ExecutionSyncItem {
+  actionCode: string;
+  title: string;
+  status: ExecutionStatus;
+  executedAt?: string;
+}
+
+// ── Auto-Trigger ──────────────────────────────────────────────────────────────
+export type TriggerSeverity = 'low' | 'medium' | 'high' | 'critical';
+
+export interface AutoTriggerRule {
+  id: string;
+  condition: string;
+  triggered: boolean;
+  action: string;
+  severity: TriggerSeverity;
+}
+
+// ── Query Engine ──────────────────────────────────────────────────────────────
+export interface QueryResponse {
+  query: string;
+  answer: string;
+  relatedIssues: string[];
+  confidence: number;
+}
+
 export interface EngineResult {
   verdict: VerdictType;
   confidence: number;
@@ -116,6 +209,15 @@ export interface EngineResult {
   issues: Issue[];
   prioritizedActions: Action[];
   decisionLog: Record<string, unknown>;
+  // Gap completions (all optional for backward compat)
+  goals?: GoalHierarchy;
+  tradeoffs?: Tradeoff[];
+  narrative?: NarrativeOutput;
+  patternMatches?: PatternMatch[];
+  confidenceRoute?: ConfidenceRoute;
+  priorityDirectives?: PriorityDirective[];
+  executionSync?: ExecutionSyncItem[];
+  autoTriggers?: AutoTriggerRule[];
 }
 
 export interface ExportedAnalysisPayload {
