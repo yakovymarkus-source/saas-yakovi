@@ -5,6 +5,16 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Orchestration background function (15 min limit, returns 202 immediately)
+[functions."analyze-campaign-background"]
+  timeout = 900
+
+[functions."orchestrate-start"]
+  timeout = 10
+
+[functions."orchestrate-status"]
+  timeout = 10
+
 # Function timeouts
 [functions."campaigner-chat"]
   timeout = 26
