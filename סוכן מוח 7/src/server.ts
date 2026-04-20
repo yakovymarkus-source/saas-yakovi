@@ -9,6 +9,7 @@ import { healthRoutes } from './api/healthRoutes';
 import { campaignBuildRoutes } from './routes/campaignBuildRoutes';
 import { campaignAssetsRoutes } from './routes/campaignAssetsRoutes';
 import { campaignOptimizationRoutes } from './routes/campaignOptimizationRoutes';
+import { orchestrationRoutes } from './api/orchestrationRoutes';
 import { writeOperationalLog } from './utils/logger';
 
 export function createApp(): express.Express {
@@ -24,6 +25,7 @@ export function createApp(): express.Express {
   app.use('/api/campaigns', campaignBuildRoutes);
   app.use('/api/campaigns', campaignAssetsRoutes);
   app.use('/api/campaigns', campaignOptimizationRoutes);
+  app.use('/api/orchestration', orchestrationRoutes);
   app.get('*', (_req, res) => res.sendFile(path.join(frontendPath, 'index.html')));
   app.use(errorHandler);
 
