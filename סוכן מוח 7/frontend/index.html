@@ -1,43 +1,134 @@
 <!doctype html>
-<html lang="en">
+<html lang="he" dir="rtl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Campaign Brain</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; background: #0b1020; color: #f3f4f6; }
-    main { max-width: 1080px; margin: 0 auto; padding: 32px; }
-    textarea, input, select, button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid #334155; background: #111827; color: #f3f4f6; }
-    button { cursor: pointer; background: #2563eb; border: 0; }
-    pre { background: #020617; padding: 16px; border-radius: 8px; overflow: auto; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',Arial,sans-serif;background:#0b1120;color:#e2e8f0;min-height:100vh;direction:rtl}
+    /* AUTH */
+    #auth-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px}
+    .auth-card{background:#111827;border:1px solid #1e2d45;border-radius:16px;padding:40px;width:100%;max-width:420px}
+    .auth-card h1{font-size:1.6rem;font-weight:700;color:#60a5fa;margin-bottom:4px}
+    .auth-card p{color:#64748b;font-size:.9rem;margin-bottom:28px}
+    .auth-tabs{display:flex;gap:8px;margin-bottom:24px}
+    .auth-tab{flex:1;padding:10px;border:1px solid #1e2d45;border-radius:8px;background:transparent;color:#94a3b8;cursor:pointer;font-size:.9rem;transition:.2s}
+    .auth-tab.active{background:#1e3a5f;border-color:#3b82f6;color:#60a5fa}
+    .field{margin-bottom:14px}
+    .field label{display:block;font-size:.82rem;color:#94a3b8;margin-bottom:5px}
+    .field input{width:100%;padding:11px 14px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#e2e8f0;font-size:.95rem;outline:none;transition:.2s}
+    .field input:focus{border-color:#3b82f6}
+    .btn{width:100%;padding:12px;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer;transition:.2s}
+    .btn-primary{background:#2563eb;color:#fff}
+    .btn-primary:hover{background:#1d4ed8}
+    .btn-primary:disabled{background:#334155;color:#64748b;cursor:not-allowed}
+    .auth-msg{margin-top:14px;padding:10px 14px;border-radius:8px;font-size:.88rem;text-align:center;display:none}
+    .auth-msg.error{background:#450a0a;border:1px solid #7f1d1d;color:#fca5a5;display:block}
+    .auth-msg.success{background:#052e16;border:1px solid #14532d;color:#86efac;display:block}
+    /* APP */
+    #app-screen{display:none;min-height:100vh;flex-direction:column}
+    .topbar{background:#111827;border-bottom:1px solid #1e2d45;padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:56px}
+    .topbar-brand{font-weight:700;color:#60a5fa;font-size:1.1rem}
+    .topbar-user{display:flex;align-items:center;gap:12px;font-size:.85rem;color:#64748b}
+    .topbar-user span{color:#94a3b8}
+    .logout-btn{background:none;border:1px solid #334155;color:#94a3b8;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:.82rem}
+    .logout-btn:hover{border-color:#ef4444;color:#ef4444}
+    .tabs{background:#111827;border-bottom:1px solid #1e2d45;display:flex;padding:0 24px;gap:4px}
+    .tab{padding:14px 20px;border:none;background:none;color:#64748b;cursor:pointer;font-size:.9rem;border-bottom:2px solid transparent;transition:.2s}
+    .tab.active{color:#60a5fa;border-bottom-color:#3b82f6}
+    .tab-content{display:none;padding:28px 24px;max-width:900px;width:100%}
+    .tab-content.active{display:block}
+    /* PANELS */
+    .panel{background:#111827;border:1px solid #1e2d45;border-radius:12px;padding:24px;margin-bottom:20px}
+    .panel h2{font-size:1rem;font-weight:600;color:#93c5fd;margin-bottom:16px}
+    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    .form-row.single{grid-template-columns:1fr}
+    .form-field label{display:block;font-size:.8rem;color:#64748b;margin-bottom:4px}
+    .form-field input,.form-field select,.form-field textarea{width:100%;padding:9px 12px;background:#1e293b;border:1px solid #334155;border-radius:7px;color:#e2e8f0;font-size:.88rem;outline:none}
+    .form-field textarea{resize:vertical;min-height:140px;font-family:monospace}
+    .form-field input:focus,.form-field select:focus,.form-field textarea:focus{border-color:#3b82f6}
+    .action-btn{padding:10px 20px;border:none;border-radius:8px;font-size:.88rem;font-weight:600;cursor:pointer;transition:.2s;margin-left:8px}
+    .action-btn.primary{background:#2563eb;color:#fff}
+    .action-btn.primary:hover{background:#1d4ed8}
+    .action-btn.secondary{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+    .action-btn:disabled{opacity:.5;cursor:not-allowed}
+    .result-box{background:#020617;border:1px solid #0f172a;border-radius:8px;padding:16px;margin-top:16px;font-family:monospace;font-size:.8rem;white-space:pre-wrap;max-height:400px;overflow:auto;color:#94a3b8;display:none}
+    .result-box.show{display:block}
+    .status-badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:.75rem;font-weight:600}
+    .badge-ok{background:#052e16;color:#86efac;border:1px solid #166534}
+    .badge-err{background:#450a0a;color:#fca5a5;border:1px solid #7f1d1d}
+    .badge-wait{background:#1c1917;color:#fed7aa;border:1px solid #78350f}
+    .session-row{background:#1e293b;border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:.85rem}
+    .session-state{font-size:.78rem;color:#60a5fa}
+    @media(max-width:640px){.form-row{grid-template-columns:1fr}.topbar{padding:0 12px}.tab-content{padding:16px 12px}}
   </style>
 </head>
 <body>
-  <main>
-    <h1>Campaign Brain SaaS</h1>
-    <div class="grid">
-      <section>
-        <h2>Register</h2>
-        <input id="register-email" placeholder="Email" />
-        <input id="register-password" type="password" placeholder="Password" />
-        <button onclick="registerUser()">Register</button>
-        <h2>Login</h2>
-        <input id="login-email" placeholder="Email" />
-        <input id="login-password" type="password" placeholder="Password" />
-        <button onclick="loginUser()">Login</button>
-        <h2>Analyze</h2>
-        <select id="source">
-          <option value="meta">Meta Ads</option>
-          <option value="googleAds">Google Ads</option>
-          <option value="ga4">GA4</option>
-        </select>
-        <input id="campaign-external-id" placeholder="External Campaign ID (optional)" />
-        <textarea id="campaign-payload" rows="18">{
+
+<!-- AUTH -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <h1>Campaign Brain</h1>
+    <p>מערכת ניתוח וניהול קמפיינים</p>
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchAuthTab('login')">כניסה</button>
+      <button class="auth-tab" onclick="switchAuthTab('register')">הרשמה</button>
+    </div>
+    <div id="login-form">
+      <div class="field"><label>אימייל</label><input id="l-email" type="email" placeholder="your@email.com"/></div>
+      <div class="field"><label>סיסמה</label><input id="l-pass" type="password" placeholder="לפחות 8 תווים"/></div>
+      <button class="btn btn-primary" id="login-btn" onclick="doLogin()">כניסה למערכת</button>
+    </div>
+    <div id="register-form" style="display:none">
+      <div class="field"><label>אימייל</label><input id="r-email" type="email" placeholder="your@email.com"/></div>
+      <div class="field"><label>סיסמה</label><input id="r-pass" type="password" placeholder="לפחות 8 תווים"/></div>
+      <button class="btn btn-primary" id="register-btn" onclick="doRegister()">צור חשבון</button>
+    </div>
+    <div id="auth-msg" class="auth-msg"></div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app-screen">
+  <div class="topbar">
+    <div class="topbar-brand">Campaign Brain</div>
+    <div class="topbar-user">
+      <span id="user-email-label"></span>
+      <button class="logout-btn" onclick="doLogout()">יציאה</button>
+    </div>
+  </div>
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('analysis')">ניתוח קמפיין</button>
+    <button class="tab" onclick="switchTab('campaign')">בניית קמפיין</button>
+    <button class="tab" onclick="switchTab('orchestration')">תזמור</button>
+  </div>
+
+  <!-- ANALYSIS TAB -->
+  <div id="tab-analysis" class="tab-content active">
+    <div class="panel">
+      <h2>הרץ ניתוח קמפיין</h2>
+      <div class="form-row">
+        <div class="form-field">
+          <label>מקור</label>
+          <select id="a-source">
+            <option value="meta">Meta Ads</option>
+            <option value="googleAds">Google Ads</option>
+            <option value="ga4">GA4</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>מזהה קמפיין חיצוני (אופציונלי)</label>
+          <input id="a-ext-id" placeholder="campaign_id"/>
+        </div>
+      </div>
+      <div class="form-row single">
+        <div class="form-field">
+          <label>נתוני קמפיין (JSON)</label>
+          <textarea id="a-payload">{
   "name": "Spring Funnel",
   "objective": "lead_generation",
-  "currency": "USD",
+  "currency": "ILS",
   "manualMetrics": {
     "impressions": 10000,
     "clicks": 120,
@@ -51,68 +142,295 @@
     "bounceRate": 0.62
   }
 }</textarea>
-        <button onclick="analyzeCampaign()">Run Analysis</button>
-      </section>
-      <section>
-        <h2>Output</h2>
-        <pre id="output">Ready.</pre>
-      </section>
+        </div>
+      </div>
+      <button class="action-btn primary" onclick="runAnalysis()">הרץ ניתוח</button>
+      <div id="analysis-result" class="result-box"></div>
     </div>
-  </main>
-  <script>
-    let token = '';
-    const output = document.getElementById('output');
-    function showStatus(msg, isError) {
-      output.textContent = msg;
-      output.style.color = isError ? '#f87171' : '#86efac';
+
+    <div class="panel">
+      <h2>שאילתה חופשית</h2>
+      <div class="form-row single">
+        <div class="form-field">
+          <label>שאל שאלה על הקמפיין</label>
+          <input id="q-text" placeholder="למשל: מה הבעיה העיקרית בקמפיין?"/>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label>מזהה ניתוח (מהריצה למעלה)</label>
+          <input id="q-analysis-id" placeholder="analysis_id"/>
+        </div>
+        <div class="form-field">
+          <label>מזהה קמפיין</label>
+          <input id="q-campaign-id" placeholder="campaign_id"/>
+        </div>
+      </div>
+      <button class="action-btn primary" onclick="runQuery()">שאל</button>
+      <div id="query-result" class="result-box"></div>
+    </div>
+  </div>
+
+  <!-- CAMPAIGN TAB -->
+  <div id="tab-campaign" class="tab-content">
+    <div class="panel">
+      <h2>בנה אסטרטגיית קמפיין</h2>
+      <div class="form-row">
+        <div class="form-field">
+          <label>מזהה קמפיין</label>
+          <input id="c-id" placeholder="campaign_id"/>
+        </div>
+        <div class="form-field">
+          <label>מטרה</label>
+          <select id="c-objective">
+            <option value="lead_generation">לידים</option>
+            <option value="sales">מכירות</option>
+            <option value="awareness">מודעות</option>
+            <option value="traffic">תנועה</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row single">
+        <div class="form-field">
+          <label>פרטי עסק (JSON)</label>
+          <textarea id="c-payload" style="min-height:100px">{
+  "businessName": "העסק שלי",
+  "product": "תיאור המוצר",
+  "targetAudience": "קהל יעד",
+  "budget": 5000
+}</textarea>
+        </div>
+      </div>
+      <button class="action-btn primary" onclick="buildCampaign()">בנה אסטרטגיה</button>
+      <div id="campaign-result" class="result-box"></div>
+    </div>
+
+    <div class="panel">
+      <h2>צור נכסים</h2>
+      <div class="form-row">
+        <div class="form-field">
+          <label>מזהה קמפיין</label>
+          <input id="asset-cid" placeholder="campaign_id"/>
+        </div>
+        <div class="form-field">
+          <label>סוג נכס</label>
+          <select id="asset-type">
+            <option value="ads">מודעות</option>
+            <option value="landing-page">דף נחיתה</option>
+            <option value="video-scripts">סקריפטים לוידאו</option>
+          </select>
+        </div>
+      </div>
+      <button class="action-btn primary" onclick="createAsset()">צור נכס</button>
+      <div id="asset-result" class="result-box"></div>
+    </div>
+  </div>
+
+  <!-- ORCHESTRATION TAB -->
+  <div id="tab-orchestration" class="tab-content">
+    <div class="panel">
+      <h2>צור סשן תזמור</h2>
+      <div class="form-row">
+        <div class="form-field">
+          <label>מזהה עסק</label>
+          <input id="o-biz" placeholder="business_id"/>
+        </div>
+        <div class="form-field">
+          <label>רמת אוטומציה</label>
+          <select id="o-automation">
+            <option value="semi_auto">חצי אוטומטי</option>
+            <option value="full_auto">אוטומטי מלא</option>
+            <option value="manual">ידני</option>
+          </select>
+        </div>
+      </div>
+      <button class="action-btn primary" onclick="createSession()">צור סשן</button>
+      <div id="session-result" class="result-box"></div>
+    </div>
+
+    <div class="panel" id="session-actions-panel" style="display:none">
+      <h2>פעולות על סשן <span id="active-session-id" style="color:#60a5fa;font-size:.85rem"></span></h2>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+        <button class="action-btn secondary" onclick="tickSession()">Tick</button>
+        <button class="action-btn secondary" onclick="runResearch()">מחקר</button>
+        <button class="action-btn secondary" onclick="runStrategy()">אסטרטגיה</button>
+        <button class="action-btn secondary" onclick="runExecute()">ביצוע</button>
+        <button class="action-btn secondary" onclick="runQA()">QA</button>
+        <button class="action-btn secondary" onclick="runAnalyzeSession()">ניתוח</button>
+        <button class="action-btn secondary" onclick="getSuggestions()">הצעות</button>
+        <button class="action-btn secondary" onclick="getActivity()">פעילות</button>
+      </div>
+      <div id="orch-result" class="result-box show" style="min-height:80px"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let token = '';
+  let userEmail = '';
+  let activeSessionId = '';
+
+  // ─── AUTH ───────────────────────────────────────────
+  function switchAuthTab(tab) {
+    document.querySelectorAll('.auth-tab').forEach((t,i)=>t.classList.toggle('active', (tab==='login'&&i===0)||(tab==='register'&&i===1)));
+    document.getElementById('login-form').style.display = tab==='login'?'block':'none';
+    document.getElementById('register-form').style.display = tab==='register'?'block':'none';
+    hideAuthMsg();
+  }
+  function showAuthMsg(msg, isError) {
+    const el = document.getElementById('auth-msg');
+    el.textContent = msg;
+    el.className = 'auth-msg ' + (isError ? 'error' : 'success');
+  }
+  function hideAuthMsg() { document.getElementById('auth-msg').className = 'auth-msg'; }
+
+  async function authRequest(path, body) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    return res.json();
+  }
+
+  async function doLogin() {
+    const btn = document.getElementById('login-btn');
+    btn.disabled = true; btn.textContent = 'מתחבר...';
+    hideAuthMsg();
+    const data = await authRequest('/api/auth/login', {
+      email: document.getElementById('l-email').value.trim(),
+      password: document.getElementById('l-pass').value
+    });
+    btn.disabled = false; btn.textContent = 'כניסה למערכת';
+    if (!data.ok) { showAuthMsg(data.error || 'כניסה נכשלה', true); return; }
+    enterApp(data.token, data.user?.email || document.getElementById('l-email').value.trim());
+  }
+
+  async function doRegister() {
+    const btn = document.getElementById('register-btn');
+    btn.disabled = true; btn.textContent = 'יוצר חשבון...';
+    hideAuthMsg();
+    const data = await authRequest('/api/auth/register', {
+      email: document.getElementById('r-email').value.trim(),
+      password: document.getElementById('r-pass').value
+    });
+    btn.disabled = false; btn.textContent = 'צור חשבון';
+    if (!data.ok) { showAuthMsg(data.error || 'הרשמה נכשלה', true); return; }
+    enterApp(data.token, data.user?.email || document.getElementById('r-email').value.trim());
+  }
+
+  function enterApp(t, email) {
+    token = t; userEmail = email;
+    document.getElementById('auth-screen').style.display = 'none';
+    document.getElementById('app-screen').style.display = 'flex';
+    document.getElementById('user-email-label').textContent = email;
+  }
+
+  function doLogout() {
+    token = ''; userEmail = '';
+    document.getElementById('app-screen').style.display = 'none';
+    document.getElementById('auth-screen').style.display = 'flex';
+  }
+
+  // ─── TABS ───────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t,i)=>{
+      const names=['analysis','campaign','orchestration'];
+      t.classList.toggle('active', names[i]===name);
+    });
+    document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+    document.getElementById('tab-'+name).classList.add('active');
+  }
+
+  // ─── API ─────────────────────────────────────────────
+  async function api(path, method='GET', body=null) {
+    const res = await fetch(path, {
+      method,
+      headers: {'Content-Type':'application/json', 'Authorization':'Bearer '+token},
+      body: body ? JSON.stringify(body) : undefined
+    });
+    return res.json();
+  }
+
+  function showResult(id, data) {
+    const el = document.getElementById(id);
+    el.textContent = JSON.stringify(data, null, 2);
+    el.classList.add('show');
+  }
+
+  // ─── ANALYSIS ────────────────────────────────────────
+  async function runAnalysis() {
+    let payload;
+    try { payload = JSON.parse(document.getElementById('a-payload').value); }
+    catch { showResult('analysis-result',{error:'JSON לא תקין'}); return; }
+    const data = await api('/api/analysis/run','POST',{
+      source: document.getElementById('a-source').value,
+      externalCampaignId: document.getElementById('a-ext-id').value||undefined,
+      campaign: payload
+    });
+    showResult('analysis-result', data);
+    if (data.analysisId) document.getElementById('q-analysis-id').value = data.analysisId;
+    if (data.campaignId) document.getElementById('q-campaign-id').value = data.campaignId;
+  }
+
+  async function runQuery() {
+    const data = await api('/api/analysis/query','POST',{
+      query: document.getElementById('q-text').value,
+      analysisId: document.getElementById('q-analysis-id').value||undefined,
+      campaignId: document.getElementById('q-campaign-id').value||undefined
+    });
+    showResult('query-result', data);
+  }
+
+  // ─── CAMPAIGN ────────────────────────────────────────
+  async function buildCampaign() {
+    let body;
+    try { body = JSON.parse(document.getElementById('c-payload').value); }
+    catch { showResult('campaign-result',{error:'JSON לא תקין'}); return; }
+    body.objective = document.getElementById('c-objective').value;
+    const cid = document.getElementById('c-id').value || 'test-campaign';
+    const data = await api(`/api/campaigns/${cid}/build`,'POST', body);
+    showResult('campaign-result', data);
+    document.getElementById('asset-cid').value = cid;
+  }
+
+  async function createAsset() {
+    const cid = document.getElementById('asset-cid').value || 'test-campaign';
+    const type = document.getElementById('asset-type').value;
+    const data = await api(`/api/campaigns/${cid}/assets/${type}`,'POST',{});
+    showResult('asset-result', data);
+  }
+
+  // ─── ORCHESTRATION ───────────────────────────────────
+  async function createSession() {
+    const data = await api('/api/orchestration/sessions','POST',{
+      userId: userEmail,
+      businessId: document.getElementById('o-biz').value || 'biz-1',
+      automationLevel: document.getElementById('o-automation').value
+    });
+    showResult('session-result', data);
+    if (data.session?.id || data.id) {
+      activeSessionId = data.session?.id || data.id;
+      document.getElementById('active-session-id').textContent = activeSessionId;
+      document.getElementById('session-actions-panel').style.display = 'block';
     }
-    async function request(path, method, body) {
-      try {
-        const response = await fetch(path, {
-          method,
-          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-          body: body ? JSON.stringify(body) : undefined
-        });
-        const data = await response.json();
-        output.style.color = '#f3f4f6';
-        output.textContent = JSON.stringify(data, null, 2);
-        if (!response.ok) {
-          const msg = data.error || data.message || 'בקשה נכשלה';
-          showStatus('שגיאה: ' + msg, true);
-          throw new Error(msg);
-        }
-        return data;
-      } catch (err) {
-        if (err.name === 'TypeError') showStatus('שגיאת רשת — ודא שהשרת פועל', true);
-        throw err;
-      }
-    }
-    async function registerUser() {
-      showStatus('נרשם...', false);
-      const data = await request('/api/auth/register', 'POST', {
-        email: document.getElementById('register-email').value,
-        password: document.getElementById('register-password').value
-      });
-      token = data.token;
-      showStatus('נרשמת והתחברת בהצלחה! ✓', false);
-    }
-    async function loginUser() {
-      showStatus('מתחבר...', false);
-      const data = await request('/api/auth/login', 'POST', {
-        email: document.getElementById('login-email').value,
-        password: document.getElementById('login-password').value
-      });
-      token = data.token;
-      showStatus('התחברת בהצלחה! ✓', false);
-    }
-    async function analyzeCampaign() {
-      const payload = JSON.parse(document.getElementById('campaign-payload').value);
-      await request('/api/analysis/run', 'POST', {
-        source: document.getElementById('source').value,
-        externalCampaignId: document.getElementById('campaign-external-id').value || undefined,
-        campaign: payload
-      });
-    }
-  </script>
+  }
+
+  async function tickSession()        { showResult('orch-result', await api(`/api/orchestration/sessions/${activeSessionId}/tick`,'POST',{})); }
+  async function runResearch()        { showResult('orch-result', await api(`/api/orchestration/sessions/${activeSessionId}/research`,'POST',{})); }
+  async function runStrategy()        { showResult('orch-result', await api(`/api/orchestration/sessions/${activeSessionId}/strategy`,'POST',{})); }
+  async function runExecute()         { showResult('orch-result', await api(`/api/orchestration/sessions/${activeSessionId}/execute`,'POST',{})); }
+  async function runQA()              { showResult('orch-result', await api(`/api/orchestration/sessions/${activeSessionId}/qa`,'POST',{})); }
+  async function runAnalyzeSession()  { showResult('orch-result', await api(`/api/orchestration/sessions/${activeSessionId}/analyze`,'POST',{})); }
+  async function getSuggestions()     { showResult('orch-result', await api(`/api/orchestration/sessions/${activeSessionId}/suggestions`)); }
+  async function getActivity()        { showResult('orch-result', await api(`/api/orchestration/sessions/${activeSessionId}/activity`)); }
+
+  // Enter on password fields
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    if (document.getElementById('l-pass') === document.activeElement) doLogin();
+    if (document.getElementById('r-pass') === document.activeElement) doRegister();
+  });
+</script>
 </body>
 </html>
