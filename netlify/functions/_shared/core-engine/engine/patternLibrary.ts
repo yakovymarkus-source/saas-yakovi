@@ -98,3 +98,7 @@ export function matchPatterns(computed: ComputedMetrics, normalized: NormalizedM
 
   return matches.sort((a, b) => b.matchScore - a.matchScore);
 }
+
+export function enrichPatternsWithMemory(patterns: PatternMatch[], _userId: string): PatternMatch[] {
+  return patterns;
+}
