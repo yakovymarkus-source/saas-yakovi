@@ -1020,6 +1020,9 @@ async function generateLandingPageResponse(context) {
     const { buildHTMLBlueprint } = require('./_shared/html-blueprint-builder');
     const blueprint = buildHTMLBlueprint(structure, null, memory);
 
+    // Inject pixel_id from user's Meta config (null-safe — works even if not connected)
+    if (blueprint.meta) blueprint.meta.pixel_id = await _getPixelId(userId);
+
     // Step 4: Compose full HTML + CSS (self-contained, RTL, mobile-first)
     // asset_id is not yet known — placeholder will be injected in Step 6 after saveAsset()
     const { composeHTML } = require('./_shared/html-composer');
@@ -1131,6 +1134,20 @@ async function generateLandingPageResponse(context) {
   }
 }
 
+// ── Pixel ID lookup — returns user's Meta pixel_id or null ───────────────────
+async function _getPixelId(userId) {
+  try {
+    const sb = getAdminClient();
+    const { data } = await sb
+      .from('user_meta_config')
+      .select('pixel_id')
+      .eq('user_id', userId)
+      .eq('setup_completed', true)
+      .maybeSingle();
+    return data?.pixel_id || null;
+  } catch { return null; }
+}
+
 // ── Variation generator — runs the pipeline once per mode ────────────────────
 async function _generateVariants(modes, baseMemory, baseStructure, assetType, context) {
   const { applyVariationMode }      = require('./_shared/iteration-engine');
@@ -1153,6 +1170,7 @@ async function _generateVariants(modes, baseMemory, baseStructure, assetType, co
         applyVariationMode(mode, baseStructure, baseMemory);
 
       const blueprint     = buildHTMLBlueprint(varStructure, null, varMemory);
+      if (blueprint.meta) blueprint.meta.pixel_id = await _getPixelId(userId);
       const composeResult = composeHTML(blueprint);
 
       const genericResult = validateGeneric({ blueprint, composeResult, memory: varMemory });
