@@ -1491,7 +1491,9 @@ async function connectIntegration(provider) {
   } else if (provider === 'meta') {
     const appId       = window.__META_APP_ID__ || '';
     const redirectUri = `${appUrl}/.netlify/functions/oauth-callback-meta`;
-    const scope       = 'ads_read,ads_management,read_insights';
+    // Scopes: ads_management + business_management require Meta app approval
+    // They are listed here so the request is ready the moment approval is granted
+    const scope = 'ads_read,read_insights,ads_management,business_management,pages_manage_ads';
     const url = `https://www.facebook.com/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&state=${state64}`;
     window.location.href = url;
   } else if (provider === 'tiktok') {
