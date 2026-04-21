@@ -152,5 +152,13 @@ exports.handler = async (event) => {
     ...(asset.expires_at ? { 'Expires': new Date(asset.expires_at).toUTCString() } : {}),
   };
 
-  return respondHtml(200, asset.html, extraHeaders);
+  // Inject tracker into landing pages that don't already have it
+  let html = asset.html || '';
+  if (asset.type === 'landing_page_html' && !html.includes('tracker.js')) {
+    const campaignId = asset.campaign_id || '';
+    const tag = `<script src="/assets/tracker.js"${campaignId ? ` data-campaign-id="${campaignId}"` : ''} defer></script>`;
+    html = html.replace('</head>', tag + '\n</head>');
+  }
+
+  return respondHtml(200, html, extraHeaders);
 };

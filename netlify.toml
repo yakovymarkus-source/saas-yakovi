@@ -5,6 +5,12 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[functions."track-event"]
+  timeout = 5
+
+[functions."meta-conversion"]
+  timeout = 10
+
 # Orchestration background function (15 min limit, returns 202 immediately)
 [functions."analyze-campaign-background"]
   timeout = 900
