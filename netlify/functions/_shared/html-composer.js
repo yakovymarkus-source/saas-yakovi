@@ -737,6 +737,7 @@ function buildHTMLDocument(bodyHTML, css, meta) {
   const dir        = escAttr(meta?.dir    || 'rtl');
   const fontUrl    = str(meta?.google_fonts_url);
   const campaignId = escAttr(meta?.campaign_id || '');
+  const pixelId    = escAttr(meta?.pixel_id    || '');
 
   const fontLinks = fontUrl
     ? `<link rel="preconnect" href="https://fonts.googleapis.com">
@@ -744,7 +745,11 @@ function buildHTMLDocument(bodyHTML, css, meta) {
 <link href="${escAttr(fontUrl)}" rel="stylesheet">`
     : '';
 
-  const trackerTag = `<script src="/assets/tracker.js"${campaignId ? ` data-campaign-id="${campaignId}"` : ''} defer></script>`;
+  const trackerAttrs = [
+    campaignId ? `data-campaign-id="${campaignId}"` : '',
+    pixelId    ? `data-pixel-id="${pixelId}"`       : '',
+  ].filter(Boolean).join(' ');
+  const trackerTag = `<script src="/assets/tracker.js"${trackerAttrs ? ' ' + trackerAttrs : ''} defer></script>`;
 
   return `<!DOCTYPE html>
 <html lang="${lang}" dir="${dir}">

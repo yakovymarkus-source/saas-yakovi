@@ -38,10 +38,33 @@
     return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 'mobile' : 'desktop';
   }
 
-  // ── Campaign ID from script tag ───────────────────────────────────────────
+  // ── Campaign ID + Pixel ID from script tag ───────────────────────────────
   function getCampaignId() {
     var s = document.currentScript || document.querySelector('script[data-campaign-id]');
     return s ? (s.getAttribute('data-campaign-id') || '') : '';
+  }
+
+  function getPixelId() {
+    var s = document.currentScript || document.querySelector('script[data-pixel-id]');
+    return s ? (s.getAttribute('data-pixel-id') || '') : '';
+  }
+
+  // ── Meta Pixel (client-side, fires alongside CAPI for redundancy) ─────────
+  function initMetaPixel(pixelId) {
+    if (!pixelId) return;
+    if (window.fbq) return; // already loaded
+    !function(f,b,e,v,n,t,s){
+      if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+      if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];
+      t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];
+      s.parentNode.insertBefore(t,s)
+    }(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');
+    window.fbq('init', pixelId);
+    window.fbq('track', 'PageView');
+  }
+
+  function fbqTrack(eventName, params) {
+    if (window.fbq) window.fbq('trackCustom', eventName, params || {});
   }
 
   // ── Send ──────────────────────────────────────────────────────────────────
@@ -77,11 +100,16 @@
   }
 
   var pageStart = Date.now();
+  var pixelId   = utm.pixel_id || getPixelId();
+
+  // ── Meta Pixel init ───────────────────────────────────────────────────────
+  initMetaPixel(pixelId);
 
   // ── 1. Page View ──────────────────────────────────────────────────────────
   send('page_view', {
     referrer:    document.referrer,
-    device_type: getDevice()
+    device_type: getDevice(),
+    pixel_id:    pixelId,
   });
 
   // ── 2. Scroll milestones (25/50/75/100) ──────────────────────────────────
@@ -153,7 +181,8 @@
     var el = e.target.closest('[data-cta],[href*="wa.me"],[href*="whatsapp"],button,a');
     if (!el) return;
     var label = el.getAttribute('data-cta') || el.innerText.trim().slice(0, 50) || el.href || '';
-    send('cta_click', { label: label, tag: el.tagName.toLowerCase() });
+    send('cta_click', { label: label, tag: el.tagName.toLowerCase(), pixel_id: pixelId });
+    fbqTrack('InitiateCheckout', { campaign_id: campaignId, label: label });
   });
 
   // ── 7. Form start (first keydown in form field) ───────────────────────────
@@ -169,7 +198,8 @@
   // ── 8. Form submit ────────────────────────────────────────────────────────
   document.addEventListener('submit', function (e) {
     var form = e.target;
-    send('form_submit', { form_id: form.id || form.action || 'unknown' });
+    send('form_submit', { form_id: form.id || form.action || 'unknown', pixel_id: pixelId });
+    fbqTrack('Lead', { campaign_id: campaignId });
   });
 
   // ── 9. Video events (play / 50% / 90%) ───────────────────────────────────
