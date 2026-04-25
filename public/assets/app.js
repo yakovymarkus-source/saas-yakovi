@@ -3441,219 +3441,668 @@ function buildSupportSection(supportData) {
   </div>`;
 }
 
-// ── Admin Dashboard ───────────────────────────────────────────────────────────
-let adminUserFilter = 'all';
-var adminSupportTab = 'open';
+// ── Admin Control Center ──────────────────────────────────────────────────────
+let adminUserFilter  = 'all';
+var adminSupportTab  = 'open';
+var adminTab         = 'overview';
+var adminUsersSearch = '';
+var adminUsersPage   = 1;
+var adminAuditPage   = 1;
+var adminJobsFilter  = '';
+var _adminCache      = {}; // short-lived cache: { tab: { data, ts } }
+
+function _adminCacheGet(key) {
+  const c = _adminCache[key];
+  return c && (Date.now() - c.ts < 30000) ? c.data : null;
+}
+function _adminCacheSet(key, data) { _adminCache[key] = { data, ts: Date.now() }; }
+
+async function switchAdminTab(tab) {
+  adminTab = tab;
+  _adminCache = {};
+  renderAdmin();
+}
+
+function _adminTabBar() {
+  const tabs = [
+    { id:'overview',      icon:'📊', label:'סקירה'      },
+    { id:'users',         icon:'👤', label:'משתמשים'    },
+    { id:'billing',       icon:'💳', label:'חיוב'       },
+    { id:'system',        icon:'⚙️', label:'מערכת'      },
+    { id:'ai-costs',      icon:'🤖', label:'עלויות AI'  },
+    { id:'audit',         icon:'📋', label:'לוג פעולות' },
+    { id:'support',       icon:'🎫', label:'תמיכה'      },
+    { id:'announcements', icon:'📣', label:'הודעות'     },
+    { id:'ai-models',     icon:'🧠', label:'מודלי AI'   },
+  ];
+  return `<div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1.5rem;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">
+    ${tabs.map(t => `
+      <button onclick="switchAdminTab('${t.id}')"
+        style="padding:0.55rem 0.85rem;border:none;border-bottom:2px solid ${adminTab===t.id?'#6366f1':'transparent'};
+               margin-bottom:-2px;background:none;cursor:pointer;font-size:0.78rem;white-space:nowrap;
+               font-weight:${adminTab===t.id?'700':'500'};color:${adminTab===t.id?'#6366f1':'#64748b'};transition:color .15s">
+        ${t.icon} ${t.label}
+      </button>`).join('')}
+  </div>`;
+}
 
 async function renderAdmin(opts = {}) {
   if (!state.profile?.is_admin) { navigate('dashboard'); return; }
-  const savedScroll = opts.keepScroll
-    ? (document.getElementById('page-content')?.scrollTop || 0)
-    : 0;
-  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
-  let overview = null, usersData = null, updatesData = [], supportData = { tickets: [], total: 0 };
-  [overview, usersData, updatesData, supportData] = await Promise.all([
-    api('GET', 'admin-overview').catch(e => { console.error('[admin] overview failed:', e.message); return null; }),
-    api('GET', 'admin-users?limit=100&page=1').catch(e => { console.error('[admin] users failed:', e.message); return null; }),
-    api('GET', 'admin-updates').catch(() => []),
-    api('GET', 'admin-support?limit=50').catch(() => ({ tickets: [], total: 0 })),
-  ]);
-  // Update support badge count
-  const openCount = (supportData.tickets || []).filter(t => t.status === 'open').length;
-  if (state.supportCount !== openCount) { state.supportCount = openCount; }
-
-  const fmt    = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
-  const pct    = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
-  const curr   = n => n == null ? '—' : '₪' + (n / 100).toFixed(0);
-  const pBadge = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
-
-  if (!overview && !usersData) {
-    renderShell(`<div class="page-header"><h1 class="page-title">🛡️ לוח ניהול</h1></div>
-      <div class="card"><div class="text-sm text-muted">לא ניתן לטעון נתוני ניהול כרגע. בדוק שהחשבון מוגדר כאדמין בסופאבייס ושה-env vars של האדמין מוגדרים.</div></div>`);
-    return;
-  }
-
-  const allUsers    = usersData?.users || [];
-  const pending     = allUsers.filter(u => u.paymentStatus === 'pending');
-  const freeUsers   = allUsers.filter(u => u.plan === 'free' && u.paymentStatus !== 'pending');
-  const paidUsers   = allUsers.filter(u => u.plan !== 'free');
-  const earlyBirds  = allUsers.filter(u => u.plan === 'early_bird');
-  const proUsers    = allUsers.filter(u => u.plan === 'pro' || u.plan === 'agency');
-
-  const filterMap = {
-    all:        allUsers,
-    pending:    pending,
-    free:       freeUsers,
-    early_bird: earlyBirds,
-    pro:        proUsers,
-  };
-  const filtered = filterMap[adminUserFilter] || allUsers;
-
-  function usersTable(users) {
-    if (!users.length) return '<p class="text-muted text-sm" style="padding:1rem">אין משתמשים בקטגוריה זו</p>';
-    return `<div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
-        <thead>
-          <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
-            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">אימייל</th>
-            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">שם</th>
-            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">תוכנית</th>
-            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">נכסים</th>
-            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">הצטרף</th>
-            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">פעולה</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${users.map(u => `
-            <tr style="border-bottom:1px solid #f1f5f9${u.paymentStatus === 'pending' ? ';background:#fffbeb' : ''}">
-              <td style="padding:0.5rem 0.75rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.65rem">admin</span>' : ''}${u.paymentStatus === 'pending' ? ' <span class="badge badge-yellow" style="font-size:0.65rem">⏳ pending</span>' : ''}</td>
-              <td style="padding:0.5rem 0.75rem">${u.name || '—'}</td>
-              <td style="padding:0.5rem 0.75rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
-              <td style="padding:0.5rem 0.75rem">${u.campaignCount ?? '—'}</td>
-              <td style="padding:0.5rem 0.75rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
-              <td style="padding:0.5rem 0.75rem">${u.paymentStatus === 'pending'
-                ? `<button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>`
-                : ''}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>`;
-  }
+  const savedScroll = opts.keepScroll ? (document.getElementById('page-content')?.scrollTop || 0) : 0;
 
   renderShell(`
-    <div class="page-header flex items-center justify-between">
-      <div>
-        <h1 class="page-title">🛡️ לוח ניהול</h1>
-        <p class="page-subtitle">סטטיסטיקות מערכת וניהול משתמשים</p>
-      </div>
+    <div class="page-header" style="margin-bottom:0">
+      <h1 class="page-title">🛡️ Control Center</h1>
+      <p class="page-subtitle">לוח פיקוד ושליטה</p>
     </div>
+    ${_adminTabBar()}
+    <div id="admin-tab-content" style="min-height:200px">
+      <div class="loading-screen" style="height:50vh"><div class="spinner"></div></div>
+    </div>
+  `);
 
-    ${pending.length > 0 ? `
-    <div class="analysis-card mb-4" style="border:2px solid #f59e0b;background:#fffbeb">
+  const html = await _adminLoadTab(adminTab, opts).catch(e =>
+    `<div class="card"><p class="text-muted">שגיאה בטעינה: ${e.message}</p></div>`
+  );
+  const el = document.getElementById('admin-tab-content');
+  if (el) el.innerHTML = html;
+
+  if (adminTab === 'ai-models') setTimeout(() => adminLoadAIModels(), 100);
+  if (savedScroll > 0) requestAnimationFrame(() => {
+    const pc = document.getElementById('page-content');
+    if (pc) pc.scrollTop = savedScroll;
+  });
+}
+
+// ── Tab loader ────────────────────────────────────────────────────────────────
+async function _adminLoadTab(tab) {
+  const fmt  = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
+  const pct  = n => n == null ? '—' : (Number(n) * 100).toFixed(1) + '%';
+  const curr = n => n == null ? '—' : '$' + (Number(n)).toFixed(2);
+  const currILS = n => n == null ? '—' : '₪' + (Number(n) / 100).toFixed(0);
+  const pBadge  = { free:'badge-gray', early_bird:'badge-blue', starter:'badge-blue', pro:'badge-green', agency:'badge-green' };
+
+  if (tab === 'overview') {
+    let ov = _adminCacheGet('overview');
+    if (!ov) { ov = await api('GET', 'admin-overview').catch(() => null); _adminCacheSet('overview', ov); }
+    return _adminBuildOverview(ov, fmt, pct, currILS);
+  }
+
+  if (tab === 'users') {
+    const q = `admin-users?limit=50&page=${adminUsersPage}${adminUsersSearch ? '&search=' + encodeURIComponent(adminUsersSearch) : ''}${adminUserFilter !== 'all' ? '&plan=' + adminUserFilter : ''}`;
+    const usersData = await api('GET', q).catch(() => ({ users: [], total: 0 }));
+    return _adminBuildUsers(usersData, pBadge);
+  }
+
+  if (tab === 'billing') {
+    let billing = _adminCacheGet('billing');
+    if (!billing) { billing = await api('GET', 'admin-billing?days=30').catch(() => null); _adminCacheSet('billing', billing); }
+    return _adminBuildBilling(billing, fmt, curr, currILS);
+  }
+
+  if (tab === 'system') {
+    const [system, jobs] = await Promise.all([
+      api('GET', 'admin-system').catch(() => null),
+      api('GET', `admin-jobs?limit=30${adminJobsFilter ? '&status=' + adminJobsFilter : ''}`).catch(() => ({ jobs: [], total: 0, summary24h: {} })),
+    ]);
+    return _adminBuildSystem(system, jobs, fmt);
+  }
+
+  if (tab === 'ai-costs') {
+    let aiData = _adminCacheGet('ai-costs');
+    if (!aiData) { aiData = await api('GET', 'admin-ai-models').catch(() => null); _adminCacheSet('ai-costs', aiData); }
+    return _adminBuildAICosts(aiData, curr);
+  }
+
+  if (tab === 'audit') {
+    const audit = await api('GET', `admin-audit?limit=50&page=${adminAuditPage}`).catch(() => ({ entries: [], total: 0 }));
+    return _adminBuildAudit(audit);
+  }
+
+  if (tab === 'support') {
+    const supportData = await api('GET', 'admin-support?limit=50').catch(() => ({ tickets: [], total: 0 }));
+    const openCount = (supportData.tickets || []).filter(t => t.status === 'open').length;
+    state.supportCount = openCount;
+    return buildSupportSection(supportData);
+  }
+
+  if (tab === 'announcements') {
+    const updatesData = await api('GET', 'admin-updates').catch(() => []);
+    return _adminBuildAnnouncements(updatesData);
+  }
+
+  if (tab === 'ai-models') {
+    return `<div class="card" id="admin-ai-models-section">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold" style="color:#92400e">⏳ תשלומים ממתינים לאישור (${pending.length})</h3>
-      </div>
-      ${pending.map(u => `
-        <div class="flex items-center justify-between gap-2 py-2" style="border-bottom:1px solid #fde68a">
-          <div>
-            <div class="font-semibold text-sm">${u.email}</div>
-            <div class="text-xs text-muted">תוכנית מבוקשת: ${getPlanLabel(u.plan)}</div>
-          </div>
-          <button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">
-            הפעל חשבון
-          </button>
-        </div>`).join('')}
-    </div>` : ''}
-
-    <div class="stats-grid" style="margin-bottom:1.5rem">
-      <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value">${curr(overview?.mrr)}</div></div>
-      <div class="stat-card"><div class="stat-label">סה"כ משתמשים</div><div class="stat-value">${fmt(overview?.totalUsers)}</div></div>
-      <div class="stat-card"><div class="stat-label">הרשמות 24ש'</div><div class="stat-value">${fmt(overview?.newSignups24h)}</div></div>
-      <div class="stat-card"><div class="stat-label">Churn</div><div class="stat-value">${pct(overview?.churnRate)}</div></div>
-      <div class="stat-card"><div class="stat-label">המרה לתשלום</div><div class="stat-value">${pct(overview?.conversionRate)}</div></div>
-      <div class="stat-card"><div class="stat-label">תשלומים כושלים 24ש'</div>
-        <div class="stat-value" style="${(overview?.failedPayments24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.failedPayments24h)}</div>
-      </div>
-    </div>
-
-    <div class="analysis-card" style="margin-bottom:1.5rem">
-      <div class="flex items-center justify-between mb-3"><h3 class="font-semibold">בריאות מערכת</h3></div>
-      <div style="display:flex;gap:2rem;flex-wrap:wrap">
-        <div><span class="text-muted text-sm">עבודות ממתינות</span><br><strong>${fmt(overview?.systemHealth?.pendingJobs)}</strong></div>
-        <div><span class="text-muted text-sm">עבודות פועלות</span><br><strong>${fmt(overview?.systemHealth?.runningJobs)}</strong></div>
-        <div><span class="text-muted text-sm">עבודות נכשלות 24ש'</span><br>
-          <strong style="${(overview?.systemHealth?.failedJobs24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.systemHealth?.failedJobs24h)}</strong>
-        </div>
-      </div>
-    </div>
-
-    ${buildAdminUserSections(usersData, pBadge)}
-
-    ${buildSupportSection(supportData)}
-
-    <div class="analysis-card" style="margin-bottom:1.5rem">
-      <h3 class="font-semibold mb-3">💳 שינוי תוכנית משתמש</h3>
-      <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
-        <input id="admin-plan-email" class="form-input" placeholder="אימייל משתמש..." style="flex:1;min-width:200px;padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem"/>
-        <select id="admin-plan-select" style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;background:#fff">
-          <option value="free">Free</option>
-          <option value="early_bird">Early Bird</option>
-          <option value="starter">Starter</option>
-          <option value="pro">Pro</option>
-          <option value="agency">Agency</option>
-        </select>
-        <button class="btn btn-primary" onclick="adminChangePlanByEmail()">החל שינוי</button>
-      </div>
-      <p class="text-muted" style="font-size:.78rem;margin-top:.5rem">ניתן גם ללחוץ "שנה" ישירות בטבלת המשתמשים למטה</p>
-    </div>
-
-    <div class="analysis-card" style="margin-bottom:1.5rem">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold">📣 הודעות מערכת (פעמון)</h3>
-      </div>
-      <form onsubmit="adminSaveUpdate(event)" style="display:grid;gap:.6rem;margin-bottom:1rem">
-        <input class="form-input" id="adm-upd-title" placeholder="כותרת ההודעה *" required
-          style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem"/>
-        <textarea class="form-input" id="adm-upd-content" placeholder="תוכן ההודעה *" rows="3" required
-          style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;resize:vertical"></textarea>
-        <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
-          <select id="adm-upd-type" style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;background:#fff">
-            <option value="new">חדש</option>
-            <option value="improved">שיפור</option>
-            <option value="fixed">תיקון</option>
-          </select>
-          <label style="display:flex;align-items:center;gap:.35rem;font-size:.875rem;cursor:pointer">
-            <input type="checkbox" id="adm-upd-published" checked> פרסם מיד
-          </label>
-          <button type="submit" class="btn btn-primary">פרסם הודעה</button>
-        </div>
-      </form>
-      <div id="admin-updates-list">
-        ${(updatesData || []).length === 0
-          ? '<p class="text-muted text-sm">אין הודעות עדיין</p>'
-          : (updatesData || []).slice(0, 10).map(u => `
-            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;padding:.6rem 0;border-bottom:1px solid #f1f5f9">
-              <div style="flex:1">
-                <div style="font-weight:600;font-size:.875rem">${u.title}</div>
-                <div class="text-muted" style="font-size:.78rem;margin-top:.15rem">${u.content.slice(0,80)}${u.content.length>80?'…':''}</div>
-                <div style="margin-top:.25rem;display:flex;gap:.4rem;flex-wrap:wrap">
-                  <span class="badge ${u.type==='new'?'badge-green':u.type==='improved'?'badge-blue':'badge-yellow'}">${u.type}</span>
-                  <span class="badge ${u.is_published?'badge-green':'badge-gray'}">${u.is_published?'פורסם':'טיוטה'}</span>
-                  ${u.is_pinned?'<span class="badge badge-purple">📌</span>':''}
-                </div>
-              </div>
-              <div style="display:flex;gap:.35rem;flex-shrink:0">
-                <button class="btn btn-sm btn-secondary" onclick="adminTogglePublish('${u.id}',${!u.is_published})">${u.is_published?'הסתר':'פרסם'}</button>
-                <button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5" onclick="adminDeleteUpdate('${u.id}')">מחק</button>
-              </div>
-            </div>`).join('')}
-      </div>
-    </div>
-
-    <!-- ── AI Models Management ──────────────────────────────────────────────── -->
-    <div class="analysis-card" style="margin-bottom:1.5rem" id="admin-ai-models-section">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold">🤖 ניהול מודלי AI</h3>
+        <div style="font-weight:700;font-size:1rem">🧠 ניהול מודלי AI</div>
         <button class="btn btn-sm btn-secondary" onclick="adminLoadAIModels()">🔄 רענן</button>
       </div>
       <div id="admin-ai-models-content">
-        <div style="color:#94a3b8;font-size:0.875rem;text-align:center;padding:1.5rem">
-          <div class="spinner" style="width:20px;height:20px;margin:0 auto 0.5rem"></div>
-          טוען הגדרות מודלים...
+        <div style="color:#94a3b8;text-align:center;padding:1.5rem"><div class="spinner" style="width:20px;height:20px;margin:0 auto .5rem"></div>טוען...</div>
+      </div>
+    </div>`;
+  }
+
+  return '<div class="card"><p class="text-muted">טאב לא ידוע</p></div>';
+}
+
+// ── Overview Tab ──────────────────────────────────────────────────────────────
+function _adminBuildOverview(ov, fmt, pct, currILS) {
+  const health  = ov?.systemHealth || {};
+  const failedJ = health.failedJobs24h || 0;
+  const failedP = ov?.failedPayments24h || 0;
+  const hasAlert = failedJ > 0 || failedP > 0;
+
+  return `
+    ${hasAlert ? `<div class="card mb-4" style="border:2px solid #fca5a5;background:#fff5f5;padding:1rem">
+      <div style="font-weight:700;color:#b91c1c;margin-bottom:.5rem">⚠️ התראות פעילות</div>
+      <div style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.875rem">
+        ${failedP > 0 ? `<span style="color:#b91c1c">💳 ${failedP} תשלומים כושלים (24ש')</span>` : ''}
+        ${failedJ > 0 ? `<span style="color:#b91c1c">⚙️ ${failedJ} תהליכים כושלים (24ש')</span>` : ''}
+      </div>
+    </div>` : ''}
+
+    <div class="stats-grid" style="margin-bottom:1.5rem">
+      <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value">${currILS(ov?.mrr)}</div></div>
+      <div class="stat-card"><div class="stat-label">סה"כ משתמשים</div><div class="stat-value">${fmt(ov?.totalUsers)}</div></div>
+      <div class="stat-card"><div class="stat-label">מנויים פעילים</div><div class="stat-value">${fmt(ov?.activeSubscriptions)}</div></div>
+      <div class="stat-card"><div class="stat-label">בניסיון (Trial)</div><div class="stat-value">${fmt(ov?.trialSubscriptions)}</div></div>
+      <div class="stat-card"><div class="stat-label">הרשמות 24ש'</div><div class="stat-value">${fmt(ov?.newSignups24h)}</div></div>
+      <div class="stat-card"><div class="stat-label">Churn Rate</div><div class="stat-value">${pct(ov?.churnRate)}</div></div>
+      <div class="stat-card"><div class="stat-label">המרה לתשלום</div><div class="stat-value">${pct(ov?.conversionRate)}</div></div>
+      <div class="stat-card" style="${failedP > 0 ? 'border-color:#fca5a5;background:#fff5f5' : ''}">
+        <div class="stat-label">תשלומים כושלים 24ש'</div>
+        <div class="stat-value" style="${failedP > 0 ? 'color:#ef4444' : ''}">${fmt(failedP)}</div>
+      </div>
+    </div>
+
+    <div class="card mb-4">
+      <div style="font-weight:700;margin-bottom:1rem">⚙️ בריאות מערכת</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1rem">
+        <div style="text-align:center;padding:.75rem;background:#f8fafc;border-radius:.5rem">
+          <div style="font-size:1.5rem;font-weight:700">${fmt(health.pendingJobs)}</div>
+          <div style="font-size:.75rem;color:#64748b">ממתינים</div>
+        </div>
+        <div style="text-align:center;padding:.75rem;background:#f8fafc;border-radius:.5rem">
+          <div style="font-size:1.5rem;font-weight:700;color:#2563eb">${fmt(health.runningJobs)}</div>
+          <div style="font-size:.75rem;color:#64748b">פועלים</div>
+        </div>
+        <div style="text-align:center;padding:.75rem;background:${failedJ > 0 ? '#fff5f5' : '#f8fafc'};border-radius:.5rem">
+          <div style="font-size:1.5rem;font-weight:700;color:${failedJ > 0 ? '#ef4444' : '#111'}">${fmt(failedJ)}</div>
+          <div style="font-size:.75rem;color:#64748b">כשלו 24ש'</div>
         </div>
       </div>
     </div>
-  `);
-  if (savedScroll > 0) {
-    requestAnimationFrame(() => {
-      const pc = document.getElementById('page-content');
-      if (pc) pc.scrollTop = savedScroll;
-    });
+
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:1rem">⚡ פעולות מהירות</div>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <button class="btn btn-secondary" style="width:auto" onclick="switchAdminTab('users')">👤 חפש משתמש</button>
+        <button class="btn btn-secondary" style="width:auto" onclick="switchAdminTab('system')">⚙️ צפה בתהליכים</button>
+        <button class="btn btn-secondary" style="width:auto" onclick="switchAdminTab('billing')">💳 מצב חיוב</button>
+        <button class="btn btn-secondary" style="width:auto" onclick="switchAdminTab('audit')">📋 לוג פעולות</button>
+        ${failedJ > 0 ? `<button class="btn btn-primary" style="width:auto" onclick="adminJobsFilter='failed';switchAdminTab('system')">🔁 Retry Jobs כושלים</button>` : ''}
+      </div>
+    </div>`;
+}
+
+// ── Users Tab ─────────────────────────────────────────────────────────────────
+function _adminBuildUsers(usersData, pBadge) {
+  const users  = usersData?.users || [];
+  const total  = usersData?.total || 0;
+  const plans  = ['all','free','early_bird','starter','pro','agency'];
+
+  function buildRow(u) {
+    const planOpts = ['free','early_bird','starter','pro','agency'].map(p =>
+      `<option value="${p}"${u.plan===p?' selected':''}>${p}</option>`).join('');
+    const lastActive = u.lastActiveAt ? new Date(u.lastActiveAt).toLocaleDateString('he-IL') : '—';
+    const joined     = u.createdAt    ? new Date(u.createdAt).toLocaleDateString('he-IL')    : '—';
+    return `<tr style="border-bottom:1px solid #f1f5f9;cursor:pointer" onclick="adminLoadUserDetail('${u.id}')">
+      <td style="padding:.45rem .6rem">
+        <div style="font-size:.85rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:.6rem">admin</span>' : ''}</div>
+        <div style="font-size:.72rem;color:#94a3b8">${u.name || ''}</div>
+      </td>
+      <td style="padding:.45rem .6rem"><span class="badge ${pBadge[u.plan]||'badge-gray'}" style="font-size:.72rem">${getPlanLabel(u.plan)}</span></td>
+      <td style="padding:.45rem .6rem;font-size:.8rem">${u.campaignCount||0}</td>
+      <td style="padding:.45rem .6rem;font-size:.78rem;color:#64748b">${lastActive}</td>
+      <td style="padding:.45rem .6rem;font-size:.78rem;color:#64748b">${joined}</td>
+      <td style="padding:.45rem .6rem" onclick="event.stopPropagation()">
+        <div style="display:flex;gap:.25rem;align-items:center">
+          <select id="ipl-${u.id}" style="padding:.15rem .3rem;border:1px solid #d1d5db;border-radius:.35rem;font-size:.72rem;max-width:85px">${planOpts}</select>
+          <button class="btn btn-sm btn-primary" onclick="adminChangePlanInline('${u.id}')" style="padding:.2rem .4rem;font-size:.7rem">שנה</button>
+          ${u.paymentStatus === 'pending' ? `<button class="btn btn-sm" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;padding:.2rem .4rem;font-size:.7rem" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>` : ''}
+        </div>
+      </td>
+    </tr>`;
   }
 
-  // Auto-load AI models panel
-  setTimeout(() => adminLoadAIModels(), 200);
+  return `
+    <div class="card mb-4">
+      <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem">
+        <input id="admin-users-search" class="form-input" placeholder="חפש לפי אימייל..."
+          value="${adminUsersSearch}"
+          style="flex:1;min-width:180px;padding:.4rem .75rem;font-size:.875rem"
+          onkeydown="if(event.key==='Enter'){adminUsersSearch=this.value;adminUsersPage=1;renderAdmin()}" />
+        <button class="btn btn-primary" style="width:auto" onclick="adminUsersSearch=document.getElementById('admin-users-search').value;adminUsersPage=1;renderAdmin()">חפש</button>
+        <select onchange="adminUserFilter=this.value;adminUsersPage=1;renderAdmin()" style="padding:.4rem .6rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.8rem;background:#fff">
+          ${plans.map(p => `<option value="${p}"${adminUserFilter===p?' selected':''}>${p==='all'?'כל התוכניות':p}</option>`).join('')}
+        </select>
+        <button class="btn btn-secondary" style="width:auto;font-size:.8rem" onclick="adminExportUsersCSV()">📥 ייצוא CSV</button>
+      </div>
+      <div style="font-size:.78rem;color:#94a3b8;margin-bottom:.75rem">סה"כ ${total} משתמשים</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.83rem">
+          <thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">אימייל / שם</th>
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">תוכנית</th>
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">קמפיינים</th>
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">פעיל אחרון</th>
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">הצטרף</th>
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">תוכנית</th>
+          </tr></thead>
+          <tbody>${users.length ? users.map(buildRow).join('') : '<tr><td colspan="6" style="padding:1rem;color:#94a3b8;text-align:center">אין תוצאות</td></tr>'}</tbody>
+        </table>
+      </div>
+      ${total > 50 ? `<div style="display:flex;justify-content:center;gap:.5rem;margin-top:1rem">
+        ${adminUsersPage > 1 ? `<button class="btn btn-sm btn-secondary" onclick="adminUsersPage--;renderAdmin()">← הקודם</button>` : ''}
+        <span style="font-size:.8rem;color:#64748b;line-height:2">עמוד ${adminUsersPage}</span>
+        ${users.length === 50 ? `<button class="btn btn-sm btn-secondary" onclick="adminUsersPage++;renderAdmin()">הבא →</button>` : ''}
+      </div>` : ''}
+    </div>
+    <!-- User detail modal target -->
+    <div id="admin-user-detail-modal"></div>`;
+}
+
+// ── Billing Tab ───────────────────────────────────────────────────────────────
+function _adminBuildBilling(billing, fmt, curr, currILS) {
+  if (!billing) return `<div class="card"><p class="text-muted">לא ניתן לטעון נתוני חיוב</p></div>`;
+  const planLabel = { free:'חינמי', early_bird:'Early Bird', starter:'Starter', pro:'Pro', agency:'Agency' };
+  const planColor = { free:'#94a3b8', early_bird:'#3b82f6', starter:'#3b82f6', pro:'#22c55e', agency:'#8b5cf6' };
+
+  const revByPlan = billing.revenueByPlan || {};
+  const failedPays = (billing.failedPayments || []).slice(0, 15);
+  const churned    = (billing.churnedSubscriptions || []).slice(0, 10);
+
+  return `
+    <div class="stats-grid mb-4">
+      <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value">${currILS(billing.mrr)}</div></div>
+      <div class="stat-card"><div class="stat-label">ARR</div><div class="stat-value">${currILS(billing.arr)}</div></div>
+      <div class="stat-card"><div class="stat-label">מנויים פעילים</div><div class="stat-value">${fmt(billing.activeSubscriptions)}</div></div>
+      <div class="stat-card"><div class="stat-label">בניסיון</div><div class="stat-value">${fmt(billing.trialSubscriptions)}</div></div>
+    </div>
+
+    <div class="card mb-4">
+      <div style="font-weight:700;margin-bottom:1rem">💰 הכנסות לפי תוכנית (30 יום)</div>
+      ${Object.keys(revByPlan).length ? Object.entries(revByPlan).map(([plan, cents]) => `
+        <div style="display:flex;align-items:center;gap:1rem;padding:.5rem 0;border-bottom:1px solid #f1f5f9">
+          <span style="font-weight:600;color:${planColor[plan]||'#64748b'};width:90px">${planLabel[plan]||plan}</span>
+          <div style="flex:1;height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden">
+            <div style="width:${Math.min(100, (cents / Math.max(...Object.values(revByPlan))) * 100)}%;height:100%;background:${planColor[plan]||'#6366f1'};border-radius:4px"></div>
+          </div>
+          <span style="font-size:.85rem;font-weight:700;width:70px;text-align:left">${currILS(cents)}</span>
+        </div>`).join('') : '<p class="text-muted text-sm">אין נתוני הכנסה לתקופה זו</p>'}
+    </div>
+
+    ${failedPays.length ? `<div class="card mb-4" style="border-color:#fca5a5">
+      <div style="font-weight:700;color:#b91c1c;margin-bottom:.75rem">⚠️ תשלומים כושלים (30 יום) — ${failedPays.length}</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.82rem">
+        <thead><tr style="border-bottom:1px solid #fca5a5;color:#64748b">
+          <th style="text-align:right;padding:.4rem .6rem;font-weight:500">אימייל</th>
+          <th style="text-align:right;padding:.4rem .6rem;font-weight:500">סכום</th>
+          <th style="text-align:right;padding:.4rem .6rem;font-weight:500">תאריך</th>
+        </tr></thead>
+        <tbody>${failedPays.map(p => `<tr style="border-bottom:1px solid #fff5f5">
+          <td style="padding:.4rem .6rem">${p.profiles?.email || p.user_id || '—'}</td>
+          <td style="padding:.4rem .6rem">${currILS(p.amount_cents)}</td>
+          <td style="padding:.4rem .6rem;color:#94a3b8">${p.created_at ? new Date(p.created_at).toLocaleDateString('he-IL') : '—'}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>` : ''}
+
+    ${churned.length ? `<div class="card">
+      <div style="font-weight:700;margin-bottom:.75rem">👋 ביטולים (30 יום) — ${churned.length}</div>
+      ${churned.map(s => `<div style="display:flex;align-items:center;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid #f1f5f9;font-size:.83rem">
+        <div>${s.profiles?.email || s.user_id || '—'}</div>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <span class="badge badge-gray" style="font-size:.7rem">${s.plan||'—'}</span>
+          <span style="color:#94a3b8;font-size:.75rem">${s.updated_at ? new Date(s.updated_at).toLocaleDateString('he-IL') : '—'}</span>
+          <button class="btn btn-sm btn-secondary" style="padding:.15rem .4rem;font-size:.7rem" onclick="adminChangePlanInlineById('${s.user_id}')">שחזר</button>
+        </div>
+      </div>`).join('')}
+    </div>` : ''}`;
+}
+
+// ── System Tab ────────────────────────────────────────────────────────────────
+function _adminBuildSystem(system, jobsData, fmt) {
+  const jobs     = jobsData?.jobs || [];
+  const jobTotal = jobsData?.total || 0;
+  const summary  = jobsData?.summary24h || {};
+  const errors   = (system?.requestMetrics?.recentErrors || []).slice(0, 20);
+  const metrics  = system?.requestMetrics || {};
+  const providers = system?.providerHealth || [];
+
+  const statusColor = { queued:'#f59e0b', pending:'#f59e0b', processing:'#3b82f6', running:'#3b82f6', completed:'#22c55e', failed:'#ef4444', canceled:'#94a3b8', timed_out:'#ef4444', retrying:'#8b5cf6' };
+  const statusLabel = { queued:'ממתין', pending:'ממתין', processing:'מעבד', running:'פועל', completed:'הושלם', failed:'כשל', canceled:'בוטל', timed_out:'פג זמן', retrying:'מנסה שנית' };
+
+  const filters = ['','queued','running','failed','completed','canceled'];
+
+  return `
+    <div class="stats-grid mb-4">
+      <div class="stat-card"><div class="stat-label">Jobs ממתינים</div><div class="stat-value">${fmt(summary.queued||0)}</div></div>
+      <div class="stat-card"><div class="stat-label">Jobs פועלים</div><div class="stat-value" style="color:#3b82f6">${fmt(summary.running||0)}</div></div>
+      <div class="stat-card" style="${(summary.failed||0) > 0 ? 'border-color:#fca5a5;background:#fff5f5' : ''}">
+        <div class="stat-label">Jobs כשלו 24ש'</div>
+        <div class="stat-value" style="${(summary.failed||0) > 0 ? 'color:#ef4444' : ''}">${fmt(summary.failed||0)}</div>
+      </div>
+      <div class="stat-card"><div class="stat-label">שגיאות 1ש'</div><div class="stat-value">${(metrics.errorRate1h * 100).toFixed(1)}%</div></div>
+      <div class="stat-card"><div class="stat-label">זמן תגובה ממוצע</div><div class="stat-value">${metrics.avgDurationMs||'—'}ms</div></div>
+      <div class="stat-card"><div class="stat-label">סה"כ בקשות 1ש'</div><div class="stat-value">${fmt(metrics.totalRequests1h)}</div></div>
+    </div>
+
+    <div class="card mb-4">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+        <div style="font-weight:700">⚙️ תהליכים (Jobs)</div>
+        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+          ${filters.map(f => `<button class="btn btn-sm ${adminJobsFilter===f?'btn-primary':'btn-secondary'}" style="padding:.2rem .5rem;font-size:.75rem"
+            onclick="adminJobsFilter='${f}';switchAdminTab('system')">${f===''?'הכל':statusLabel[f]||f}</button>`).join('')}
+        </div>
+      </div>
+      <div style="font-size:.75rem;color:#94a3b8;margin-bottom:.5rem">סה"כ ${jobTotal} תהליכים</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+          <thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
+            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">משתמש</th>
+            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">סטטוס</th>
+            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">שגיאה</th>
+            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">משך</th>
+            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">נוצר</th>
+            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">פעולה</th>
+          </tr></thead>
+          <tbody>${jobs.length ? jobs.map(j => `<tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:.4rem .5rem;font-size:.78rem">${j.userEmail || j.user_id?.slice(0,8) || '—'}</td>
+            <td style="padding:.4rem .5rem"><span style="font-size:.7rem;padding:.15rem .4rem;border-radius:9999px;background:${statusColor[j.status]||'#94a3b8'}20;color:${statusColor[j.status]||'#94a3b8'};font-weight:600">${statusLabel[j.status]||j.status}</span></td>
+            <td style="padding:.4rem .5rem;font-size:.72rem;color:#ef4444;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(j.error_message||'').replace(/"/g,'&quot;')}">${j.error_message ? j.error_message.slice(0,40)+'…' : '—'}</td>
+            <td style="padding:.4rem .5rem;font-size:.75rem;color:#64748b">${j.durationMs ? (j.durationMs/1000).toFixed(1)+'s' : '—'}</td>
+            <td style="padding:.4rem .5rem;font-size:.72rem;color:#94a3b8">${j.created_at ? new Date(j.created_at).toLocaleString('he-IL',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'}</td>
+            <td style="padding:.4rem .5rem">
+              ${['failed','canceled','timed_out'].includes(j.status) ? `<button class="btn btn-sm btn-primary" style="padding:.2rem .4rem;font-size:.7rem" onclick="adminRetryJob('${j.id}')">Retry</button>` : ''}
+              ${!['completed','canceled'].includes(j.status) ? ` <button class="btn btn-sm btn-secondary" style="padding:.2rem .4rem;font-size:.7rem" onclick="adminCancelJob('${j.id}')">בטל</button>` : ''}
+            </td>
+          </tr>`).join('') : '<tr><td colspan="6" style="padding:1rem;color:#94a3b8;text-align:center">אין תהליכים</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>
+
+    ${errors.length ? `<div class="card">
+      <div style="font-weight:700;margin-bottom:.75rem;color:#b91c1c">🔴 שגיאות אחרונות (24ש')</div>
+      ${errors.map(e => `<div style="border-bottom:1px solid #f1f5f9;padding:.5rem 0">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem">
+          <div style="font-size:.8rem;font-weight:600;color:#374151">${e.function_name||'—'}</div>
+          <div style="font-size:.72rem;color:#94a3b8;white-space:nowrap">${e.created_at ? new Date(e.created_at).toLocaleTimeString('he-IL') : ''}</div>
+        </div>
+        <div style="font-size:.78rem;color:#ef4444;margin-top:.15rem">${e.message||''}</div>
+      </div>`).join('')}
+    </div>` : ''}`;
+}
+
+// ── AI Costs Tab ──────────────────────────────────────────────────────────────
+function _adminBuildAICosts(aiData, curr) {
+  if (!aiData) return `<div class="card"><p class="text-muted">לא ניתן לטעון נתוני עלות AI</p></div>`;
+  const summary   = aiData.costSummary || {};
+  const byTask    = summary.byTask || {};
+  const total30d  = summary.totalCost30d || 0;
+  const calls30d  = summary.totalCalls30d || 0;
+
+  const taskRows = Object.entries(byTask).sort((a,b) => b[1].cost - a[1].cost);
+  const maxCost  = taskRows.length ? Math.max(...taskRows.map(([,v]) => v.cost)) : 1;
+
+  return `
+    <div class="stats-grid mb-4">
+      <div class="stat-card"><div class="stat-label">עלות 30 יום</div><div class="stat-value">$${total30d.toFixed(4)}</div></div>
+      <div class="stat-card"><div class="stat-label">קריאות 30 יום</div><div class="stat-value">${calls30d.toLocaleString()}</div></div>
+      <div class="stat-card"><div class="stat-label">עלות ממוצע לקריאה</div><div class="stat-value">${calls30d ? '$'+(total30d/calls30d).toFixed(5) : '—'}</div></div>
+    </div>
+
+    <div class="card mb-4">
+      <div style="font-weight:700;margin-bottom:1rem">💸 עלות לפי Task Type (30 יום)</div>
+      ${taskRows.length ? taskRows.map(([task, v]) => `
+        <div style="display:grid;grid-template-columns:120px 1fr 70px 60px;gap:.5rem;align-items:center;padding:.4rem 0;border-bottom:1px solid #f1f5f9">
+          <span style="font-size:.82rem;font-weight:600;color:#374151">${task}</span>
+          <div style="height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden">
+            <div style="width:${maxCost > 0 ? (v.cost/maxCost*100).toFixed(1) : 0}%;height:100%;background:linear-gradient(to left,#8b5cf6,#6366f1);border-radius:4px"></div>
+          </div>
+          <span style="font-size:.78rem;text-align:right;color:#374151">$${v.cost.toFixed(4)}</span>
+          <span style="font-size:.72rem;color:#94a3b8;text-align:right">${v.calls} קריאות</span>
+        </div>`).join('') : '<p class="text-muted text-sm">אין נתוני עלות עדיין</p>'}
+    </div>
+
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:1rem">🧠 מודלים מוגדרים</div>
+      ${(aiData.configs || []).map(c => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid #f1f5f9;font-size:.83rem">
+          <div>
+            <span style="font-weight:600">${c.task_type}</span>
+            <span style="color:#64748b;font-size:.75rem;margin-right:.5rem">${c.primary_model}</span>
+          </div>
+          <span style="font-size:.72rem;padding:.15rem .4rem;border-radius:9999px;background:${c.enabled?'#dcfce7':'#f1f5f9'};color:${c.enabled?'#166534':'#94a3b8'}">${c.enabled?'פעיל':'כבוי'}</span>
+        </div>`).join('')}
+      <div style="margin-top:.75rem;text-align:left">
+        <button class="btn btn-secondary" style="width:auto;font-size:.8rem" onclick="switchAdminTab('ai-models')">ניהול מלא →</button>
+      </div>
+    </div>`;
+}
+
+// ── Audit Tab ─────────────────────────────────────────────────────────────────
+function _adminBuildAudit(audit) {
+  const entries = audit?.entries || [];
+  const total   = audit?.total   || 0;
+
+  const actionColor = {
+    'admin.change_plan':'#3b82f6','admin.cancel_subscription':'#ef4444',
+    'admin.grant_admin':'#8b5cf6','admin.revoke_admin':'#f59e0b',
+    'admin.retry_job':'#22c55e','admin.cancel_job':'#94a3b8',
+    'admin.suspend_user':'#ef4444','admin.toggle_admin':'#8b5cf6',
+  };
+
+  return `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
+        <div style="font-weight:700">📋 יומן פעולות אדמין</div>
+        <div style="font-size:.78rem;color:#94a3b8">סה"כ ${total} רשומות</div>
+      </div>
+      ${entries.length ? `<div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+          <thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">זמן</th>
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">פעולה</th>
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">על משתמש</th>
+            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">פרטים</th>
+          </tr></thead>
+          <tbody>${entries.map(e => `<tr style="border-bottom:1px solid #f1f5f9">
+            <td style="padding:.4rem .6rem;color:#94a3b8;font-size:.72rem;white-space:nowrap">${e.created_at ? new Date(e.created_at).toLocaleString('he-IL',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'}</td>
+            <td style="padding:.4rem .6rem"><span style="font-size:.72rem;padding:.15rem .4rem;border-radius:9999px;background:${actionColor[e.action]||'#6366f1'}20;color:${actionColor[e.action]||'#6366f1'};font-weight:600">${e.action||'—'}</span></td>
+            <td style="padding:.4rem .6rem;font-size:.78rem">${e.userEmail || e.user_id?.slice(0,8) || '—'}</td>
+            <td style="padding:.4rem .6rem;font-size:.72rem;color:#64748b;max-width:200px;overflow:hidden;text-overflow:ellipsis">${e.metadata ? JSON.stringify(e.metadata).slice(0,60) : '—'}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:center;gap:.5rem;margin-top:1rem">
+        ${adminAuditPage > 1 ? `<button class="btn btn-sm btn-secondary" onclick="adminAuditPage--;renderAdmin()">← הקודם</button>` : ''}
+        <span style="font-size:.8rem;color:#64748b;line-height:2">עמוד ${adminAuditPage}</span>
+        ${entries.length === 50 ? `<button class="btn btn-sm btn-secondary" onclick="adminAuditPage++;renderAdmin()">הבא →</button>` : ''}
+      </div>` : '<p class="text-muted text-sm">אין רשומות עדיין</p>'}
+    </div>`;
+}
+
+// ── Announcements Tab ─────────────────────────────────────────────────────────
+function _adminBuildAnnouncements(updatesData) {
+  return `<div class="card">
+    <div style="font-weight:700;margin-bottom:1rem">📣 הודעות מערכת</div>
+    <form onsubmit="adminSaveUpdate(event)" style="display:grid;gap:.6rem;margin-bottom:1.25rem">
+      <input class="form-input" id="adm-upd-title" placeholder="כותרת ההודעה *" required style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem"/>
+      <textarea class="form-input" id="adm-upd-content" placeholder="תוכן ההודעה *" rows="3" required style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;resize:vertical"></textarea>
+      <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+        <select id="adm-upd-type" style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;background:#fff">
+          <option value="new">חדש</option><option value="improved">שיפור</option><option value="fixed">תיקון</option>
+        </select>
+        <label style="display:flex;align-items:center;gap:.35rem;font-size:.875rem;cursor:pointer">
+          <input type="checkbox" id="adm-upd-published" checked> פרסם מיד
+        </label>
+        <button type="submit" class="btn btn-primary">פרסם הודעה</button>
+      </div>
+    </form>
+    <div id="admin-updates-list">
+      ${(updatesData || []).length === 0 ? '<p class="text-muted text-sm">אין הודעות עדיין</p>'
+        : (updatesData || []).slice(0,10).map(u => `
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;padding:.6rem 0;border-bottom:1px solid #f1f5f9">
+            <div style="flex:1">
+              <div style="font-weight:600;font-size:.875rem">${u.title}</div>
+              <div class="text-muted" style="font-size:.78rem;margin-top:.15rem">${u.content.slice(0,80)}${u.content.length>80?'…':''}</div>
+              <div style="margin-top:.25rem;display:flex;gap:.4rem;flex-wrap:wrap">
+                <span class="badge ${u.type==='new'?'badge-green':u.type==='improved'?'badge-blue':'badge-yellow'}">${u.type}</span>
+                <span class="badge ${u.is_published?'badge-green':'badge-gray'}">${u.is_published?'פורסם':'טיוטה'}</span>
+              </div>
+            </div>
+            <div style="display:flex;gap:.35rem;flex-shrink:0">
+              <button class="btn btn-sm btn-secondary" onclick="adminTogglePublish('${u.id}',${!u.is_published})">${u.is_published?'הסתר':'פרסם'}</button>
+              <button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5" onclick="adminDeleteUpdate('${u.id}')">מחק</button>
+            </div>
+          </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+// ── Admin Action Helpers ──────────────────────────────────────────────────────
+
+async function adminLoadUserDetail(userId) {
+  const modal = document.getElementById('admin-user-detail-modal');
+  if (!modal) return;
+  modal.innerHTML = `<div style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)this.innerHTML=''">
+    <div style="background:#fff;border-radius:1rem;padding:1.5rem;max-width:600px;width:100%;max-height:85vh;overflow-y:auto;position:relative">
+      <div style="text-align:center;padding:2rem"><div class="spinner"></div></div>
+    </div>
+  </div>`;
+
+  try {
+    const d = await api('GET', `admin-user?userId=${userId}`);
+    const p = d.profile || {};
+    const s = d.subscription || {};
+    const pBadge = { free:'badge-gray', early_bird:'badge-blue', starter:'badge-blue', pro:'badge-green', agency:'badge-green' };
+    const planLabel = { free:'חינמי', early_bird:'Early Bird', starter:'Starter', pro:'Pro', agency:'Agency' };
+
+    modal.innerHTML = `<div style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)this.innerHTML=''">
+      <div style="background:#fff;border-radius:1rem;padding:1.5rem;max-width:620px;width:100%;max-height:85vh;overflow-y:auto;position:relative">
+        <button onclick="document.getElementById('admin-user-detail-modal').innerHTML=''"
+          style="position:absolute;top:1rem;left:1rem;background:none;border:none;font-size:1.25rem;cursor:pointer;color:#94a3b8">✕</button>
+
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+          <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem">
+            ${(p.name||p.email||'?')[0].toUpperCase()}
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:1rem">${p.name||p.email||'—'}</div>
+            <div style="font-size:.83rem;color:#64748b">${p.email||'—'}</div>
+            <div style="margin-top:.25rem"><span class="badge ${pBadge[s.plan]||'badge-gray'}">${planLabel[s.plan]||s.plan||'—'}</span></div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1rem;font-size:.83rem">
+          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">מנוי</div><strong>${s.status||'—'}</strong></div>
+          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">תשלום</div><strong>${s.payment_status||'—'}</strong></div>
+          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">קמפיינים</div><strong>${(d.campaigns||[]).length}</strong></div>
+          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">פעילות 30 יום</div><strong>${d.usageStats?.eventsLast30d||0} אירועים</strong></div>
+          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">הצטרף</div><strong>${p.created_at ? new Date(p.created_at).toLocaleDateString('he-IL') : '—'}</strong></div>
+          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">ניתוחים 30 יום</div><strong>${d.usageStats?.analysisRuns30d||0}</strong></div>
+        </div>
+
+        <div style="font-weight:700;margin-bottom:.75rem">⚡ פעולות מהירות</div>
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem">
+          <select id="modal-plan-${p.id}" style="padding:.35rem .6rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.82rem;background:#fff">
+            ${['free','early_bird','starter','pro','agency'].map(pl => `<option value="${pl}"${(s.plan||'free')===pl?' selected':''}>${pl}</option>`).join('')}
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="adminChangePlanModal('${p.id}')">שנה תוכנית</button>
+          ${p.is_admin ? '' : `<button class="btn btn-sm btn-secondary" onclick="adminToggleAdminStatus('${p.id}',true)">הענק Admin</button>`}
+          ${p.is_admin ? `<button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;padding:.2rem .5rem;font-size:.75rem" onclick="adminToggleAdminStatus('${p.id}',false)">הסר Admin</button>` : ''}
+        </div>
+
+        ${(d.recentAuditLog||[]).length ? `<div style="font-weight:700;margin-bottom:.5rem;font-size:.85rem">📋 פעולות אחרונות</div>
+          ${d.recentAuditLog.slice(0,5).map(e => `<div style="font-size:.75rem;color:#64748b;padding:.25rem 0;border-bottom:1px solid #f1f5f9">${e.action} — ${e.created_at ? new Date(e.created_at).toLocaleString('he-IL') : ''}</div>`).join('')}` : ''}
+      </div>
+    </div>`;
+  } catch (e) {
+    modal.innerHTML = '';
+    toast(e.message || 'שגיאה בטעינת פרטי משתמש', 'error');
+  }
+}
+
+async function adminChangePlanModal(userId) {
+  const sel = document.getElementById('modal-plan-' + userId);
+  if (!sel) return;
+  if (!confirm(`שינוי תוכנית ל-${sel.value}?`)) return;
+  try {
+    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: userId, plan: sel.value });
+    toast(`✓ תוכנית שונתה ל-${sel.value}`, 'success');
+    document.getElementById('admin-user-detail-modal').innerHTML = '';
+    _adminCache = {};
+    renderAdmin({ keepScroll: true });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminToggleAdminStatus(userId, makeAdmin) {
+  if (!confirm(makeAdmin ? `להעניק הרשאת Admin?` : `להסיר הרשאת Admin?`)) return;
+  try {
+    await api('POST', 'admin-user', { action: 'toggle_admin', targetUserId: userId });
+    toast(`✓ הרשאות עודכנו`, 'success');
+    document.getElementById('admin-user-detail-modal').innerHTML = '';
+    _adminCache = {};
+    renderAdmin({ keepScroll: true });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminRetryJob(jobId) {
+  try {
+    await api('POST', 'admin-jobs', { action: 'retry', jobId });
+    toast('✓ Job הוחזר לתור', 'success');
+    _adminCache = {};
+    renderAdmin({ keepScroll: true });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminCancelJob(jobId) {
+  if (!confirm('לבטל את התהליך?')) return;
+  try {
+    await api('POST', 'admin-jobs', { action: 'cancel', jobId });
+    toast('✓ Job בוטל', 'success');
+    _adminCache = {};
+    renderAdmin({ keepScroll: true });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminChangePlanInlineById(userId) {
+  const newPlan = prompt('תוכנית חדשה (free/early_bird/starter/pro/agency):');
+  if (!newPlan) return;
+  try {
+    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: userId, plan: newPlan });
+    toast(`✓ תוכנית שונתה ל-${newPlan}`, 'success');
+    _adminCache = {};
+    renderAdmin({ keepScroll: true });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+function adminExportUsersCSV() {
+  const content = document.querySelector('#admin-tab-content table');
+  if (!content) { toast('אין נתונים לייצוא', 'error'); return; }
+  const rows = Array.from(content.querySelectorAll('tr')).map(tr =>
+    Array.from(tr.querySelectorAll('th,td')).map(td => '"' + td.innerText.replace(/"/g,'""').trim() + '"').join(',')
+  );
+  const csv  = rows.join('\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `users-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+  toast('✓ CSV יורד', 'success');
 }
 
 // ── Admin AI Models ───────────────────────────────────────────────────────────
@@ -7292,7 +7741,15 @@ window.clearAdCreative       = clearAdCreative;
 window.downloadAdCreative    = downloadAdCreative;
 window.copyAIResult          = copyAIResult;
 window.expandSavedWork       = expandSavedWork;
-window.filterAdminUsers      = filterAdminUsers;
+window.filterAdminUsers        = filterAdminUsers;
+window.switchAdminTab          = switchAdminTab;
+window.adminRetryJob           = adminRetryJob;
+window.adminCancelJob          = adminCancelJob;
+window.adminLoadUserDetail     = adminLoadUserDetail;
+window.adminChangePlanModal    = adminChangePlanModal;
+window.adminToggleAdminStatus  = adminToggleAdminStatus;
+window.adminExportUsersCSV     = adminExportUsersCSV;
+window.adminChangePlanInlineById = adminChangePlanInlineById;
 window.pollPaymentActivation = pollPaymentActivation;
 window.showAddCampaignModal  = showAddCampaignModal;
 window.addCampaign           = addCampaign;

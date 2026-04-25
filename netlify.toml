@@ -36,6 +36,12 @@
 [functions."admin-ai-models"]
   timeout = 15
 
+[functions."admin-jobs"]
+  timeout = 15
+
+[functions."admin-system"]
+  timeout = 15
+
 # Orchestration background function (15 min limit, returns 202 immediately)
 [functions."analyze-campaign-background"]
   timeout = 900
