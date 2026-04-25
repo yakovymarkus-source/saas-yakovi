@@ -298,9 +298,9 @@ function renderShell(content) {
   };
 
   const mainNav = [
-    { id: 'dashboard',             icon: '📊', label: 'דשבורד' },
-    { id: 'business-from-scratch', icon: '🧠', label: 'בניית עסק מאפס' },
-    { id: 'ai-creation',           icon: '🤖', label: 'צור נכסים בAI' },
+    { id: 'dashboard',             icon: '🏠', label: 'ראשי' },
+    { id: 'business-from-scratch', icon: '🧠', label: 'מנוע AI' },
+    { id: 'ai-creation',           icon: '✨', label: 'יצירה' },
     { id: 'campaigns',             icon: '🎯', label: 'קמפיינים' },
     { id: 'leads',                 icon: '📥', label: 'לידים' },
     { id: 'insights',              icon: '📈', label: 'תובנות' },
@@ -519,16 +519,7 @@ async function renderDashboard() {
     <!-- ── Campaign Score Card ───────────────────────────────────────────────── -->
     <div id="score-card" class="card mb-4" style="display:none"></div>
 
-    <div class="card mb-4">
-      <div class="card-title">⚡ פעולות מהירות</div>
-      <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
-        <button class="btn btn-primary" style="width:auto" onclick="navigate('ai-creation')">✨ צור נכס חדש</button>
-        <button class="btn btn-secondary" style="width:auto" onclick="navigate('leads')">📥 ניהול לידים</button>
-        <button class="btn btn-secondary" style="width:auto" onclick="navigate('campaigns')">🎯 קמפיינים</button>
-        <button class="btn btn-secondary" style="width:auto" onclick="navigate('insights')">📈 תובנות</button>
-        ${connectedCount === 0 ? `<button class="btn btn-secondary" style="width:auto" onclick="switchSettingsTab('integrations');navigate('settings')">🔌 חבר אינטגרציה</button>` : ''}
-      </div>
-    </div>
+    ${_dashNextStep(steps, connectedCount)}
 
     ${connectedCount > 0 ? `
     <div class="card mb-4">
