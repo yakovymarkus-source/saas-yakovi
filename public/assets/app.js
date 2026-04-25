@@ -3449,6 +3449,7 @@ var adminUsersSearch = '';
 var adminUsersPage   = 1;
 var adminAuditPage   = 1;
 var adminJobsFilter  = '';
+var adminJobsPage    = 1;
 var _adminCache      = {}; // short-lived cache: { tab: { data, ts } }
 
 function _adminCacheGet(key) {
@@ -3544,7 +3545,7 @@ async function _adminLoadTab(tab) {
   if (tab === 'system') {
     const [system, jobs] = await Promise.all([
       api('GET', 'admin-system').catch(() => null),
-      api('GET', `admin-jobs?limit=30${adminJobsFilter ? '&status=' + adminJobsFilter : ''}`).catch(() => ({ jobs: [], total: 0, summary24h: {} })),
+      api('GET', `admin-jobs?limit=30&page=${adminJobsPage}${adminJobsFilter ? '&status=' + adminJobsFilter : ''}`).catch(() => ({ jobs: [], total: 0, summary24h: {} })),
     ]);
     return _adminBuildSystem(system, jobs, fmt);
   }
@@ -3595,12 +3596,13 @@ function _adminBuildOverview(ov, fmt, pct, currILS) {
   const hasAlert = failedJ > 0 || failedP > 0;
 
   return `
-    ${hasAlert ? `<div class="card mb-4" style="border:2px solid #fca5a5;background:#fff5f5;padding:1rem">
-      <div style="font-weight:700;color:#b91c1c;margin-bottom:.5rem">⚠️ התראות פעילות</div>
-      <div style="display:flex;gap:1rem;flex-wrap:wrap;font-size:.875rem">
-        ${failedP > 0 ? `<span style="color:#b91c1c">💳 ${failedP} תשלומים כושלים (24ש')</span>` : ''}
-        ${failedJ > 0 ? `<span style="color:#b91c1c">⚙️ ${failedJ} תהליכים כושלים (24ש')</span>` : ''}
-      </div>
+    ${(ov?.alerts||[]).length > 0 ? `<div class="card mb-4" style="border:2px solid #fca5a5;background:#fff5f5;padding:1rem">
+      <div style="font-weight:700;color:#b91c1c;margin-bottom:.75rem">⚠️ ${(ov.alerts||[]).length} התראות פעילות</div>
+      ${(ov.alerts||[]).map(a => `<div style="display:flex;align-items:center;gap:.75rem;padding:.4rem 0;border-bottom:1px solid #fecaca">
+        <span style="font-size:.75rem;padding:.15rem .4rem;border-radius:9999px;background:${a.severity==='high'?'#fee2e2':'#fef3c7'};color:${a.severity==='high'?'#b91c1c':'#92400e'};font-weight:600">${a.severity==='high'?'חמור':'אזהרה'}</span>
+        <span style="font-size:.83rem;color:#374151">${a.message}</span>
+        <button class="btn btn-sm btn-secondary" style="margin-right:auto;padding:.15rem .4rem;font-size:.7rem" onclick="switchAdminTab('${a.type==='billing'?'billing':'system'}')">בדוק →</button>
+      </div>`).join('')}
     </div>` : ''}
 
     <div class="stats-grid" style="margin-bottom:1.5rem">
@@ -3689,8 +3691,9 @@ function _adminBuildUsers(usersData, pBadge) {
           ${plans.map(p => `<option value="${p}"${adminUserFilter===p?' selected':''}>${p==='all'?'כל התוכניות':p}</option>`).join('')}
         </select>
         <button class="btn btn-secondary" style="width:auto;font-size:.8rem" onclick="adminExportUsersCSV()">📥 ייצוא CSV</button>
+        <button class="btn btn-secondary" style="width:auto;font-size:.8rem" onclick="adminQuickPlanChange()">✏️ שנה תוכנית לפי אימייל</button>
       </div>
-      <div style="font-size:.78rem;color:#94a3b8;margin-bottom:.75rem">סה"כ ${total} משתמשים</div>
+      <div style="font-size:.78rem;color:#94a3b8;margin-bottom:.75rem">סה"כ ${total} משתמשים · לחץ על שורה לפרטים מלאים</div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:.83rem">
           <thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
@@ -3780,7 +3783,7 @@ function _adminBuildSystem(system, jobsData, fmt) {
   const summary  = jobsData?.summary24h || {};
   const errors   = (system?.requestMetrics?.recentErrors || []).slice(0, 20);
   const metrics  = system?.requestMetrics || {};
-  const providers = system?.providerHealth || [];
+  const cron     = system?.cronHistory || [];
 
   const statusColor = { queued:'#f59e0b', pending:'#f59e0b', processing:'#3b82f6', running:'#3b82f6', completed:'#22c55e', failed:'#ef4444', canceled:'#94a3b8', timed_out:'#ef4444', retrying:'#8b5cf6' };
   const statusLabel = { queued:'ממתין', pending:'ממתין', processing:'מעבד', running:'פועל', completed:'הושלם', failed:'כשל', canceled:'בוטל', timed_out:'פג זמן', retrying:'מנסה שנית' };
@@ -3795,8 +3798,8 @@ function _adminBuildSystem(system, jobsData, fmt) {
         <div class="stat-label">Jobs כשלו 24ש'</div>
         <div class="stat-value" style="${(summary.failed||0) > 0 ? 'color:#ef4444' : ''}">${fmt(summary.failed||0)}</div>
       </div>
-      <div class="stat-card"><div class="stat-label">שגיאות 1ש'</div><div class="stat-value">${(metrics.errorRate1h * 100).toFixed(1)}%</div></div>
-      <div class="stat-card"><div class="stat-label">זמן תגובה ממוצע</div><div class="stat-value">${metrics.avgDurationMs||'—'}ms</div></div>
+      <div class="stat-card"><div class="stat-label">שגיאות 1ש'</div><div class="stat-value">${((metrics.errorRate1h||0) * 100).toFixed(1)}%</div></div>
+      <div class="stat-card"><div class="stat-label">זמן תגובה ממוצע</div><div class="stat-value">${metrics.avgDurationMs ? metrics.avgDurationMs+'ms' : '—'}</div></div>
       <div class="stat-card"><div class="stat-label">סה"כ בקשות 1ש'</div><div class="stat-value">${fmt(metrics.totalRequests1h)}</div></div>
     </div>
 
@@ -3808,7 +3811,14 @@ function _adminBuildSystem(system, jobsData, fmt) {
             onclick="adminJobsFilter='${f}';switchAdminTab('system')">${f===''?'הכל':statusLabel[f]||f}</button>`).join('')}
         </div>
       </div>
-      <div style="font-size:.75rem;color:#94a3b8;margin-bottom:.5rem">סה"כ ${jobTotal} תהליכים</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+        <div style="font-size:.75rem;color:#94a3b8">סה"כ ${jobTotal} תהליכים</div>
+        <div style="display:flex;gap:.4rem">
+          ${adminJobsPage > 1 ? `<button class="btn btn-sm btn-secondary" style="padding:.2rem .5rem;font-size:.72rem" onclick="adminJobsPage--;switchAdminTab('system')">← הקודם</button>` : ''}
+          <span style="font-size:.75rem;color:#64748b;line-height:2">עמוד ${adminJobsPage}</span>
+          ${jobs.length === 30 ? `<button class="btn btn-sm btn-secondary" style="padding:.2rem .5rem;font-size:.72rem" onclick="adminJobsPage++;switchAdminTab('system')">הבא →</button>` : ''}
+        </div>
+      </div>
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:.8rem">
           <thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
@@ -3832,6 +3842,26 @@ function _adminBuildSystem(system, jobsData, fmt) {
           </tr>`).join('') : '<tr><td colspan="6" style="padding:1rem;color:#94a3b8;text-align:center">אין תהליכים</td></tr>'}</tbody>
         </table>
       </div>
+    </div>
+
+    <div class="card mb-4">
+      <div style="font-weight:700;margin-bottom:.75rem">🕐 היסטוריית Cron Jobs</div>
+      ${cron.length ? cron.map(c => {
+        const ok = c.lastStatus !== 'error';
+        const label = { 'retention-trigger': 'Retention (כל שעה)', 'trigger-pending-jobs': 'Job Trigger (כל 5 דקות)' };
+        const lastRunStr = c.lastRun ? new Date(c.lastRun).toLocaleString('he-IL', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }) : 'לא רץ';
+        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid #f1f5f9;gap:.5rem;flex-wrap:wrap">
+          <div>
+            <div style="font-size:.83rem;font-weight:600">${label[c.function]||c.function}</div>
+            <div style="font-size:.72rem;color:#94a3b8">ריצה אחרונה: ${lastRunStr}</div>
+          </div>
+          <div style="display:flex;gap:.5rem;align-items:center">
+            <span style="font-size:.72rem;padding:.15rem .4rem;border-radius:9999px;background:${ok?'#dcfce7':'#fee2e2'};color:${ok?'#166534':'#b91c1c'};font-weight:600">${ok?'✓ תקין':'✗ שגיאה'}</span>
+            <span style="font-size:.72rem;color:#64748b">${c.runs24h} ריצות 24ש'</span>
+            ${c.errors24h > 0 ? `<span style="font-size:.72rem;color:#ef4444">${c.errors24h} שגיאות</span>` : ''}
+          </div>
+        </div>`;
+      }).join('') : '<p class="text-muted text-sm">אין היסטוריה (מחכה לריצה ראשונה)</p>'}
     </div>
 
     ${errors.length ? `<div class="card">
@@ -4074,6 +4104,23 @@ async function adminCancelJob(jobId) {
   try {
     await api('POST', 'admin-jobs', { action: 'cancel', jobId });
     toast('✓ Job בוטל', 'success');
+    _adminCache = {};
+    renderAdmin({ keepScroll: true });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function adminQuickPlanChange() {
+  const email   = prompt('אימייל המשתמש:');
+  if (!email) return;
+  const newPlan = prompt('תוכנית חדשה (free / early_bird / starter / pro / agency):');
+  if (!newPlan) return;
+  if (!confirm(`שינוי תוכנית עבור ${email} ל-${newPlan}?`)) return;
+  try {
+    const usersRes = await api('GET', `admin-users?search=${encodeURIComponent(email)}&limit=1`);
+    const user = usersRes?.users?.[0];
+    if (!user) { toast('משתמש לא נמצא', 'error'); return; }
+    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: user.id, plan: newPlan });
+    toast(`✓ תוכנית של ${email} שונתה ל-${newPlan}`, 'success');
     _adminCache = {};
     renderAdmin({ keepScroll: true });
   } catch (e) { toast(e.message, 'error'); }
@@ -7750,6 +7797,7 @@ window.adminChangePlanModal    = adminChangePlanModal;
 window.adminToggleAdminStatus  = adminToggleAdminStatus;
 window.adminExportUsersCSV     = adminExportUsersCSV;
 window.adminChangePlanInlineById = adminChangePlanInlineById;
+window.adminQuickPlanChange      = adminQuickPlanChange;
 window.pollPaymentActivation = pollPaymentActivation;
 window.showAddCampaignModal  = showAddCampaignModal;
 window.addCampaign           = addCampaign;
