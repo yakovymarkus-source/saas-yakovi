@@ -513,6 +513,12 @@ async function renderDashboard() {
       </div>
     </div>
 
+    <!-- ── Barrel Effect Card ──────────────────────────────────────────────── -->
+    <div id="barrel-card" class="card mb-4" style="display:none"></div>
+
+    <!-- ── Campaign Score Card ───────────────────────────────────────────────── -->
+    <div id="score-card" class="card mb-4" style="display:none"></div>
+
     <div class="card mb-4">
       <div class="card-title">⚡ פעולות מהירות</div>
       <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
@@ -561,6 +567,11 @@ async function renderDashboard() {
       const container = document.getElementById('live-stats-container');
       if (container) container.innerHTML = renderLiveStatsContent();
     });
+  }
+
+  // Load Barrel Effect + Campaign Score in background
+  if (state.campaigns?.length > 0 || state.currentCampaignId) {
+    setTimeout(() => loadBarrelAndScore(), 400);
   }
 }
 
@@ -6324,6 +6335,104 @@ function _orchRenderResult(data) {
   }
 }
 
+// ── Barrel Effect + Campaign Score ───────────────────────────────────────────
+async function loadBarrelAndScore() {
+  if (!state.currentCampaignId && !state.campaigns?.[0]?.id) return;
+  const campaignId = state.currentCampaignId || state.campaigns[0]?.id;
+  try {
+    const res = await api('GET', `campaign-score?campaignId=${campaignId}`);
+    if (!res || res.empty) return;
+
+    // Score card
+    const scoreCard = document.getElementById('score-card');
+    if (scoreCard) {
+      const s = res.score;
+      const color = s >= 70 ? '#22c55e' : s >= 40 ? '#f59e0b' : '#ef4444';
+      scoreCard.style.display = '';
+      scoreCard.innerHTML = `
+        <div class="card-title flex items-center justify-between">
+          <span>ציון קמפיין</span>
+          <span style="font-size:1.4rem;font-weight:800;color:${color}">${s}/100</span>
+        </div>
+        <div style="background:#f1f5f9;border-radius:999px;height:8px;margin-bottom:0.75rem">
+          <div style="width:${s}%;height:8px;border-radius:999px;background:${color};transition:width 0.6s"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;text-align:center;font-size:0.75rem">
+          ${[['CTR', res.ctr_score],['גלילה', res.scroll_score],['טופס', res.form_score],['המרה', res.conversion_score]].map(([l,v])=>`
+            <div style="padding:0.4rem;background:${v>=70?'#dcfce7':v>=40?'#fef3c7':'#fee2e2'};border-radius:8px">
+              <div style="font-weight:700;color:${v>=70?'#16a34a':v>=40?'#d97706':'#dc2626'}">${v}</div>
+              <div style="color:#64748b">${l}</div>
+            </div>`).join('')}
+        </div>`;
+    }
+
+    // Barrel card
+    const barrelCard = document.getElementById('barrel-card');
+    if (barrelCard && res.barrel) {
+      const b = res.barrel;
+      barrelCard.style.display = '';
+      barrelCard.innerHTML = `
+        <div class="card-title" style="color:#dc2626">החוליה החלשה שלך</div>
+        <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <div style="font-weight:600;margin-bottom:0.25rem">${b.label}</div>
+            <div style="font-size:0.8rem;color:#64748b">ציון: ${b.score}/100 — זה מה שמגביל את הקמפיין כולו</div>
+          </div>
+          <button class="btn btn-primary" style="width:auto;white-space:nowrap"
+            onclick="fixBarrelWithAI('${campaignId}','${b.action}')">
+            ${b.cta} →
+          </button>
+        </div>`;
+    }
+  } catch (e) { console.warn('[barrelScore]', e.message); }
+}
+
+async function fixBarrelWithAI(campaignId, action) {
+  state.currentCampaignId = campaignId;
+  if (action === 'rewrite_ad' || action === 'optimize_cta') {
+    navigate('business-from-scratch');
+    setTimeout(() => { bfsAgentTab = 'execution'; renderBusinessFromScratch(); }, 300);
+  } else if (action === 'rewrite_landing') {
+    navigate('ai-creation');
+  } else if (action === 'optimize_form') {
+    navigate('business-from-scratch');
+    setTimeout(() => { bfsAgentTab = 'qa'; renderBusinessFromScratch(); }, 300);
+  }
+}
+
+// ── Share (WhatsApp / link) ───────────────────────────────────────────────────
+async function shareResult(shareType, resourceId, title, previewData) {
+  try {
+    const res = await api('POST', 'share-create', { shareType, resourceId, title, previewData });
+    if (!res?.ok) { showToast('שגיאה ביצירת קישור שיתוף'); return; }
+
+    const html = `
+      <div style="text-align:center;padding:1.5rem">
+        <div style="font-weight:700;margin-bottom:1rem">שתף את התוצאות שלך</div>
+        <div style="display:flex;flex-direction:column;gap:0.75rem">
+          <a href="${res.whatsappUrl}" target="_blank" rel="noopener"
+             style="display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:0.75rem;background:#25d366;color:#fff;border-radius:12px;text-decoration:none;font-weight:600">
+            שלח בוואטסאפ
+          </a>
+          <button onclick="navigator.clipboard.writeText('${res.url}').then(()=>showToast('הקישור הועתק!'))"
+            style="padding:0.75rem;background:#f1f5f9;border:none;border-radius:12px;cursor:pointer;font-weight:600">
+            העתק קישור
+          </button>
+        </div>
+        <div style="font-size:0.75rem;color:#94a3b8;margin-top:1rem">${res.url}</div>
+      </div>`;
+    renderShell(html);
+  } catch (e) { showToast('שגיאה: ' + e.message); }
+}
+
+function showToast(msg) {
+  var t = document.createElement('div');
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;padding:0.75rem 1.25rem;border-radius:12px;font-size:0.875rem;z-index:9999;animation:fadeIn 0.2s';
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
@@ -6389,7 +6498,11 @@ window.switchInsightsTab      = switchInsightsTab;
 window.renderInsights         = renderInsights;
 window._renderAICreationShell = _renderAICreationShell;
 window.showQuickConnectModal  = showQuickConnectModal;
-window.startOrchestration     = startOrchestration;
+window.startOrchestration      = startOrchestration;
 window.renderOrchestrationPanel = renderOrchestrationPanel;
+window.loadBarrelAndScore      = loadBarrelAndScore;
+window.fixBarrelWithAI         = fixBarrelWithAI;
+window.shareResult             = shareResult;
+window.showToast               = showToast;
 
 boot();

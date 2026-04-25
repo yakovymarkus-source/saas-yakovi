@@ -5,6 +5,19 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[functions."campaign-score"]
+  timeout = 15
+
+[functions."share-create"]
+  timeout = 10
+
+[functions."share-view"]
+  timeout = 10
+
+[functions."retention-trigger"]
+  timeout = 50
+  schedule = "0 * * * *"
+
 [functions."track-event"]
   timeout = 5
 
