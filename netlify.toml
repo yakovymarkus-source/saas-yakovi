@@ -33,6 +33,9 @@
 [functions."team-invite"]
   timeout = 15
 
+[functions."admin-ai-models"]
+  timeout = 15
+
 # Orchestration background function (15 min limit, returns 202 immediately)
 [functions."analyze-campaign-background"]
   timeout = 900

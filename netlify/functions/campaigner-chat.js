@@ -38,6 +38,26 @@ const { loadRunningTests, buildNextTestSuggestion, formatTestCard } = require('.
 const { generateAdCopy, formatCopyCard } = require('./_shared/ad-copy-generator');
 const { extractProfileAnswer } = require('./_shared/profile-intake-extractor');
 const { orchestrate, CAPABILITIES }     = require('./_shared/orchestrator');
+const { route: routeModel }             = require('./_shared/model-router');
+const OpenRouterAdapter                 = require('./_shared/providers/adapters/openrouter');
+
+// ── AI cost logger (fire-and-forget) ─────────────────────────────────────────
+async function _logAICost({ userId, taskType, raw, routing }) {
+  try {
+    const sb = getAdminClient();
+    await sb.from('ai_cost_log').insert({
+      user_id:       userId || null,
+      task_type:     taskType,
+      model_used:    raw?._model || routing?.model || 'unknown',
+      provider:      raw?._via === 'direct_fallback' ? 'anthropic_direct' : 'openrouter',
+      input_tokens:  raw?._usage?.promptTokens     || 0,
+      output_tokens: raw?._usage?.completionTokens || 0,
+      cost_usd:      raw?._cost || 0,
+      latency_ms:    raw?._latency || 0,
+      success:       true,
+    });
+  } catch { /* non-critical */ }
+}
 
 // ── Intent detection ──────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
@@ -1379,62 +1399,36 @@ exports.handler = async (event) => {
     if (message.startsWith('[DIRECT_AD]') || message.startsWith('[DIRECT_GENERATE]')) {
       const rawPrompt = message.replace(/^\[(DIRECT_AD|DIRECT_GENERATE)\]\s*/, '');
 
-      // Read key fresh from .env every call — avoids netlify dev caching stale keys
-      let anthropicKey = process.env.ANTHROPIC_API_KEY || '';
-      try {
-        const _fs = require('node:fs'), _path = require('node:path');
-        const _envFile = _path.resolve(__dirname, '../..', '.env');
-        if (_fs.existsSync(_envFile)) {
-          for (const _line of _fs.readFileSync(_envFile, 'utf8').split('\n')) {
-            const _m = _line.match(/^ANTHROPIC_API_KEY=(.+)/);
-            if (_m) { anthropicKey = _m[1].trim(); break; }
-          }
-        }
-      } catch {}
-      if (!anthropicKey) {
-        return ok({ reply: '⚠️ שגיאה: לא נמצא ANTHROPIC_API_KEY. אנא הגדר אותו בהגדרות הסביבה של Netlify.', quickActions: [] }, context.requestId);
-      }
-
       let reply = '';
-      let errorDetail = '';
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 22000);
-        const model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
-        console.log('[direct-gen] calling Anthropic, model:', model, 'key prefix:', anthropicKey.slice(0, 20));
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          signal: controller.signal,
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': anthropicKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model,
-            max_tokens: 1500,
-            system: 'אתה קופירייטר ישראלי מקצועי המתמחה בפרסום דיגיטלי. כתוב תוכן שיווקי בעברית, ישיר, ממיר ומשכנע. השב ישירות עם התוכן המבוקש בלבד, ללא הסברים נוספים.',
-            messages: [{ role: 'user', content: rawPrompt }],
-          }),
+        // Route through model-router → OpenRouter (with Anthropic parachute)
+        const routing = await routeModel(rawPrompt, 'creative');
+        console.log('[direct-gen] routing:', routing.taskType, '→', routing.model, 'via', routing.useOpenRouter ? 'openrouter' : 'direct');
+
+        const raw = await OpenRouterAdapter.execute('ad_copy', {
+          system:    'אתה קופירייטר ישראלי מקצועי המתמחה בפרסום דיגיטלי. כתוב תוכן שיווקי בעברית, ישיר, ממיר ומשכנע. השב ישירות עם התוכן המבוקש בלבד, ללא הסברים נוספים.',
+          user:      rawPrompt,
+          maxTokens: 1500,
+        }, {
+          model:         routing.model,
+          fallbackModel: routing.fallbackModel,
+          timeout:       routing.timeoutMs,
+          temperature:   routing.temperature,
         });
-        clearTimeout(timer);
-        console.log('[direct-gen] Anthropic status:', res.status);
-        if (res.ok) {
-          const data = await res.json();
-          reply = data?.content?.find(b => b.type === 'text')?.text || '';
-          console.log('[direct-gen] reply length:', reply.length);
-        } else {
-          const errBody = await res.text().catch(() => '');
-          errorDetail = `HTTP ${res.status}: ${errBody.slice(0, 200)}`;
-          console.error('[direct-gen] Anthropic error:', errorDetail);
-        }
+
+        reply = raw?.choices?.[0]?.message?.content || '';
+        console.log('[direct-gen] reply length:', reply.length, '| via:', raw?._via, '| cost: $' + (raw?._cost || 0).toFixed(5));
+
+        // Log cost (fire-and-forget)
+        _logAICost({ userId: user.id, taskType: 'creative', raw, routing }).catch(() => {});
+
       } catch (e) {
-        errorDetail = e.message || 'network error';
-        console.error('[direct-gen] fetch error:', errorDetail);
+        console.error('[direct-gen] error:', e.message);
+        reply = '';
       }
 
       if (!reply) {
-        return ok({ reply: `⚠️ שגיאה בגישה ל-AI${errorDetail ? ': ' + errorDetail : '. אנא נסה שנית.'}`, quickActions: [] }, context.requestId);
+        return ok({ reply: '⚠️ שגיאה בגישה ל-AI. אנא נסה שנית.', quickActions: [] }, context.requestId);
       }
       return ok({ reply, quickActions: [] }, context.requestId);
     }

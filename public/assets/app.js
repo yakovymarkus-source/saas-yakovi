@@ -3421,12 +3421,181 @@ async function renderAdmin(opts = {}) {
             </div>`).join('')}
       </div>
     </div>
+
+    <!-- ── AI Models Management ──────────────────────────────────────────────── -->
+    <div class="analysis-card" style="margin-bottom:1.5rem" id="admin-ai-models-section">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold">🤖 ניהול מודלי AI</h3>
+        <button class="btn btn-sm btn-secondary" onclick="adminLoadAIModels()">🔄 רענן</button>
+      </div>
+      <div id="admin-ai-models-content">
+        <div style="color:#94a3b8;font-size:0.875rem;text-align:center;padding:1.5rem">
+          <div class="spinner" style="width:20px;height:20px;margin:0 auto 0.5rem"></div>
+          טוען הגדרות מודלים...
+        </div>
+      </div>
+    </div>
   `);
   if (savedScroll > 0) {
     requestAnimationFrame(() => {
       const pc = document.getElementById('page-content');
       if (pc) pc.scrollTop = savedScroll;
     });
+  }
+
+  // Auto-load AI models panel
+  setTimeout(() => adminLoadAIModels(), 200);
+}
+
+// ── Admin AI Models ───────────────────────────────────────────────────────────
+var _adminAIData = null;
+
+async function adminLoadAIModels() {
+  const el = document.getElementById('admin-ai-models-content');
+  if (!el) return;
+
+  try {
+    const data = await api('GET', 'admin-ai-models');
+    _adminAIData = data;
+    el.innerHTML = _renderAIModelsPanel(data);
+  } catch (e) {
+    el.innerHTML = `<div style="color:#ef4444;font-size:0.875rem">שגיאה בטעינת הגדרות: ${e.message}</div>`;
+  }
+}
+
+function _renderAIModelsPanel(data) {
+  if (!data?.configs) return '<div style="color:#94a3b8">אין נתונים</div>';
+
+  const { configs, availableModels, costSummary } = data;
+  const modelOptions = (availableModels || []).map(m =>
+    `<option value="${m.id}">${m.label} (${m.provider})</option>`
+  ).join('');
+
+  const taskLabels = {
+    chat: 'שיחה עם AI', quick: 'תגובה מהירה', creative: 'יצירת תוכן',
+    research: 'מחקר שוק', strategy: 'אסטרטגיה', execution: 'ביצוע',
+    qa: 'בקרת איכות', analysis: 'ניתוח נתונים', router: 'סוכן ממיין',
+  };
+
+  const costRows = configs.map(c => {
+    const taskCost  = costSummary?.byTask?.[c.task_type];
+    const costStr   = taskCost ? `$${taskCost.cost.toFixed(4)}` : '—';
+    const callsStr  = taskCost ? taskCost.calls : '—';
+    const via       = c.use_openrouter ? '🌐 OpenRouter' : '🔗 Direct API';
+    const badgeColor = c.use_openrouter ? '#6366f1' : '#0ea5e9';
+
+    return `
+    <tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:0.75rem;font-weight:600;white-space:nowrap">${taskLabels[c.task_type] || c.task_type}</td>
+      <td style="padding:0.75rem">
+        <select onchange="adminUpdateModel('${c.task_type}','primary_model',this.value)"
+          style="width:100%;padding:0.35rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.8rem;background:#fff">
+          ${(availableModels || []).map(m =>
+            `<option value="${m.id}" ${m.id === c.primary_model ? 'selected' : ''}>${m.label}</option>`
+          ).join('')}
+        </select>
+      </td>
+      <td style="padding:0.75rem">
+        <select onchange="adminUpdateModel('${c.task_type}','fallback_model',this.value)"
+          style="width:100%;padding:0.35rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.8rem;background:#fff">
+          <option value="">ללא fallback</option>
+          ${(availableModels || []).map(m =>
+            `<option value="${m.id}" ${m.id === c.fallback_model ? 'selected' : ''}>${m.label}</option>`
+          ).join('')}
+        </select>
+      </td>
+      <td style="padding:0.75rem;text-align:center">
+        <span style="font-size:0.72rem;padding:2px 8px;border-radius:99px;background:${badgeColor}20;color:${badgeColor};white-space:nowrap">${via}</span>
+        <br>
+        <label style="display:inline-flex;align-items:center;gap:4px;font-size:0.72rem;margin-top:4px;cursor:pointer">
+          <input type="checkbox" ${c.use_openrouter ? 'checked' : ''}
+            onchange="adminUpdateModel('${c.task_type}','use_openrouter',this.checked)">
+          <span>OpenRouter</span>
+        </label>
+      </td>
+      <td style="padding:0.75rem;text-align:center">
+        <input type="number" value="${c.temperature}" min="0" max="2" step="0.1"
+          style="width:60px;padding:0.3rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.8rem;text-align:center"
+          onchange="adminUpdateModel('${c.task_type}','temperature',parseFloat(this.value))">
+      </td>
+      <td style="padding:0.75rem;text-align:center">
+        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="checkbox" ${c.enabled ? 'checked' : ''}
+            onchange="adminUpdateModel('${c.task_type}','enabled',this.checked)">
+        </label>
+      </td>
+      <td style="padding:0.75rem;text-align:center;font-size:0.8rem;color:#64748b">${costStr}<br><span style="font-size:0.7rem">${callsStr} קריאות</span></td>
+      <td style="padding:0.75rem;text-align:center">
+        <button onclick="adminTestModel('${c.task_type}','${c.primary_model}')"
+          style="padding:0.3rem 0.6rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:0.72rem;cursor:pointer">
+          בדוק
+        </button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div style="margin-bottom:1rem;padding:0.875rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;display:flex;align-items:center;justify-between;gap:1rem;flex-wrap:wrap">
+      <div>
+        <span style="font-weight:700;color:#16a34a">💰 עלות חודשית: $${(costSummary?.totalCost30d || 0).toFixed(3)}</span>
+        <span style="color:#64748b;font-size:0.8rem;margin-right:1rem">${costSummary?.totalCalls30d || 0} קריאות ב-30 יום האחרונים</span>
+      </div>
+      <div style="font-size:0.75rem;color:#64748b">
+        שינויים נכנסים לתוקף מיידית — אין צורך ב-deploy
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+        <thead>
+          <tr style="background:#f8fafc;text-align:right">
+            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600">משימה</th>
+            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600">מודל ראשי</th>
+            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600">Fallback</th>
+            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">ערוץ</th>
+            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">Temp</th>
+            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">פעיל</th>
+            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">עלות 30י'</th>
+            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">בדיקה</th>
+          </tr>
+        </thead>
+        <tbody>${costRows}</tbody>
+      </table>
+    </div>
+    <div id="admin-model-test-result" style="margin-top:1rem;display:none"></div>`;
+}
+
+async function adminUpdateModel(taskType, field, value) {
+  try {
+    await api('PUT', 'admin-ai-models', { task_type: taskType, [field]: value });
+    showToast(`✓ ${taskType} עודכן`);
+  } catch (e) { showToast('שגיאה: ' + e.message); }
+}
+
+async function adminTestModel(taskType, model) {
+  const resultEl = document.getElementById('admin-model-test-result');
+  if (!resultEl) return;
+  resultEl.style.display = '';
+  resultEl.innerHTML = `<div style="padding:0.75rem;background:#f8fafc;border-radius:8px;color:#64748b;font-size:0.875rem">
+    <div class="spinner" style="width:16px;height:16px;display:inline-block;vertical-align:middle;margin-left:0.5rem"></div>
+    בודק מודל ${model}...
+  </div>`;
+
+  try {
+    const res = await api('POST', 'admin-ai-models/test', { model, prompt: 'אמור שלום בעברית במשפט אחד.' });
+    const ok  = res?.ok;
+    resultEl.innerHTML = `
+      <div style="padding:0.875rem;background:${ok?'#f0fdf4':'#fef2f2'};border:1px solid ${ok?'#bbf7d0':'#fecaca'};border-radius:8px">
+        <div style="font-weight:600;color:${ok?'#16a34a':'#dc2626'};margin-bottom:0.35rem">
+          ${ok ? '✓ המודל עובד' : '✗ המודל נכשל'}
+          <span style="font-weight:400;font-size:0.8rem;color:#64748b;margin-right:0.5rem">
+            ${res?.latency_ms || 0}ms | $${(res?.cost_usd || 0).toFixed(5)} | via ${res?.via || '?'}
+          </span>
+        </div>
+        ${res?.reply ? `<div style="font-size:0.875rem;color:#1e293b">"${res.reply}"</div>` : ''}
+        ${res?.error ? `<div style="font-size:0.8rem;color:#dc2626">${res.error}</div>` : ''}
+      </div>`;
+  } catch (e) {
+    resultEl.innerHTML = `<div style="padding:0.75rem;background:#fef2f2;border-radius:8px;color:#dc2626;font-size:0.875rem">שגיאה: ${e.message}</div>`;
   }
 }
 
@@ -6971,6 +7140,9 @@ window.showOnboardingWizard    = showOnboardingWizard;
 window.obStep1Next             = obStep1Next;
 window.obStep4Fix              = obStep4Fix;
 window.obComplete              = obComplete;
+window.adminLoadAIModels       = adminLoadAIModels;
+window.adminUpdateModel        = adminUpdateModel;
+window.adminTestModel          = adminTestModel;
 window.teamInvite              = teamInvite;
 window.teamLoadMembers         = teamLoadMembers;
 window.teamRemoveMember        = teamRemoveMember;
