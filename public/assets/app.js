@@ -2562,6 +2562,10 @@ async function renderSettings(tabOverride) {
       const res = await api('GET', 'integration-connect');
       ints = Array.isArray(res) ? res : [];
       state.integrations = ints;
+    } else if (settingsTab === 'account') {
+      const fresh = await api('GET', 'account-profile');
+      if (fresh) state.profile = { ...state.profile, ...fresh };
+      if (!window._acctSubTab) window._acctSubTab = 'profile';
     }
   } catch {}
 
@@ -2789,33 +2793,161 @@ async function renderSettings(tabOverride) {
         </div>` : ''}`;
   };
 
-  const buildAccountTab = () => `
-    <div class="flex flex-col gap-6">
-      <div class="card">
-        <div class="card-title">פרופיל משתמש</div>
-        <form onsubmit="saveProfile(event)">
-          <div class="form-group">
-            <label class="form-label">שם מלא</label>
-            <input class="form-input" id="profile-name" value="${state.profile?.name || ''}" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">אימייל</label>
-            <input class="form-input" type="email" id="profile-email"
-              value="${state.profile?.email || state.user?.email || ''}"
-              readonly style="opacity:0.65;cursor:not-allowed" />
-          </div>
-          <button type="submit" class="btn btn-primary" style="width:auto">שמור שינויים</button>
-        </form>
-      </div>
-      <div class="card">
-        <div class="card-title">פרטיות ונתונים</div>
-        <p class="text-sm text-muted mb-3">לשאלות בנוגע לנתונים או לביטול — <button onclick="navigate('support')" class="btn btn-sm btn-secondary" style="display:inline;padding:0.2rem 0.5rem">פנה לתמיכה</button></p>
-        <div class="flex gap-2">
-          <button class="btn btn-secondary" onclick="exportData()">📥 ייצוא נתונים</button>
-          <button class="btn btn-danger"    onclick="deleteAccount()">🗑 מחיקת חשבון</button>
+  const buildAccountTab = () => {
+    const plan      = state.subscription?.plan || 'free';
+    const isPaid    = ['early_bird','starter','pro','agency'].includes(plan);
+    const email     = state.profile?.email || state.user?.email || '';
+    const fullName  = state.profile?.full_name || state.profile?.name || '';
+    const avatarUrl = state.profile?.avatar_url || '';
+    const initials  = fullName ? fullName.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)
+                               : email.slice(0,2).toUpperCase();
+    const memberSince = state.profile?.created_at
+      ? new Date(state.profile.created_at).toLocaleDateString('he-IL', { year:'numeric', month:'long' })
+      : '—';
+
+    const planLabel = { free:'חינמי', early_bird:'Early Bird', starter:'Starter', pro:'Pro', agency:'Agency' }[plan] || plan;
+    const planColor = isPaid ? '#166534' : '#1e40af';
+    const planBg    = isPaid ? '#dcfce7' : '#dbeafe';
+
+    const subTabs = [
+      { id:'profile',  label:'פרופיל' },
+      { id:'security', label:'אבטחה' },
+      { id:'data',     label:'נתונים' },
+    ];
+    const sub = window._acctSubTab || 'profile';
+
+    const subTabBar = `<div style="display:flex;gap:0;border-bottom:1px solid #e2e8f0;margin-bottom:1.5rem">
+      ${subTabs.map(t=>`
+        <button onclick="switchAcctSubTab('${t.id}')"
+          style="padding:0.55rem 1.1rem;border:none;border-bottom:2px solid ${sub===t.id?'#6366f1':'transparent'};
+                 margin-bottom:-1px;background:none;cursor:pointer;font-size:0.83rem;
+                 font-weight:${sub===t.id?'700':'500'};color:${sub===t.id?'#6366f1':'#64748b'};white-space:nowrap">
+          ${t.label}
+        </button>`).join('')}
+    </div>`;
+
+    // ── Profile sub-tab ──────────────────────────────────────────────────────
+    const profileTab = `
+      <div style="display:flex;align-items:center;gap:1.25rem;margin-bottom:1.75rem">
+        <div style="position:relative;cursor:pointer" onclick="document.getElementById('avatar-file-input').click()">
+          ${avatarUrl
+            ? `<img src="${avatarUrl}" alt="avatar"
+                style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:2px solid #e2e8f0" />`
+            : `<div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);
+                            display:flex;align-items:center;justify-content:center;font-size:1.5rem;
+                            font-weight:700;color:#fff;border:2px solid #e2e8f0;user-select:none">
+                ${initials}
+               </div>`}
+          <div style="position:absolute;bottom:0;left:0;width:22px;height:22px;background:#6366f1;
+                      border-radius:50%;display:flex;align-items:center;justify-content:center;
+                      border:2px solid #fff;font-size:0.6rem;color:#fff">✎</div>
+          <input type="file" id="avatar-file-input" accept="image/jpeg,image/png,image/webp"
+            style="display:none" onchange="uploadAvatar(this)" />
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:1rem">${fullName || email}</div>
+          <div style="font-size:0.8rem;color:#64748b">${email}</div>
+          <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.2rem">לחץ על התמונה לשינוי</div>
         </div>
       </div>
-    </div>`;
+      <div class="form-group" style="margin-bottom:1.25rem">
+        <label class="form-label">שם מלא</label>
+        <input class="form-input" id="profile-fullname"
+          value="${fullName.replace(/"/g,'&quot;')}"
+          oninput="_acctMarkDirty()"
+          placeholder="השם שיוצג בממשק" />
+      </div>
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label">אימייל</label>
+        <input class="form-input" type="email" value="${email}"
+          readonly style="opacity:0.55;cursor:not-allowed;background:#f8fafc" />
+        <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.35rem">האימייל לא ניתן לשינוי כאן</div>
+      </div>`;
+
+    // ── Security sub-tab ─────────────────────────────────────────────────────
+    const securityTab = `
+      <div class="card mb-4" style="margin-bottom:1rem">
+        <div style="font-weight:700;font-size:0.95rem;margin-bottom:1rem">🔑 שינוי סיסמה</div>
+        <div class="form-group">
+          <label class="form-label">סיסמה חדשה</label>
+          <input class="form-input" type="password" id="new-password" placeholder="לפחות 8 תווים" autocomplete="new-password" />
+        </div>
+        <div class="form-group" style="margin-bottom:1rem">
+          <label class="form-label">אשר סיסמה חדשה</label>
+          <input class="form-input" type="password" id="confirm-password" placeholder="חזור על הסיסמה" autocomplete="new-password" />
+        </div>
+        <button class="btn btn-primary" style="width:auto" onclick="savePassword()">עדכן סיסמה</button>
+      </div>
+      <div class="card mb-4" style="margin-bottom:1rem">
+        <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.5rem">📱 כל המכשירים</div>
+        <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">התנתק מכל המכשירים האחרים שמחוברים לחשבון זה</p>
+        <button class="btn btn-secondary" style="width:auto" onclick="signOutAllDevices()">התנתק מכל המכשירים</button>
+      </div>
+      <div class="card" style="border:1px solid #e2e8f0;background:#f8fafc;opacity:0.7">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.25rem">🔒 אימות דו-שלבי</div>
+            <p style="font-size:0.83rem;color:#64748b;margin:0">הגנה נוספת על חשבונך</p>
+          </div>
+          <span style="font-size:0.72rem;background:#fef3c7;color:#92400e;padding:0.2rem 0.6rem;border-radius:9999px;font-weight:600">בקרוב</span>
+        </div>
+      </div>`;
+
+    // ── Data sub-tab ─────────────────────────────────────────────────────────
+    const dataTab = `
+      <div class="card mb-4" style="margin-bottom:1rem">
+        <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.5rem">📥 ייצוא נתונים</div>
+        <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">הורד עותק של כל הנתונים שלך (GDPR)</p>
+        <button class="btn btn-secondary" style="width:auto" onclick="exportData()">הורד את הנתונים שלי</button>
+      </div>
+      <div class="card" style="border:1px solid #fca5a5;background:#fff5f5">
+        <div style="font-weight:700;font-size:0.95rem;color:#991b1b;margin-bottom:0.5rem">⚠️ מחיקת חשבון</div>
+        <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">
+          פעולה זו בלתי הפיכה. כל הנתונים שלך יימחקו לצמיתות.
+        </p>
+        <div class="form-group" style="margin-bottom:1rem">
+          <label class="form-label" style="color:#991b1b">אשר על ידי הקלדת המייל שלך: <strong>${email}</strong></label>
+          <input class="form-input" type="email" id="delete-confirm-email"
+            placeholder="${email}"
+            style="border-color:#fca5a5" />
+        </div>
+        <button class="btn btn-danger" style="width:auto" onclick="deleteAccount()">מחק את החשבון לצמיתות</button>
+      </div>`;
+
+    const subContent = sub === 'security' ? securityTab
+                     : sub === 'data'     ? dataTab
+                     : profileTab;
+
+    const dirtySaveBar = `
+      <div id="acct-save-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:1000;
+           background:#fff;border-top:1px solid #e2e8f0;padding:0.875rem 1.5rem;
+           box-shadow:0 -4px 12px rgba(0,0,0,0.08);align-items:center;justify-content:space-between;gap:1rem">
+        <span style="font-size:0.875rem;color:#64748b">יש שינויים שלא נשמרו</span>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn btn-secondary" style="width:auto" onclick="_acctCancelChanges()">ביטול</button>
+          <button class="btn btn-primary" style="width:auto" onclick="saveAcctChanges()">שמור שינויים</button>
+        </div>
+      </div>`;
+
+    return `
+      <div class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+        <div>
+          <div style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem">מצב חשבון</div>
+          <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+            <span style="font-weight:700;font-size:1rem">${fullName || email}</span>
+            <span style="font-size:0.75rem;background:${planBg};color:${planColor};
+                         padding:0.2rem 0.65rem;border-radius:9999px;font-weight:600">${planLabel}</span>
+          </div>
+          <div style="font-size:0.8rem;color:#94a3b8;margin-top:0.2rem">חבר מאז ${memberSince}</div>
+        </div>
+        ${!isPaid ? `<button class="btn btn-gradient" style="width:auto" onclick="switchSettingsTab('billing');renderSettings()">שדרג תוכנית →</button>` : ''}
+      </div>
+      <div class="card">
+        ${subTabBar}
+        ${subContent}
+      </div>
+      ${sub === 'profile' ? dirtySaveBar : ''}`;
+  };
 
   const buildTeamTab = () => {
     const plan = state.subscription?.plan || 'free';
@@ -3114,15 +3246,15 @@ async function sendSupportMessage() {
 
 
 async function saveProfile(e) {
-  e.preventDefault();
+  if (e) e.preventDefault();
   try {
-    const updates = {
-      name:  document.getElementById('profile-name').value.trim(),
-      email: document.getElementById('profile-email').value.trim(),
-    };
+    const nameEl = document.getElementById('profile-fullname');
+    if (!nameEl) return;
+    const updates = { name: nameEl.value.trim(), full_name: nameEl.value.trim() };
     const profile = await api('PUT', 'account-profile', updates);
-    state.profile = profile;
+    state.profile = { ...state.profile, ...profile };
     toast('הפרופיל עודכן!', 'success');
+    _acctCancelChanges();
   } catch (err) {
     toast(err.message || 'שגיאה', 'error');
   }
@@ -3144,14 +3276,91 @@ async function exportData() {
 }
 
 async function deleteAccount() {
-  const confirmed = prompt('כדי למחוק את החשבון, הקלד DELETE:');
-  if (confirmed !== 'DELETE') return;
+  const emailEl = document.getElementById('delete-confirm-email');
+  const userEmail = state.profile?.email || state.user?.email || '';
+  if (!emailEl || emailEl.value.trim().toLowerCase() !== userEmail.toLowerCase()) {
+    toast('האימייל שהזנת אינו תואם — נסה שוב', 'error');
+    return;
+  }
   try {
     await api('POST', 'account-delete', { confirmation: 'DELETE' });
     toast('החשבון נמחק.', 'info');
     await sb.auth.signOut();
     state = { user: null, profile: null, subscription: null, campaigns: [], integrations: [], liveStats: {}, liveStatsLoading: false, currentPage: 'dashboard', currentCampaignId: null, accessToken: null };
     renderAuth();
+  } catch (err) {
+    toast(err.message || 'שגיאה', 'error');
+  }
+}
+
+function switchAcctSubTab(sub) {
+  window._acctSubTab = sub;
+  window._acctDirty  = false;
+  renderSettings();
+}
+
+function _acctMarkDirty() {
+  if (window._acctDirty) return;
+  window._acctDirty = true;
+  const bar = document.getElementById('acct-save-bar');
+  if (bar) bar.style.display = 'flex';
+}
+
+function _acctCancelChanges() {
+  window._acctDirty = false;
+  const bar = document.getElementById('acct-save-bar');
+  if (bar) bar.style.display = 'none';
+  renderSettings();
+}
+
+async function saveAcctChanges() {
+  await saveProfile();
+}
+
+async function uploadAvatar(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  if (file.size > 2 * 1024 * 1024) { toast('הקובץ גדול מדי — מקסימום 2MB', 'error'); return; }
+  try {
+    toast('מעלה תמונה...', 'info');
+    const ext  = file.name.split('.').pop().toLowerCase();
+    const path = `${state.user.id}/avatar.${ext}`;
+    const { data, error } = await sb.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type });
+    if (error) throw error;
+    const { data: { publicUrl } } = sb.storage.from('avatars').getPublicUrl(path);
+    const profile = await api('PUT', 'account-profile', { avatarUrl: publicUrl });
+    state.profile = { ...state.profile, ...profile, avatar_url: publicUrl };
+    toast('התמונה עודכנה!', 'success');
+    renderSettings();
+  } catch (err) {
+    toast(err.message || 'שגיאה בהעלאת תמונה', 'error');
+  }
+}
+
+async function savePassword() {
+  const newPw  = document.getElementById('new-password')?.value || '';
+  const confPw = document.getElementById('confirm-password')?.value || '';
+  if (!newPw || newPw.length < 8) { toast('הסיסמה חייבת להכיל לפחות 8 תווים', 'error'); return; }
+  if (newPw !== confPw) { toast('הסיסמאות אינן תואמות', 'error'); return; }
+  try {
+    const { error } = await sb.auth.updateUser({ password: newPw });
+    if (error) throw error;
+    toast('הסיסמה עודכנה בהצלחה!', 'success');
+    document.getElementById('new-password').value     = '';
+    document.getElementById('confirm-password').value = '';
+  } catch (err) {
+    toast(err.message || 'שגיאה בעדכון סיסמה', 'error');
+  }
+}
+
+async function signOutAllDevices() {
+  if (!confirm('להתנתק מכל המכשירים?')) return;
+  try {
+    const { error } = await sb.auth.signOut({ scope: 'global' });
+    if (error) throw error;
+    state = { user: null, profile: null, subscription: null, campaigns: [], integrations: [], liveStats: {}, liveStatsLoading: false, currentPage: 'dashboard', currentCampaignId: null, accessToken: null };
+    renderAuth();
+    toast('התנתקת מכל המכשירים', 'info');
   } catch (err) {
     toast(err.message || 'שגיאה', 'error');
   }
@@ -7112,6 +7321,13 @@ window.adminSupportTab       = adminSupportTab;
 window.saveProfile           = saveProfile;
 window.exportData            = exportData;
 window.deleteAccount         = deleteAccount;
+window.switchAcctSubTab      = switchAcctSubTab;
+window._acctMarkDirty        = _acctMarkDirty;
+window._acctCancelChanges    = _acctCancelChanges;
+window.saveAcctChanges       = saveAcctChanges;
+window.uploadAvatar          = uploadAvatar;
+window.savePassword          = savePassword;
+window.signOutAllDevices     = signOutAllDevices;
 window.refreshLiveStats      = refreshLiveStats;
 window.leadsSetFilter        = leadsSetFilter;
 window.leadsResetFilters     = leadsResetFilters;
