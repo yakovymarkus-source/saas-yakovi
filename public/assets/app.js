@@ -4089,16 +4089,18 @@ async function boot() {
         }).catch(() => {});
       }
 
-      // New user flow: no business profile + no prior session → ai-creation
+      // New user flow: no onboarding done → forced wizard
       const isNewUser = !bpRes && !cached && initialPage === 'dashboard';
-      if (isNewUser) state.currentPage = 'ai-creation';
+      const wizardDone = (onboardingRes?.steps || {}).onboarding_wizard_done;
+      const forceWizard = isNewUser && !wizardDone;
 
       // Re-render only if we didn't show cached version (first-ever load)
       if (!cached || cached.userId !== session.user.id) {
-        if (!isNewUser && state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
+        if (!forceWizard && state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
           state.currentPage = initialPage;
         }
         render();
+        if (forceWizard) setTimeout(() => showOnboardingWizard(), 300);
       } else {
         // Redirect to settings with right tab for OAuth callbacks
         const _qp = new URLSearchParams(window.location.search);
@@ -6433,6 +6435,272 @@ function showToast(msg) {
   setTimeout(() => t.remove(), 3000);
 }
 
+// ── Onboarding Wizard (forced — cannot skip) ──────────────────────────────────
+var _obState = { step: 1, url: '', score: null, topFix: null, issues: [], businessName: '' };
+
+function showOnboardingWizard() {
+  _obState = { step: 1, url: '', score: null, topFix: null, issues: [], businessName: '' };
+  _renderOB();
+}
+
+function _renderOB() {
+  let existing = document.getElementById('ob-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'ob-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(4px)';
+  overlay.innerHTML = _obStepHtml(_obState.step);
+  document.body.appendChild(overlay);
+}
+
+function _obStepHtml(step) {
+  const steps = [
+    { n: 1, label: 'שם העסק' },
+    { n: 2, label: 'ניתוח דף' },
+    { n: 3, label: 'תוצאות' },
+    { n: 4, label: 'תיקון ראשון' },
+  ];
+  const bar = steps.map(s => `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
+      <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;
+        ${s.n < step ? 'background:#22c55e;color:#fff' : s.n === step ? 'background:#6366f1;color:#fff' : 'background:#1e293b;color:#64748b'}">
+        ${s.n < step ? '✓' : s.n}
+      </div>
+      <span style="font-size:0.65rem;color:${s.n === step ? '#e2e8f0' : '#475569'}">${s.label}</span>
+    </div>
+    ${s.n < 4 ? `<div style="flex:1;height:2px;margin-top:14px;background:${s.n < step ? '#22c55e' : '#1e293b'};max-width:40px;align-self:flex-start;margin-top:16px"></div>` : ''}
+  `).join('');
+
+  const card = `<div style="background:#0f172a;border-radius:1.5rem;padding:2.5rem;max-width:520px;width:100%;border:1px solid #1e293b;box-shadow:0 25px 60px rgba(0,0,0,0.5);direction:rtl">
+    <div style="text-align:center;margin-bottom:2rem">
+      <div style="font-size:1.5rem;font-weight:800;color:#e2e8f0;margin-bottom:0.25rem">🚀 ברוך הבא ל-CampaignAI</div>
+      <div style="color:#64748b;font-size:0.875rem">60 שניות לקבל את הניתוח הראשון שלך</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:0;margin-bottom:2rem">${bar}</div>
+    ${_obStepContent(step)}
+  </div>`;
+  return card;
+}
+
+function _obStepContent(step) {
+  if (step === 1) return `
+    <div>
+      <label style="display:block;color:#94a3b8;font-size:0.875rem;margin-bottom:0.5rem">מה שם העסק שלך?</label>
+      <input id="ob-name" type="text" placeholder="למשל: שיפוצי כהן" value="${_obState.businessName}"
+        style="width:100%;padding:0.875rem 1rem;background:#1e293b;border:1px solid #334155;border-radius:0.75rem;color:#e2e8f0;font-size:1rem;box-sizing:border-box;outline:none"
+        oninput="_obState.businessName=this.value" onkeydown="if(event.key==='Enter')obStep1Next()">
+      <div style="margin-top:0.75rem">
+        <label style="display:block;color:#94a3b8;font-size:0.875rem;margin-bottom:0.5rem">יש לך דף נחיתה? הכנס קישור:</label>
+        <input id="ob-url" type="url" placeholder="https://yoursite.com" value="${_obState.url}"
+          style="width:100%;padding:0.875rem 1rem;background:#1e293b;border:1px solid #334155;border-radius:0.75rem;color:#e2e8f0;font-size:1rem;box-sizing:border-box;outline:none"
+          oninput="_obState.url=this.value" onkeydown="if(event.key==='Enter')obStep1Next()">
+        <p style="color:#475569;font-size:0.75rem;margin-top:0.5rem">אין עדיין דף? השאר ריק — נבנה אחד עכשיו ✨</p>
+      </div>
+      <button onclick="obStep1Next()" style="width:100%;margin-top:1.5rem;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer">
+        המשך ←
+      </button>
+    </div>`;
+
+  if (step === 2) return `
+    <div style="text-align:center">
+      <div style="width:64px;height:64px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;margin:0 auto 1.5rem;display:flex;align-items:center;justify-content:center">
+        <div class="spinner" style="width:28px;height:28px;border-width:3px;border-color:rgba(255,255,255,0.2);border-top-color:#fff"></div>
+      </div>
+      <div style="color:#e2e8f0;font-size:1.1rem;font-weight:600;margin-bottom:0.5rem">מנתח את הדף שלך...</div>
+      <div id="ob-analyze-msg" style="color:#64748b;font-size:0.875rem">בודק מהירות טעינה, CTA, מובייל ועוד</div>
+    </div>`;
+
+  if (step === 3) {
+    const s = _obState.score || 0;
+    const color = s >= 70 ? '#22c55e' : s >= 45 ? '#f59e0b' : '#ef4444';
+    const label = s >= 70 ? 'מצוין! הדף שלך טוב' : s >= 45 ? 'יש מה לשפר' : 'יש כמה בעיות קריטיות';
+    const issuesHtml = (_obState.issues || []).slice(0, 3).map(i =>
+      `<div style="display:flex;align-items:center;gap:0.75rem;padding:0.625rem 0.75rem;background:#1e293b;border-radius:0.5rem">
+        <span style="color:#ef4444;font-size:0.875rem">✗</span>
+        <span style="color:#cbd5e1;font-size:0.85rem">${i.label}</span>
+        <span style="margin-right:auto;background:#ef444420;color:#ef4444;padding:2px 8px;border-radius:99px;font-size:0.7rem">−${i.points} נק׳</span>
+      </div>`
+    ).join('');
+    const passedHtml = (_obState.passed || []).slice(0, 2).map(p =>
+      `<div style="display:flex;align-items:center;gap:0.75rem;padding:0.625rem 0.75rem;background:#1e293b;border-radius:0.5rem">
+        <span style="color:#22c55e;font-size:0.875rem">✓</span>
+        <span style="color:#cbd5e1;font-size:0.85rem">${p}</span>
+      </div>`
+    ).join('');
+    return `
+      <div>
+        <div style="text-align:center;margin-bottom:1.5rem">
+          <div style="font-size:3rem;font-weight:800;color:${color}">${s}</div>
+          <div style="font-size:0.75rem;color:#64748b">מתוך 100</div>
+          <div style="color:${color};font-weight:600;margin-top:0.25rem">${label}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.5rem">
+          ${issuesHtml}${passedHtml}
+        </div>
+        ${_obState.topFix ? `
+          <button onclick="obStep4Fix()" style="width:100%;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer">
+            ✨ תקן עכשיו עם AI — ${_obState.topFix.label}
+          </button>` : `
+          <button onclick="obComplete()" style="width:100%;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer">
+            🚀 כנס לדאשבורד
+          </button>`}
+        <button onclick="obComplete()" style="width:100%;margin-top:0.75rem;padding:0.75rem;background:transparent;border:1px solid #334155;border-radius:0.75rem;color:#64748b;font-size:0.875rem;cursor:pointer">
+          דלג — כנס לדאשבורד
+        </button>
+      </div>`;
+  }
+
+  if (step === 4) {
+    const fix = _obState.topFix;
+    return `
+      <div style="text-align:center">
+        <div style="font-size:2.5rem;margin-bottom:1rem">🎯</div>
+        <div style="color:#e2e8f0;font-size:1.1rem;font-weight:700;margin-bottom:0.5rem">ה-AI מתקן: ${fix?.label || 'הדף שלך'}</div>
+        <div style="color:#64748b;font-size:0.875rem;margin-bottom:1.5rem">${fix?.tip || 'יוצר המלצה מותאמת אישית'}</div>
+        <div style="background:#1e293b;border-radius:0.75rem;padding:1rem;margin-bottom:1.5rem;text-align:right">
+          <div style="color:#94a3b8;font-size:0.8rem;margin-bottom:0.5rem">המלצת ה-AI:</div>
+          <div id="ob-fix-content" style="color:#e2e8f0;font-size:0.875rem;line-height:1.6">
+            <div style="display:flex;align-items:center;gap:0.5rem;color:#64748b"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div> מייצר המלצה...</div>
+          </div>
+        </div>
+        <button id="ob-done-btn" onclick="obComplete()" disabled style="width:100%;padding:1rem;background:#1e293b;border:none;border-radius:0.75rem;color:#64748b;font-size:1rem;font-weight:700;cursor:not-allowed">
+          🚀 כנס לדאשבורד
+        </button>
+      </div>`;
+  }
+  return '';
+}
+
+async function obStep1Next() {
+  const nameEl = document.getElementById('ob-name');
+  const urlEl  = document.getElementById('ob-url');
+  if (nameEl) _obState.businessName = nameEl.value.trim();
+  if (urlEl)  _obState.url = urlEl.value.trim();
+
+  if (!_obState.businessName) {
+    const inp = document.getElementById('ob-name');
+    if (inp) { inp.style.borderColor = '#ef4444'; inp.focus(); }
+    return;
+  }
+
+  // Save business name early
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) {
+      await sb.from('business_profiles').upsert(
+        { user_id: session.user.id, business_name: _obState.businessName },
+        { onConflict: 'user_id', ignoreDuplicates: false }
+      );
+    }
+  } catch { /* non-critical */ }
+
+  if (!_obState.url) {
+    // No URL — skip analysis, go straight to dashboard with AI creation
+    await obComplete(true);
+    return;
+  }
+
+  _obState.step = 2;
+  _renderOB();
+  await _runQuickAnalysis();
+}
+
+async function _runQuickAnalysis() {
+  const msgs = [
+    'בודק מהירות טעינה...',
+    'מנתח כפתורי CTA...',
+    'בודק התאמה למובייל...',
+    'סורק טפסי לידים...',
+    'מסכם תוצאות...',
+  ];
+  let mi = 0;
+  const msgEl = document.getElementById('ob-analyze-msg');
+  const interval = setInterval(() => {
+    if (msgEl && mi < msgs.length) msgEl.textContent = msgs[mi++];
+  }, 900);
+
+  try {
+    const res = await fetch(`${CONFIG.apiBase}/quick-analyze`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: _obState.url }),
+    });
+    const data = await res.json();
+    clearInterval(interval);
+    _obState.score  = data.score || 0;
+    _obState.issues = data.issues || [];
+    _obState.passed = data.passed || [];
+    _obState.topFix = data.topFix || null;
+    _obState.step   = 3;
+    _renderOB();
+  } catch {
+    clearInterval(interval);
+    _obState.score  = 0;
+    _obState.issues = [];
+    _obState.step   = 3;
+    _renderOB();
+  }
+}
+
+async function obStep4Fix() {
+  _obState.step = 4;
+  _renderOB();
+
+  // Ask AI for specific fix
+  try {
+    const fix = _obState.topFix;
+    const prompt = `אני עם עסק "${_obState.businessName}". יש לדף הנחיתה שלי בעיה: "${fix?.label}". טיפ מהמערכת: "${fix?.tip}". תן לי המלצה קצרה וספציפית (2-3 משפטים) איך לתקן את זה.`;
+    const res = await fetch(`${CONFIG.apiBase}/campaigner-chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'authorization': `Bearer ${state.accessToken}` },
+      body: JSON.stringify({ message: prompt }),
+    });
+    const data = await res.json();
+    const el = document.getElementById('ob-fix-content');
+    if (el) el.innerHTML = `<p style="margin:0">${(data.reply || 'נסה לשפר את האלמנטים שצוינו').replace(/\n/g, '<br>')}</p>`;
+    const btn = document.getElementById('ob-done-btn');
+    if (btn) { btn.disabled = false; btn.style.cssText = 'width:100%;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer'; }
+  } catch {
+    const el = document.getElementById('ob-fix-content');
+    if (el) el.innerHTML = `<p style="margin:0">${_obState.topFix?.tip || 'שפר את הדף לפי ההמלצות'}</p>`;
+    const btn = document.getElementById('ob-done-btn');
+    if (btn) { btn.disabled = false; btn.style.cssText = 'width:100%;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer'; }
+  }
+}
+
+async function obComplete(buildNew = false) {
+  // Mark onboarding as started
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) {
+      const steps = {
+        ...(state.onboardingSteps || {}),
+        profile_started: true,
+        onboarding_wizard_done: true,
+      };
+      await sb.from('onboarding_progress').upsert(
+        { user_id: session.user.id, steps, current_step: 'first_asset' },
+        { onConflict: 'user_id', ignoreDuplicates: false }
+      );
+      state.onboardingSteps = steps;
+      state.unlockedScreens = computeUnlockedScreens(steps);
+    }
+  } catch { /* non-critical */ }
+
+  // Remove overlay
+  const overlay = document.getElementById('ob-overlay');
+  if (overlay) overlay.remove();
+
+  // Route: if no URL provided → build landing page
+  if (buildNew) {
+    navigate('ai-creation');
+    showToast('בוא נבנה לך דף נחיתה עם AI ✨');
+  } else {
+    navigate('dashboard');
+  }
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
@@ -6504,5 +6772,9 @@ window.loadBarrelAndScore      = loadBarrelAndScore;
 window.fixBarrelWithAI         = fixBarrelWithAI;
 window.shareResult             = shareResult;
 window.showToast               = showToast;
+window.showOnboardingWizard    = showOnboardingWizard;
+window.obStep1Next             = obStep1Next;
+window.obStep4Fix              = obStep4Fix;
+window.obComplete              = obComplete;
 
 boot();
