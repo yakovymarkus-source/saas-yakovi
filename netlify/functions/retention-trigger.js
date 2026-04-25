@@ -10,7 +10,7 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
-const nodemailer = require('nodemailer');
+const { sendEmail }    = require('./_shared/email');
 
 function db() {
   return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -66,13 +66,10 @@ const TRIGGERS = {
   },
 };
 
-async function sendEmail(to, subject, text) {
-  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) return;
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
-  });
-  await transporter.sendMail({ from: process.env.GMAIL_USER, to, subject, text });
+async function sendRetentionEmail(to, subject, text) {
+  try {
+    await sendEmail({ to, subject, html: `<div dir="rtl" style="font-family:sans-serif;color:#1e293b;padding:1.5rem"><p style="font-size:1rem">${text.replace(/\n/g,'<br>')}</p></div>` });
+  } catch (e) { console.warn('[retention-trigger] email error:', e.message); }
 }
 
 exports.handler = async (event) => {
@@ -104,7 +101,7 @@ exports.handler = async (event) => {
 
         // Send email
         if (user.email) {
-          await sendEmail(user.email, trigger.subject, trigger.body({ appUrl }));
+          await sendRetentionEmail(user.email, trigger.subject, trigger.body({ appUrl }));
           fired++;
         }
       } catch (e) {

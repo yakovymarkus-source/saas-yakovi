@@ -93,7 +93,22 @@ async function calculateScore(campaignId, userId) {
   const weakKey = Object.entries(components).sort((a, b) => a[1] - b[1])[0][0];
   const barrel = { ...BARREL_FIXES[weakKey], score: components[weakKey], key: weakKey };
 
-  return { score, ctr_score, scroll_score, form_score, conversion_score, barrel, sessions };
+  // Fetch industry benchmarks for comparison
+  const { data: benchmarks } = await supabase
+    .from('industry_benchmarks')
+    .select('metric, avg_value, good_value, unit')
+    .eq('industry', 'general');
+
+  const bm = {};
+  (benchmarks || []).forEach(b => { bm[b.metric] = b; });
+
+  const benchmark = {
+    ctr:        { yours: ctr_score,        avg: bm.ctr?.avg_value || 2,  good: bm.ctr?.good_value || 4 },
+    scroll:     { yours: scroll_score,     avg: bm.scroll_50?.avg_value || 45, good: bm.scroll_50?.good_value || 70 },
+    conversion: { yours: conversion_score, avg: bm.conversion?.avg_value || 3, good: bm.conversion?.good_value || 8 },
+  };
+
+  return { score, ctr_score, scroll_score, form_score, conversion_score, barrel, sessions, benchmark };
 }
 
 exports.handler = async (event) => {

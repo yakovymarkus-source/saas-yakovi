@@ -30,6 +30,9 @@
 [functions."quick-analyze"]
   timeout = 10
 
+[functions."team-invite"]
+  timeout = 15
+
 # Orchestration background function (15 min limit, returns 202 immediately)
 [functions."analyze-campaign-background"]
   timeout = 900

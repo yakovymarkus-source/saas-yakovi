@@ -573,6 +573,9 @@ async function renderDashboard() {
   if (state.campaigns?.length > 0 || state.currentCampaignId) {
     setTimeout(() => loadBarrelAndScore(), 400);
   }
+
+  // Check for new achievements (delayed to avoid blocking render)
+  setTimeout(() => checkNewAchievements(), 2000);
 }
 
 function _dashGreeting(steps) {
@@ -2522,6 +2525,7 @@ function _settingsTabBar() {
   const tabs = [
     { id: 'business',     icon: '🏢', label: 'פרופיל עסקי' },
     { id: 'integrations', icon: '🔌', label: 'חיבורים' },
+    { id: 'team',         icon: '👥', label: 'צוות' },
     { id: 'billing',      icon: '💳', label: 'חיוב' },
     { id: 'account',      icon: '👤', label: 'חשבון' },
   ];
@@ -2813,8 +2817,56 @@ async function renderSettings(tabOverride) {
       </div>
     </div>`;
 
+  const buildTeamTab = () => {
+    const plan = state.subscription?.plan || 'free';
+    const paidPlans = ['early_bird','starter','pro','agency'];
+    const isPaid = paidPlans.includes(plan);
+    const limits = { early_bird: 2, starter: 3, pro: 10, agency: 50 };
+    const maxMembers = limits[plan] || 0;
+    if (!isPaid) return `
+      <div class="card" style="text-align:center;padding:2.5rem">
+        <div style="font-size:2rem;margin-bottom:1rem">👥</div>
+        <div style="font-weight:700;font-size:1.1rem;margin-bottom:0.5rem">הזמן חברי צוות</div>
+        <div style="color:#64748b;margin-bottom:1.5rem">שתף גישה לדוחות ולקמפיינים עם אנשי הצוות שלך</div>
+        <button class="btn btn-gradient" style="width:auto" onclick="switchSettingsTab('billing');renderSettings()">שדרג לצוות →</button>
+      </div>`;
+
+    return `
+      <div class="flex flex-col gap-4">
+        <div class="card">
+          <div class="card-title flex items-center justify-between">
+            <span>👥 חברי צוות</span>
+            <span style="font-size:0.75rem;color:#64748b">עד ${maxMembers} חברים בתוכנית ${plan}</span>
+          </div>
+          <div style="display:flex;gap:0.75rem;margin-bottom:1.25rem">
+            <input id="team-email-input" type="email" placeholder="כתובת אימייל של חבר הצוות" class="form-input" style="flex:1;margin:0" />
+            <select id="team-role-select" class="form-input" style="width:auto;margin:0">
+              <option value="viewer">צופה</option>
+              <option value="admin">מנהל</option>
+            </select>
+            <button class="btn btn-primary" style="width:auto;white-space:nowrap" onclick="teamInvite()">הזמן</button>
+          </div>
+          <div id="team-members-list"><div style="color:#94a3b8;font-size:0.875rem;text-align:center;padding:1rem">טוען...</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">הרשאות לפי תפקיד</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;font-size:0.8rem;text-align:center">
+            <div style="font-weight:700;padding:0.5rem;background:#f8fafc;border-radius:8px">פעולה</div>
+            <div style="font-weight:700;padding:0.5rem;background:#f8fafc;border-radius:8px">מנהל</div>
+            <div style="font-weight:700;padding:0.5rem;background:#f8fafc;border-radius:8px">צופה</div>
+            ${[['צפייה בדוחות','✓','✓'],['עריכת הגדרות','✓','✗'],['יצירת קמפיינים','✓','✗'],['ניהול חיוב','✗','✗']].map(([a,ad,vi])=>`
+              <div style="padding:0.4rem;border-bottom:1px solid #f1f5f9">${a}</div>
+              <div style="padding:0.4rem;border-bottom:1px solid #f1f5f9;color:${ad==='✓'?'#22c55e':'#ef4444'};font-weight:700">${ad}</div>
+              <div style="padding:0.4rem;border-bottom:1px solid #f1f5f9;color:${vi==='✓'?'#22c55e':'#ef4444'};font-weight:700">${vi}</div>
+            `).join('')}
+          </div>
+        </div>
+      </div>`;
+  };
+
   const tabContent = settingsTab === 'business'     ? buildBusinessTab()
                    : settingsTab === 'integrations' ? buildIntegrationsTab()
+                   : settingsTab === 'team'          ? buildTeamTab()
                    : settingsTab === 'billing'       ? buildBillingTab()
                    : buildAccountTab();
 
@@ -2823,6 +2875,9 @@ async function renderSettings(tabOverride) {
     ${_settingsTabBar()}
     ${tabContent}
   `);
+
+  // Auto-load team members list when on team tab
+  if (settingsTab === 'team') setTimeout(() => teamLoadMembers(), 100);
 }
 
 // ── Landing Pages ─────────────────────────────────────────────────────────────
@@ -6365,7 +6420,23 @@ async function loadBarrelAndScore() {
               <div style="font-weight:700;color:${v>=70?'#16a34a':v>=40?'#d97706':'#dc2626'}">${v}</div>
               <div style="color:#64748b">${l}</div>
             </div>`).join('')}
-        </div>`;
+        </div>
+        ${res.benchmark ? `<div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid #e2e8f0">
+          <div style="font-size:0.7rem;color:#94a3b8;margin-bottom:0.4rem">השוואה לממוצע בתעשייה:</div>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+            ${Object.entries(res.benchmark).map(([k,b])=>{
+              const labels={ctr:'CTR',scroll:'גלילה',conversion:'המרה'};
+              const better = b.yours >= b.good;
+              const same   = b.yours >= b.avg;
+              return `<span style="font-size:0.7rem;padding:2px 8px;border-radius:99px;background:${better?'#dcfce7':same?'#fef3c7':'#fee2e2'};color:${better?'#16a34a':same?'#d97706':'#dc2626'}">
+                ${labels[k]||k}: ${better?'↑ מעל ממוצע':same?'≈ ממוצע':'↓ מתחת ממוצע'}
+              </span>`;
+            }).join('')}
+          </div>
+        </div>` : ''}
+        <button onclick="shareResult('score','${campaignId}','ציון הקמפיין שלי',{score:${res.score}})" style="margin-top:0.75rem;padding:0.4rem 0.875rem;background:none;border:1px solid #e2e8f0;border-radius:8px;font-size:0.75rem;cursor:pointer;color:#64748b">
+          📤 שתף תוצאות
+        </button>`;
     }
 
     // Barrel card
@@ -6404,27 +6475,47 @@ async function fixBarrelWithAI(campaignId, action) {
 
 // ── Share (WhatsApp / link) ───────────────────────────────────────────────────
 async function shareResult(shareType, resourceId, title, previewData) {
+  // Show loading modal immediately
+  const modalId = 'share-modal-' + Date.now();
+  const overlay = document.createElement('div');
+  overlay.id = modalId;
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9997;display:flex;align-items:center;justify-content:center;padding:1rem';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:1.25rem;padding:2rem;max-width:380px;width:100%;text-align:center;direction:rtl;position:relative">
+      <button onclick="document.getElementById('${modalId}').remove()" style="position:absolute;top:1rem;left:1rem;background:none;border:none;font-size:1.25rem;cursor:pointer;color:#94a3b8">✕</button>
+      <div style="font-weight:700;font-size:1.1rem;margin-bottom:1.5rem">📤 שיתוף תוצאות</div>
+      <div id="${modalId}-body" style="display:flex;align-items:center;justify-content:center;gap:0.5rem;color:#64748b;min-height:80px">
+        <div class="spinner" style="width:20px;height:20px;border-width:2px;border-color:#e2e8f0;border-top-color:#6366f1"></div>
+        יוצר קישור...
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
   try {
     const res = await api('POST', 'share-create', { shareType, resourceId, title, previewData });
-    if (!res?.ok) { showToast('שגיאה ביצירת קישור שיתוף'); return; }
+    if (!res?.ok) {
+      document.getElementById(modalId)?.remove();
+      showToast('שגיאה ביצירת קישור שיתוף');
+      return;
+    }
 
-    const html = `
-      <div style="text-align:center;padding:1.5rem">
-        <div style="font-weight:700;margin-bottom:1rem">שתף את התוצאות שלך</div>
-        <div style="display:flex;flex-direction:column;gap:0.75rem">
-          <a href="${res.whatsappUrl}" target="_blank" rel="noopener"
-             style="display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:0.75rem;background:#25d366;color:#fff;border-radius:12px;text-decoration:none;font-weight:600">
-            שלח בוואטסאפ
-          </a>
-          <button onclick="navigator.clipboard.writeText('${res.url}').then(()=>showToast('הקישור הועתק!'))"
-            style="padding:0.75rem;background:#f1f5f9;border:none;border-radius:12px;cursor:pointer;font-weight:600">
-            העתק קישור
-          </button>
-        </div>
-        <div style="font-size:0.75rem;color:#94a3b8;margin-top:1rem">${res.url}</div>
+    const bodyEl = document.getElementById(`${modalId}-body`);
+    if (bodyEl) bodyEl.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:0.75rem;width:100%">
+        <a href="${res.whatsappUrl}" target="_blank" rel="noopener"
+           style="display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:0.875rem;background:#25d366;color:#fff;border-radius:12px;text-decoration:none;font-weight:600">
+          💬 שלח בוואטסאפ
+        </a>
+        <button onclick="navigator.clipboard.writeText('${res.url}').then(()=>{showToast('הקישור הועתק!');document.getElementById('${modalId}').remove()})"
+          style="padding:0.875rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;cursor:pointer;font-weight:600;color:#1e293b">
+          📋 העתק קישור
+        </button>
+        <div style="font-size:0.72rem;color:#94a3b8;padding:0.5rem;background:#f8fafc;border-radius:8px;word-break:break-all">${res.url}</div>
       </div>`;
-    renderShell(html);
-  } catch (e) { showToast('שגיאה: ' + e.message); }
+  } catch (e) {
+    document.getElementById(modalId)?.remove();
+    showToast('שגיאה: ' + e.message);
+  }
 }
 
 function showToast(msg) {
@@ -6433,6 +6524,110 @@ function showToast(msg) {
   t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;padding:0.75rem 1.25rem;border-radius:12px;font-size:0.875rem;z-index:9999;animation:fadeIn 0.2s';
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 3000);
+}
+
+// ── Team management ───────────────────────────────────────────────────────────
+async function teamInvite() {
+  const emailEl = document.getElementById('team-email-input');
+  const roleEl  = document.getElementById('team-role-select');
+  if (!emailEl || !emailEl.value.trim()) { showToast('הכנס כתובת אימייל'); return; }
+
+  const email = emailEl.value.trim();
+  const role  = roleEl?.value || 'viewer';
+
+  try {
+    const res = await api('POST', 'team-invite', { email, role });
+    if (res?.ok) {
+      emailEl.value = '';
+      showToast(`הזמנה נשלחה ל-${email} ✓`);
+      teamLoadMembers();
+    } else {
+      showToast(res?.error || 'שגיאה בשליחת הזמנה');
+    }
+  } catch (e) { showToast('שגיאה: ' + e.message); }
+}
+
+async function teamLoadMembers() {
+  const listEl = document.getElementById('team-members-list');
+  if (!listEl) return;
+
+  try {
+    const res = await api('GET', 'team-invite');
+    if (!res?.members?.length) {
+      listEl.innerHTML = '<div style="color:#94a3b8;font-size:0.875rem;text-align:center;padding:1rem">אין חברי צוות עדיין</div>';
+      return;
+    }
+    const roleLabel = { admin: 'מנהל', viewer: 'צופה', owner: 'בעלים' };
+    const statusColor = { pending: '#f59e0b', active: '#22c55e', removed: '#94a3b8' };
+    const statusLabel = { pending: 'ממתין', active: 'פעיל', removed: 'הוסר' };
+    listEl.innerHTML = res.members.map(m => `
+      <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 0;border-bottom:1px solid #f1f5f9">
+        <div style="width:36px;height:36px;background:#6366f120;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#6366f1;font-size:0.875rem">
+          ${m.invited_email[0].toUpperCase()}
+        </div>
+        <div style="flex:1">
+          <div style="font-size:0.875rem;font-weight:600">${m.invited_email}</div>
+          <div style="font-size:0.75rem;color:#64748b">${roleLabel[m.role] || m.role}</div>
+        </div>
+        <span style="font-size:0.7rem;padding:2px 8px;border-radius:99px;background:${statusColor[m.status] || '#94a3b8'}20;color:${statusColor[m.status] || '#94a3b8'}">
+          ${statusLabel[m.status] || m.status}
+        </span>
+        <button onclick="teamRemoveMember('${m.id}')"
+          style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1rem;padding:0.25rem" title="הסר">✕</button>
+      </div>`).join('');
+  } catch { listEl.innerHTML = '<div style="color:#ef4444;font-size:0.875rem;text-align:center;padding:1rem">שגיאה בטעינת הרשימה</div>'; }
+}
+
+async function teamRemoveMember(memberId) {
+  if (!confirm('להסיר חבר צוות זה?')) return;
+  try {
+    await api('DELETE', `team-invite?memberId=${memberId}`);
+    showToast('חבר הצוות הוסר');
+    teamLoadMembers();
+  } catch (e) { showToast('שגיאה: ' + e.message); }
+}
+
+// ── Achievements popup ────────────────────────────────────────────────────────
+const ACHIEVEMENT_META = {
+  campaign_pro:   { icon: '🏆', title: 'קמפיין מקצועי', desc: 'הגעת לציון 80+ בקמפיין שלך!' },
+  first_lead:     { icon: '🎯', title: 'ליד ראשון', desc: 'ההמרה הראשונה שלך עלתה!' },
+  scroll_master:  { icon: '📜', title: 'Scroll Master', desc: '70% מהגולשים גוללים לעומק הדף!' },
+  onboarding_done:{ icon: '🚀', title: 'התחלה!', desc: 'השלמת את ההגדרה הראשונית של החשבון' },
+};
+
+var _shownAchievements = new Set(JSON.parse(localStorage.getItem('_shown_ach') || '[]'));
+
+function showAchievementPopup(achievementId) {
+  if (_shownAchievements.has(achievementId)) return;
+  _shownAchievements.add(achievementId);
+  localStorage.setItem('_shown_ach', JSON.stringify([..._shownAchievements]));
+
+  const meta = ACHIEVEMENT_META[achievementId] || { icon: '⭐', title: 'הישג חדש!', desc: achievementId };
+  const popup = document.createElement('div');
+  popup.style.cssText = 'position:fixed;bottom:80px;right:24px;background:linear-gradient(135deg,#1e293b,#0f172a);border:1px solid #6366f1;color:#fff;padding:1rem 1.25rem;border-radius:16px;z-index:9998;max-width:280px;box-shadow:0 8px 32px rgba(99,102,241,0.3);animation:slideIn 0.4s cubic-bezier(0.34,1.56,0.64,1)';
+  popup.innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.75rem">
+      <div style="font-size:2rem">${meta.icon}</div>
+      <div>
+        <div style="font-size:0.7rem;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">הישג חדש!</div>
+        <div style="font-weight:700;font-size:0.95rem">${meta.title}</div>
+        <div style="font-size:0.8rem;color:#94a3b8;margin-top:2px">${meta.desc}</div>
+      </div>
+    </div>`;
+  document.body.appendChild(popup);
+  setTimeout(() => { popup.style.animation = 'fadeIn 0.3s reverse'; setTimeout(() => popup.remove(), 300); }, 4000);
+}
+
+async function checkNewAchievements() {
+  if (!state.user?.id) return;
+  try {
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // last hour
+    const { data } = await sb.from('user_achievements')
+      .select('achievement_id')
+      .eq('user_id', state.user.id)
+      .gte('created_at', since);
+    (data || []).forEach(a => showAchievementPopup(a.achievement_id));
+  } catch { /* non-critical */ }
 }
 
 // ── Onboarding Wizard (forced — cannot skip) ──────────────────────────────────
@@ -6776,5 +6971,10 @@ window.showOnboardingWizard    = showOnboardingWizard;
 window.obStep1Next             = obStep1Next;
 window.obStep4Fix              = obStep4Fix;
 window.obComplete              = obComplete;
+window.teamInvite              = teamInvite;
+window.teamLoadMembers         = teamLoadMembers;
+window.teamRemoveMember        = teamRemoveMember;
+window.showAchievementPopup    = showAchievementPopup;
+window.checkNewAchievements    = checkNewAchievements;
 
 boot();
