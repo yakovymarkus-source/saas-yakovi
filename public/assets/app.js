@@ -480,7 +480,10 @@ async function renderDashboard() {
         <h1 class="page-title">שלום, ${state.businessProfile?.business_name || state.profile?.name || 'משתמש'}! 👋</h1>
         <p class="page-subtitle">${_dashGreeting(steps)}</p>
       </div>
-      <span class="badge ${planBadge[plan] || 'badge-gray'}">${getPlanLabel(plan)}</span>
+      <div style="display:flex;align-items:center;gap:0.625rem">
+        ${connectedCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:0.375rem;font-size:0.75rem;font-weight:600;color:#16a34a;background:#f0fdf4;border:1px solid #bbf7d0;padding:0.25rem 0.625rem;border-radius:9999px"><span style="width:7px;height:7px;border-radius:50%;background:#22c55e;animation:pulse 2s infinite"></span>מערכת פעילה</span>` : ''}
+        <span class="badge ${planBadge[plan] || 'badge-gray'}">${getPlanLabel(plan)}</span>
+      </div>
     </div>
 
     ${_renderOnboardingWidget(steps)}
@@ -571,10 +574,56 @@ async function renderDashboard() {
 
 function _dashGreeting(steps) {
   if (!steps.profile_started) return 'נתחיל עם פרופיל עסקי קצר';
-  if (!steps.first_asset)     return 'מוכן ליצור דף נחיתה ראשון?';
+  if (!steps.first_asset)     return 'מוכן ליצור נכס שיווקי ראשון?';
   if (!steps.multiple_assets) return 'כל הכבוד! ניצור עוד וריאציות?';
   if (!steps.has_metrics)     return 'הוסף מדדים כדי לראות ביצועים אמיתיים';
   return 'הנה סקירת הביצועים שלך';
+}
+
+// ── Dashboard: smart single-CTA strip (replaces 5-button "quick actions" card) ──
+function _dashNextStep(steps, connectedCount) {
+  let label, desc, cta, onclick;
+
+  if (!steps.profile_started) {
+    label   = 'הגדר פרופיל עסקי';
+    desc    = 'הצעד הראשון — ה-AI ידע למי לכתוב';
+    cta     = 'התחל עכשיו →';
+    onclick = "switchSettingsTab('business');navigate('settings')";
+  } else if (!steps.first_asset) {
+    label   = 'צור את הנכס השיווקי הראשון שלך';
+    desc    = 'מודעה, דף נחיתה, או פוסט — בעברית, בדקות';
+    cta     = 'צור נכס ✨';
+    onclick = "navigate('ai-creation')";
+  } else if (!steps.multiple_assets) {
+    label   = 'צור עוד וריאציות לבדיקה';
+    desc    = 'ה-AI כבר מכיר את העסק שלך — ניצור גרסה שנייה?';
+    cta     = 'צור וריאציה →';
+    onclick = "navigate('ai-creation')";
+  } else if (!steps.has_metrics) {
+    label   = 'חבר אינטגרציה לראות תוצאות אמיתיות';
+    desc    = 'Google Ads, Meta, או GA4 — 2 דקות חיבור';
+    cta     = 'חבר עכשיו 🔌';
+    onclick = "switchSettingsTab('integrations');navigate('settings')";
+  } else if (connectedCount === 0) {
+    label   = 'חבר אינטגרציה';
+    desc    = 'ראה נתוני ביצועים חיים';
+    cta     = 'חבר →';
+    onclick = "switchSettingsTab('integrations');navigate('settings')";
+  } else {
+    return '';
+  }
+
+  return `
+  <div style="background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);border-radius:0.875rem;padding:1.25rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+    <div style="color:white">
+      <div style="font-size:0.72rem;opacity:0.75;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:0.2rem">הצעד הבא</div>
+      <div style="font-weight:700;font-size:1rem;margin-bottom:0.2rem">${label}</div>
+      <div style="font-size:0.82rem;opacity:0.82">${desc}</div>
+    </div>
+    <button onclick="${onclick}" style="background:white;color:#6366f1;border:none;border-radius:0.625rem;padding:0.65rem 1.5rem;font-weight:700;font-size:0.9rem;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:opacity 0.15s" onmouseover="this.style.opacity='.88'" onmouseout="this.style.opacity='1'">
+      ${cta}
+    </button>
+  </div>`;
 }
 
 function _renderOnboardingWidget(steps) {
@@ -2082,6 +2131,14 @@ function _renderAICreationShell(bp, saved) {
             </div>
           </div>
           <div id="ai-result-ad-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
+          <div style="border-top:1px solid #e2e8f0;margin-top:1.25rem;padding-top:1.25rem">
+            <div style="font-size:0.78rem;font-weight:600;color:#64748b;margin-bottom:0.75rem">מה עושים עכשיו?</div>
+            <div style="display:flex;gap:0.625rem;flex-wrap:wrap">
+              <button class="btn btn-sm btn-ghost" onclick="aiCreationTab='landing_page';navigate('ai-creation')">🏗️ צור דף נחיתה מזה</button>
+              <button class="btn btn-sm btn-secondary" onclick="navigate('campaigns')">🎯 הוסף לקמפיין</button>
+              <button class="btn btn-sm btn-secondary" onclick="aiCreationTab='ad_script';navigate('ai-creation')">🔁 צור וריאציה</button>
+            </div>
+          </div>
         </div>
       </div>`,
 
@@ -2126,6 +2183,14 @@ function _renderAICreationShell(bp, saved) {
             </div>
           </div>
           <div id="ai-result-lp-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
+          <div style="border-top:1px solid #e2e8f0;margin-top:1.25rem;padding-top:1.25rem">
+            <div style="font-size:0.78rem;font-weight:600;color:#64748b;margin-bottom:0.75rem">מה עושים עכשיו?</div>
+            <div style="display:flex;gap:0.625rem;flex-wrap:wrap">
+              <button class="btn btn-sm btn-ghost" onclick="navigate('landing-pages')">🚀 ראה את כל הדפים</button>
+              <button class="btn btn-sm btn-secondary" onclick="aiCreationTab='ad_script';navigate('ai-creation')">✍️ כתוב תסריט למודעה</button>
+              <button class="btn btn-sm btn-secondary" onclick="navigate('campaigns')">🎯 צור קמפיין</button>
+            </div>
+          </div>
         </div>
       </div>`,
 
@@ -3042,12 +3107,17 @@ function renderLandingPages() {
 
 // ── Stub pages — not yet implemented ──────────────────────────────────────────
 function _insightsTabBar() {
+  const hasMetrics = (state.integrations || []).some(i => i.connection_status === 'active');
   const tabs = [
-    { id: 'performance',     icon: '📈', label: 'ביצועים' },
-    { id: 'economics',       icon: '💰', label: 'כלכלת יחידה' },
-    { id: 'abtests',         icon: '🧪', label: 'A/B Tests' },
-    { id: 'recommendations', icon: '💡', label: 'המלצות' },
-  ];
+    { id: 'performance',     icon: '📈', label: 'ביצועים',      always: true  },
+    { id: 'recommendations', icon: '💡', label: 'המלצות',       always: true  },
+    { id: 'economics',       icon: '💰', label: 'כלכלת יחידה',  always: false },
+    { id: 'abtests',         icon: '🧪', label: 'A/B Tests',     always: false },
+  ].filter(t => t.always || hasMetrics);
+
+  // if current tab became hidden, reset to performance
+  if (!tabs.find(t => t.id === insightsTab)) insightsTab = 'performance';
+
   return `<div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1.75rem;overflow-x:auto">
     ${tabs.map(t => `
       <button onclick="switchInsightsTab('${t.id}')"
@@ -3087,14 +3157,49 @@ function renderInsights(tabOverride) {
            <div id="live-stats-container">${renderLiveStatsContent()}</div>
            <button class="btn btn-sm btn-secondary mt-3" onclick="refreshLiveStats()">רענן נתונים</button>
          </div>`
-      : comingSoon('ביצועים', '📈', 'חבר Google Ads, Meta Ads, או Google Analytics כדי לראות נתוני ביצועים.'),
+      : `<div class="card">
+           <div style="text-align:center;padding:2.5rem 1.5rem">
+             <div style="font-size:3rem;margin-bottom:1rem">📡</div>
+             <div style="font-size:1.125rem;font-weight:700;color:#1e293b;margin-bottom:0.5rem">אין נתוני ביצועים עדיין</div>
+             <div style="font-size:0.9rem;color:#64748b;margin-bottom:1.5rem;line-height:1.65;max-width:380px;margin-left:auto;margin-right:auto">
+               חבר את חשבון Google Ads, Meta Ads, או Google Analytics שלך — ה-AI יתחיל לנתח את הביצועים בזמן אמת.
+             </div>
+             <button class="btn btn-primary" style="width:auto;padding:0.75rem 2rem"
+               onclick="switchSettingsTab('integrations');navigate('settings')">
+               🔌 חבר אינטגרציה עכשיו
+             </button>
+             <div style="margin-top:1.5rem;display:flex;justify-content:center;gap:1.5rem;flex-wrap:wrap">
+               <span style="font-size:0.82rem;color:#64748b">✓ Google Ads</span>
+               <span style="font-size:0.82rem;color:#64748b">✓ Meta Ads</span>
+               <span style="font-size:0.82rem;color:#64748b">✓ Google Analytics</span>
+               <span style="font-size:0.82rem;color:#64748b">✓ TikTok Ads</span>
+             </div>
+           </div>
+         </div>`,
+    recommendations: !hasMetrics
+      ? `<div class="card">
+           <div style="text-align:center;padding:2.5rem 1.5rem">
+             <div style="font-size:3rem;margin-bottom:1rem">💡</div>
+             <div style="font-size:1.125rem;font-weight:700;color:#1e293b;margin-bottom:0.5rem">המלצות AI — מחכות לנתונים</div>
+             <div style="font-size:0.9rem;color:#64748b;margin-bottom:1.5rem;line-height:1.65;max-width:380px;margin-left:auto;margin-right:auto">
+               ברגע שתחבר אינטגרציה ויהיו נתוני ביצועים — ה-AI יזהה בעיות, יסביר <strong>למה</strong> הן קורות, ויציע פעולות לשיפור.
+             </div>
+             <button class="btn btn-primary" style="width:auto;padding:0.75rem 2rem"
+               onclick="switchSettingsTab('integrations');navigate('settings')">
+               🔌 חבר אינטגרציה
+             </button>
+           </div>
+         </div>`
+      : comingSoon('המלצות AI', '💡', 'ה-AI מנתח את הנתונים שלך ויוציא המלצות בקרוב.'),
     economics: comingSoon('כלכלת יחידה', '💰', 'ניתוח עלות לרכישה, ROI, ו-LTV — יהיה זמין בקרוב.'),
     abtests:   comingSoon('A/B Tests', '🧪', 'השוואת גרסאות מודעות ודפי נחיתה — יהיה זמין בקרוב.'),
-    recommendations: comingSoon('המלצות AI', '💡', 'המלצות אוטומטיות לשיפור קמפיינים — יהיה זמין בקרוב.'),
   }[insightsTab] || '';
 
   renderShell(`
-    <div class="page-header"><h1 class="page-title">📈 תובנות</h1></div>
+    <div class="page-header">
+      <h1 class="page-title">📈 תובנות</h1>
+      <p class="page-subtitle">${hasMetrics ? 'נתוני ביצועים בזמן אמת מכל הפלטפורמות' : 'חבר פלטפורמות פרסום לראות נתונים אמיתיים'}</p>
+    </div>
     ${_insightsTabBar()}
     ${tabContent}
   `);
@@ -5066,12 +5171,12 @@ var bfsOrchestrationJob  = null;  // { jobId, status, pollTimer, result }
 
 function renderBusinessFromScratch() {
   const agents = [
-    { id: 'research',      icon: '🔍', label: 'סוכן מחקר',       status: 'active', desc: 'מחקר שוק, מתחרים ואווטר קהל יעד' },
-    { id: 'strategy',      icon: '🎯', label: 'סוכן אסטרטגיה',   status: 'active', desc: 'קובע כיוון, קהל, זווית והצעה' },
-    { id: 'execution',     icon: '🧱', label: 'סוכן ביצוע',      status: 'active', desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
-    { id: 'qa',            icon: '🧪', label: 'סוכן QA',          status: 'active', desc: 'בודק ומדרג את התוצרים' },
-    { id: 'analysis',      icon: '📊', label: 'סוכן ניתוח',      status: 'active', desc: 'מנתח דאטה אמיתי מהקמפיינים' },
-    { id: 'orchestration', icon: '🎭', label: 'שכבת אורקסטרציה', status: 'active', desc: 'ניהול סשן מרובה-סוכנים עם ניהול מצב ואישורים' },
+    { id: 'research',      icon: '🔍', label: 'מחקר',       step: 1, status: 'active', desc: 'שוק, מתחרים, קהל יעד' },
+    { id: 'strategy',      icon: '🎯', label: 'אסטרטגיה',   step: 2, status: 'active', desc: 'כיוון, זווית, הצעת ערך' },
+    { id: 'execution',     icon: '🧱', label: 'ביצוע',      step: 3, status: 'active', desc: 'מודעות, דפים, טקסטים' },
+    { id: 'qa',            icon: '🧪', label: 'בקרת איכות', step: 4, status: 'active', desc: 'בדיקה ודירוג תוצרים' },
+    { id: 'analysis',      icon: '📊', label: 'ניתוח',      step: 5, status: 'active', desc: 'דאטה אמיתי מהקמפיינים' },
+    { id: 'orchestration', icon: '🎭', label: 'אורקסטרציה', step: null, status: 'active', desc: 'ניהול כל הסוכנים ביחד' },
   ];
 
   const bp = state.businessProfile || {};
@@ -5082,11 +5187,11 @@ function renderBusinessFromScratch() {
                 border:2px solid ${bfsAgentTab === a.id ? '#6366f1' : a.status === 'soon' ? '#e2e8f0' : '#e2e8f0'};
                 border-radius:1rem;padding:1.25rem 1rem;cursor:${a.status === 'active' ? 'pointer' : 'default'};
                 opacity:${a.status === 'soon' ? '0.65' : '1'};transition:all 0.2s;text-align:center;position:relative">
+      ${a.step ? `<div style="position:absolute;top:0.6rem;right:0.6rem;width:1.3rem;height:1.3rem;border-radius:50%;background:${bfsAgentTab === a.id ? 'rgba(255,255,255,0.3)' : '#e0e7ff'};color:${bfsAgentTab === a.id ? '#fff' : '#6366f1'};font-size:0.65rem;font-weight:800;display:flex;align-items:center;justify-content:center">${a.step}</div>` : ''}
       <div style="font-size:1.8rem;margin-bottom:0.4rem">${a.icon}</div>
       <div style="font-weight:700;font-size:0.88rem;color:${bfsAgentTab === a.id ? '#fff' : '#1e293b'}">${a.label}</div>
       <div style="font-size:0.72rem;color:${bfsAgentTab === a.id ? 'rgba(255,255,255,0.8)' : '#64748b'};margin-top:0.25rem">${a.desc}</div>
       ${a.status === 'soon' ? `<div style="position:absolute;top:0.5rem;left:0.5rem;background:#e2e8f0;color:#64748b;font-size:0.6rem;font-weight:700;padding:2px 6px;border-radius:9999px">בקרוב</div>` : ''}
-      ${a.status === 'active' && bfsAgentTab !== a.id ? `<div style="position:absolute;top:0.5rem;left:0.5rem;background:#dcfce7;color:#16a34a;font-size:0.6rem;font-weight:700;padding:2px 6px;border-radius:9999px">פעיל</div>` : ''}
     </div>`).join('');
 
   const researchPanel = `
