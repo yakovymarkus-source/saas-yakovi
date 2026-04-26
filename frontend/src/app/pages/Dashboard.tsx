@@ -147,7 +147,7 @@ export function Dashboard() {
   const showOnboarding = onboardingDone < 3 && !onboardingDismissed
 
   return (
-    <div className="flex-1 bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50 overflow-auto" dir="rtl">
+    <div className="flex-1 overflow-auto" dir="rtl">
       <div className="max-w-7xl mx-auto p-8">
 
         {/* Header */}

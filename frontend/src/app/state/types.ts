@@ -79,6 +79,7 @@ export interface AppState {
   updatesCount: number
   localNotifCount: number
   supportCount: number
+  theme: 'dark' | 'light'
 }
 
 export const PLAN_LIMITS: Record<string, { assetsLimit: number | null; campaignLimit: number | null; label: string }> = {

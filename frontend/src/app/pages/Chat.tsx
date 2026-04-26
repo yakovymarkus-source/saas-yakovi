@@ -129,7 +129,7 @@ export function Chat() {
   const clear = () => setMessages([])
 
   return (
-    <div className="flex flex-col h-full bg-slate-950" dir="rtl">
+    <div className="flex flex-col h-full" dir="rtl">
       <MilestoneBar completed={milestonesCompleted} />
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 flex-shrink-0">

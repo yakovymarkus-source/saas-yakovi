@@ -16,6 +16,7 @@ const initialState: AppState = {
   updatesCount:      0,
   localNotifCount:   0,
   supportCount:      0,
+  theme:             (localStorage.getItem('cb_theme') as 'dark' | 'light') || 'dark',
 }
 
 type Action =

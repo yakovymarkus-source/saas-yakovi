@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import {
   Settings as SettingsIcon, Building2, CreditCard,
   Bell, Shield, Lock, Users, Loader2, CheckCircle2, Zap, UserCircle, Camera,
+  Sun, Moon,
 } from 'lucide-react'
 import { useAppState, setState } from '../state/store'
 import { useToast } from '../hooks/useToast'
@@ -276,6 +277,30 @@ export function Settings() {
                       readOnly
                       className="w-full bg-slate-800/30 border border-white/5 rounded-xl px-3 py-2.5 text-slate-500 text-sm cursor-not-allowed"
                     />
+                  </div>
+
+                  {/* Theme toggle */}
+                  <div>
+                    <label className="block text-slate-400 text-xs mb-2">ערכת נושא</label>
+                    <div className="flex gap-2">
+                      {(['dark', 'light'] as const).map(t => (
+                        <button
+                          key={t}
+                          onClick={() => {
+                            localStorage.setItem('cb_theme', t)
+                            setState(dispatch, { theme: t })
+                          }}
+                          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                            state.theme === t
+                              ? 'bg-purple-600 border-purple-500 text-white'
+                              : 'bg-slate-800/60 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                          }`}
+                        >
+                          {t === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                          {t === 'dark' ? 'כהה' : 'בהיר'}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <button

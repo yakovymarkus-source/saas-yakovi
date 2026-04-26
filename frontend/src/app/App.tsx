@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { AppProvider, useAppState } from './state/store'
 import { ToastProvider } from './hooks/useToast'
@@ -37,6 +37,18 @@ function AppShell() {
   const { state } = useAppState()
   useAuth()
 
+  // Sync theme class to <html>
+  useEffect(() => {
+    const html = document.documentElement
+    if (state.theme === 'light') {
+      html.classList.add('theme-light')
+      html.classList.remove('theme-dark')
+    } else {
+      html.classList.add('theme-dark')
+      html.classList.remove('theme-light')
+    }
+  }, [state.theme])
+
   // Supabase recovery link lands with #type=recovery in the hash
   const hash = window.location.hash
   if (hash.includes('type=recovery') || hash.includes('type%3Drecovery')) {
@@ -46,11 +58,15 @@ function AppShell() {
   if (!state.user) return <Auth />
 
   const page = state.currentPage
+  const isLight = state.theme === 'light'
+  const mainBg = isLight
+    ? 'bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50'
+    : 'bg-slate-950'
 
   return (
-    <div className="flex h-screen bg-slate-950 overflow-hidden" dir="rtl">
+    <div className={`flex h-screen overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-950'}`} dir="rtl">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className={`flex-1 overflow-y-auto ${mainBg}`}>
         <AnimatePresence mode="wait">
           <motion.div
             key={page}
