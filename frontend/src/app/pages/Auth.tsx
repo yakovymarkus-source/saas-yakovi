@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Sparkles, Eye, EyeOff, Mail, Lock, User, Loader2 } from 'lucide-react'
+import { Sparkles, Eye, EyeOff, Mail, Lock, User, Loader2, ArrowRight } from 'lucide-react'
 import { sb } from '../api/client'
 import { useToast } from '../hooks/useToast'
 
-type Mode = 'login' | 'signup'
+type Mode = 'login' | 'signup' | 'forgot'
 
 function GoogleIcon() {
   return (
@@ -35,10 +35,29 @@ export function Auth() {
   const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
   const [socialLoading, setSocialLoading] = useState<'google' | 'facebook' | null>(null)
+  const [forgotSent, setForgotSent] = useState(false)
   const toast = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (mode === 'forgot') {
+      if (!email.trim()) { toast('נא להזין כתובת מייל', 'warning'); return }
+      setLoading(true)
+      try {
+        const { error } = await sb.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/#type=recovery`,
+        })
+        if (error) throw error
+        setForgotSent(true)
+      } catch (err: unknown) {
+        toast(err instanceof Error ? err.message : 'שגיאה', 'error')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
     if (mode === 'signup' && !termsAccepted) {
       toast('יש לאשר את תנאי השימוש', 'warning'); return
     }
@@ -73,15 +92,13 @@ export function Auth() {
       })
       if (error) throw error
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'שגיאה'
-      toast(msg, 'error')
+      toast(err instanceof Error ? err.message : 'שגיאה', 'error')
       setSocialLoading(null)
     }
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4" dir="rtl">
-      {/* Background blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl" />
         <div className="absolute bottom-1/4 left-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl" />
@@ -101,157 +118,148 @@ export function Auth() {
           <p className="text-white/60 text-sm mt-1">פלטפורמת שיווק מונעת AI</p>
         </div>
 
-        {/* Mode Toggle */}
-        <div className="flex bg-white/10 rounded-2xl p-1 mb-6">
-          {(['login', 'signup'] as Mode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                mode === m ? 'bg-white text-gray-900 shadow' : 'text-white/70 hover:text-white'
-              }`}
-            >
-              {m === 'login' ? 'כניסה' : 'הרשמה'}
-            </button>
-          ))}
-        </div>
-
-        {/* Social Login Buttons */}
-        <div className="grid grid-cols-2 gap-3 mb-5">
-          <button
-            type="button"
-            onClick={() => signInWithProvider('google')}
-            disabled={!!socialLoading || loading}
-            className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl py-3 text-white text-sm font-medium transition-all disabled:opacity-50"
-          >
-            {socialLoading === 'google'
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <GoogleIcon />}
-            Google
-          </button>
-          <button
-            type="button"
-            onClick={() => signInWithProvider('facebook')}
-            disabled={!!socialLoading || loading}
-            className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl py-3 text-white text-sm font-medium transition-all disabled:opacity-50"
-          >
-            {socialLoading === 'facebook'
-              ? <Loader2 className="w-4 h-4 animate-spin" />
-              : <FacebookIcon />}
-            Facebook
-          </button>
-        </div>
-
-        {/* Divider */}
-        <div className="flex items-center gap-3 mb-5">
-          <div className="flex-1 h-px bg-white/15" />
-          <span className="text-white/40 text-xs">או עם מייל</span>
-          <div className="flex-1 h-px bg-white/15" />
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <AnimatePresence>
-            {mode === 'signup' && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-              >
-                <div className="relative">
-                  <User className="absolute top-3.5 right-3.5 w-5 h-5 text-white/40" />
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    placeholder="שם מלא"
-                    className="w-full bg-white/10 border border-white/20 rounded-2xl px-4 py-3 pr-11 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm"
-                  />
+        {/* Forgot password flow */}
+        <AnimatePresence mode="wait">
+          {mode === 'forgot' ? (
+            <motion.div key="forgot" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+              {forgotSent ? (
+                <div className="text-center py-4">
+                  <div className="w-14 h-14 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
+                    <Mail className="w-7 h-7 text-green-400" />
+                  </div>
+                  <p className="text-white font-semibold mb-1">בדוק את המייל שלך</p>
+                  <p className="text-white/60 text-sm mb-6">שלחנו לך קישור לאיפוס הסיסמה ל-{email}</p>
+                  <button onClick={() => { setMode('login'); setForgotSent(false) }}
+                    className="text-purple-300 text-sm hover:text-purple-200 flex items-center gap-1 mx-auto">
+                    <ArrowRight className="w-4 h-4" /> חזור לכניסה
+                  </button>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              ) : (
+                <>
+                  <p className="text-white font-semibold mb-1">שכחת סיסמה?</p>
+                  <p className="text-white/60 text-sm mb-5">הכנס את המייל שלך ונשלח לך קישור לאיפוס</p>
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="relative">
+                      <Mail className="absolute top-3.5 right-3.5 w-5 h-5 text-white/40" />
+                      <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                        placeholder="כתובת מייל" required
+                        className="w-full bg-white/10 border border-white/20 rounded-2xl px-4 py-3 pr-11 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm" />
+                    </div>
+                    <button type="submit" disabled={loading}
+                      className="w-full py-3.5 bg-gradient-to-l from-purple-600 to-blue-600 text-white rounded-2xl font-bold text-sm hover:opacity-90 disabled:opacity-60 transition-opacity flex items-center justify-center gap-2">
+                      {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> שולח...</> : 'שלח קישור לאיפוס'}
+                    </button>
+                  </form>
+                  <button onClick={() => setMode('login')}
+                    className="mt-4 text-white/50 hover:text-white/80 text-sm flex items-center gap-1">
+                    <ArrowRight className="w-4 h-4" /> חזור לכניסה
+                  </button>
+                </>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div key="main" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+              {/* Mode Toggle */}
+              <div className="flex bg-white/10 rounded-2xl p-1 mb-6">
+                {(['login', 'signup'] as Mode[]).map(m => (
+                  <button key={m} onClick={() => setMode(m)}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                      mode === m ? 'bg-white text-gray-900 shadow' : 'text-white/70 hover:text-white'
+                    }`}>
+                    {m === 'login' ? 'כניסה' : 'הרשמה'}
+                  </button>
+                ))}
+              </div>
 
-          <div className="relative">
-            <Mail className="absolute top-3.5 right-3.5 w-5 h-5 text-white/40" />
-            <input
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="כתובת מייל"
-              required
-              className="w-full bg-white/10 border border-white/20 rounded-2xl px-4 py-3 pr-11 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm"
-            />
-          </div>
+              {/* Social Login */}
+              <div className="grid grid-cols-2 gap-3 mb-5">
+                <button type="button" onClick={() => signInWithProvider('google')}
+                  disabled={!!socialLoading || loading}
+                  className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl py-3 text-white text-sm font-medium transition-all disabled:opacity-50">
+                  {socialLoading === 'google' ? <Loader2 className="w-4 h-4 animate-spin" /> : <GoogleIcon />}
+                  Google
+                </button>
+                <button type="button" onClick={() => signInWithProvider('facebook')}
+                  disabled={!!socialLoading || loading}
+                  className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl py-3 text-white text-sm font-medium transition-all disabled:opacity-50">
+                  {socialLoading === 'facebook' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FacebookIcon />}
+                  Facebook
+                </button>
+              </div>
 
-          <div className="relative">
-            <Lock className="absolute top-3.5 right-3.5 w-5 h-5 text-white/40" />
-            <input
-              type={showPass ? 'text' : 'password'}
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="סיסמה"
-              required
-              className="w-full bg-white/10 border border-white/20 rounded-2xl px-4 py-3 pr-11 pl-11 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPass(!showPass)}
-              className="absolute top-3.5 left-3.5 text-white/40 hover:text-white/70"
-            >
-              {showPass ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-            </button>
-          </div>
+              <div className="flex items-center gap-3 mb-5">
+                <div className="flex-1 h-px bg-white/15" />
+                <span className="text-white/40 text-xs">או עם מייל</span>
+                <div className="flex-1 h-px bg-white/15" />
+              </div>
 
-          <AnimatePresence>
-            {mode === 'signup' && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="space-y-3 pt-1"
-              >
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={termsAccepted}
-                    onChange={e => setTermsAccepted(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 accent-purple-400"
-                  />
-                  <span className="text-white/70 text-xs leading-relaxed">
-                    קראתי ואני מסכים/ה ל
-                    <a href="/terms" target="_blank" className="text-purple-300 underline mx-1">תנאי השימוש</a>
-                    ול
-                    <a href="/privacy" target="_blank" className="text-purple-300 underline mx-1">מדיניות הפרטיות</a>
-                    <span className="text-red-400">*</span>
-                  </span>
-                </label>
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={marketingConsent}
-                    onChange={e => setMarketingConsent(e.target.checked)}
-                    className="mt-0.5 w-4 h-4 accent-purple-400"
-                  />
-                  <span className="text-white/70 text-xs leading-relaxed">
-                    אני מעוניין/ת לקבל עדכונים, טיפים ומידע שיווקי במייל (ניתן לביטול בכל עת)
-                  </span>
-                </label>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <AnimatePresence>
+                  {mode === 'signup' && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                      <div className="relative">
+                        <User className="absolute top-3.5 right-3.5 w-5 h-5 text-white/40" />
+                        <input type="text" value={name} onChange={e => setName(e.target.value)}
+                          placeholder="שם מלא"
+                          className="w-full bg-white/10 border border-white/20 rounded-2xl px-4 py-3 pr-11 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm" />
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
-          <button
-            type="submit"
-            disabled={loading || !!socialLoading}
-            className="w-full py-3.5 bg-gradient-to-l from-purple-600 to-blue-600 text-white rounded-2xl font-bold text-sm hover:shadow-2xl transition-all hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {loading
-              ? <span className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> רגע...</span>
-              : mode === 'login' ? 'כניסה למערכת' : 'יצירת חשבון'}
-          </button>
-        </form>
+                <div className="relative">
+                  <Mail className="absolute top-3.5 right-3.5 w-5 h-5 text-white/40" />
+                  <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                    placeholder="כתובת מייל" required
+                    className="w-full bg-white/10 border border-white/20 rounded-2xl px-4 py-3 pr-11 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm" />
+                </div>
 
-        {/* AI Disclaimer */}
+                <div className="relative">
+                  <Lock className="absolute top-3.5 right-3.5 w-5 h-5 text-white/40" />
+                  <input type={showPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                    placeholder="סיסמה" required
+                    className="w-full bg-white/10 border border-white/20 rounded-2xl px-4 py-3 pr-11 pl-11 text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400 text-sm" />
+                  <button type="button" onClick={() => setShowPass(!showPass)}
+                    className="absolute top-3.5 left-3.5 text-white/40 hover:text-white/70">
+                    {showPass ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
+
+                {mode === 'login' && (
+                  <div className="text-left">
+                    <button type="button" onClick={() => setMode('forgot')}
+                      className="text-purple-300 text-xs hover:text-purple-200 transition-colors">
+                      שכחתי סיסמה
+                    </button>
+                  </div>
+                )}
+
+                <AnimatePresence>
+                  {mode === 'signup' && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="space-y-3 pt-1">
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} className="mt-0.5 w-4 h-4 accent-purple-400" />
+                        <span className="text-white/70 text-xs leading-relaxed">
+                          קראתי ואני מסכים/ה ל<a href="/terms" target="_blank" className="text-purple-300 underline mx-1">תנאי השימוש</a>ול<a href="/privacy" target="_blank" className="text-purple-300 underline mx-1">מדיניות הפרטיות</a><span className="text-red-400">*</span>
+                        </span>
+                      </label>
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input type="checkbox" checked={marketingConsent} onChange={e => setMarketingConsent(e.target.checked)} className="mt-0.5 w-4 h-4 accent-purple-400" />
+                        <span className="text-white/70 text-xs leading-relaxed">אני מעוניין/ת לקבל עדכונים, טיפים ומידע שיווקי במייל (ניתן לביטול בכל עת)</span>
+                      </label>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <button type="submit" disabled={loading || !!socialLoading}
+                  className="w-full py-3.5 bg-gradient-to-l from-purple-600 to-blue-600 text-white rounded-2xl font-bold text-sm hover:shadow-2xl transition-all hover:scale-[1.02] disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                  {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> רגע...</> : mode === 'login' ? 'כניסה למערכת' : 'יצירת חשבון'}
+                </button>
+              </form>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <p className="text-white/40 text-xs text-center mt-6 leading-relaxed">
           🤖 המערכת משתמשת ב-AI ליצירת תוכן. התוצאות אינן מהוות ייעוץ מקצועי.
         </p>

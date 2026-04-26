@@ -6,6 +6,7 @@ import { UpgradeModalProvider } from './hooks/useUpgradeModal'
 import { useAuth } from './hooks/useAuth'
 import { Sidebar } from './components/shell/Sidebar'
 import { Auth } from './pages/Auth'
+import { ResetPassword } from './pages/ResetPassword'
 import { Dashboard } from './pages/Dashboard'
 
 const Agents        = lazy(() => import('./pages/Agents').then(m => ({ default: m.Agents })))
@@ -33,6 +34,12 @@ function PageFallback() {
 function AppShell() {
   const { state } = useAppState()
   useAuth()
+
+  // Supabase recovery link lands with #type=recovery in the hash
+  const hash = window.location.hash
+  if (hash.includes('type=recovery') || hash.includes('type%3Drecovery')) {
+    return <ResetPassword />
+  }
 
   if (!state.user) return <Auth />
 
