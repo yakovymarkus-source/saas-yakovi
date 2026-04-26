@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { motion } from 'motion/react'
-import { TrendingUp, Users, MousePointerClick, DollarSign, Sparkles, Lightbulb, Zap, Plus } from 'lucide-react'
+import { TrendingUp, Users, MousePointerClick, Sparkles, Lightbulb, Zap, Plus, X } from 'lucide-react'
 import { useAppState, setState } from '../state/store'
 import { api, sb } from '../api/client'
 import { getPlanLabel, getPlanLimits } from '../state/types'
@@ -137,7 +137,14 @@ export function Dashboard() {
     { done: state.campaigns.length > 0,             label: 'צור קמפיין ראשון', page: 'agents' },
   ]
   const onboardingDone = ONBOARDING_STEPS.filter(s => s.done).length
-  const showOnboarding = onboardingDone < 3
+  const [onboardingDismissed, setOnboardingDismissed] = useState(
+    () => localStorage.getItem('onboarding_dismissed') === '1'
+  )
+  const dismissOnboarding = useCallback(() => {
+    localStorage.setItem('onboarding_dismissed', '1')
+    setOnboardingDismissed(true)
+  }, [])
+  const showOnboarding = onboardingDone < 3 && !onboardingDismissed
 
   return (
     <div className="flex-1 bg-gradient-to-br from-slate-50 via-blue-50 to-purple-50 overflow-auto" dir="rtl">
@@ -195,9 +202,15 @@ export function Dashboard() {
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-gray-900">🎯 תחילת דרך</h2>
-              <span className="text-sm font-semibold text-purple-600 bg-purple-50 px-3 py-1 rounded-full">
-                {onboardingDone}/3 שלבים
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-purple-600 bg-purple-50 px-3 py-1 rounded-full">
+                  {onboardingDone}/3 שלבים
+                </span>
+                <button onClick={dismissOnboarding} title="סגור"
+                  className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
             <div className="w-full h-2 bg-gray-100 rounded-full mb-4 overflow-hidden">
               <motion.div
