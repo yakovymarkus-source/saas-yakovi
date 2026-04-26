@@ -25,10 +25,10 @@ const STATUSES: Lead['status'][] = ['new', 'contacted', 'qualified', 'converted'
 
 const STATUS_META: Record<Lead['status'], { label: string; color: string; bg: string; border: string; dot: string }> = {
   new:       { label: 'חדש',          color: 'text-blue-400',   bg: 'bg-blue-500/15',   border: 'border-blue-500/30',   dot: 'bg-blue-400'   },
-  contacted: { label: 'נוצר קשר',     color: 'text-yellow-400', bg: 'bg-yellow-500/15', border: 'border-yellow-500/30', dot: 'bg-yellow-400' },
-  qualified: { label: 'מוסמך',        color: 'text-purple-400', bg: 'bg-purple-500/15', border: 'border-purple-500/30', dot: 'bg-purple-400' },
-  converted: { label: 'הפך ללקוח',    color: 'text-green-400',  bg: 'bg-green-500/15',  border: 'border-green-500/30',  dot: 'bg-green-400'  },
-  lost:      { label: 'אבד',          color: 'text-red-400',    bg: 'bg-red-500/15',    border: 'border-red-500/30',    dot: 'bg-red-400'    },
+  contacted: { label: 'במעקב',        color: 'text-yellow-400', bg: 'bg-yellow-500/15', border: 'border-yellow-500/30', dot: 'bg-yellow-400' },
+  qualified: { label: 'מתעניין חם',   color: 'text-purple-400', bg: 'bg-purple-500/15', border: 'border-purple-500/30', dot: 'bg-purple-400' },
+  converted: { label: 'ביצע רכישה',   color: 'text-green-400',  bg: 'bg-green-500/15',  border: 'border-green-500/30',  dot: 'bg-green-400'  },
+  lost:      { label: 'לא מעוניין',   color: 'text-red-400',    bg: 'bg-red-500/15',    border: 'border-red-500/30',    dot: 'bg-red-400'    },
 }
 
 const EMPTY_FORM = { name: '', email: '', phone: '', company: '', source: '', status: 'new' as Lead['status'], notes: '' }
