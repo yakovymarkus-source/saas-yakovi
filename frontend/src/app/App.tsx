@@ -8,6 +8,8 @@ import { Sidebar } from './components/shell/Sidebar'
 import { Auth } from './pages/Auth'
 import { ResetPassword } from './pages/ResetPassword'
 import { Dashboard } from './pages/Dashboard'
+import { CookieConsent } from './components/ui/CookieConsent'
+import { AccessibilityWidget } from './components/ui/AccessibilityWidget'
 
 const Agents        = lazy(() => import('./pages/Agents').then(m => ({ default: m.Agents })))
 const Chat          = lazy(() => import('./pages/Chat').then(m => ({ default: m.Chat })))
@@ -87,6 +89,8 @@ export function App() {
       <ToastProvider>
         <UpgradeModalProvider>
           <AppShell />
+          <CookieConsent />
+          <AccessibilityWidget />
         </UpgradeModalProvider>
       </ToastProvider>
     </AppProvider>

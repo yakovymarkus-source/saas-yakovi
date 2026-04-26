@@ -51,3 +51,45 @@
   }
   html { font-size: var(--font-size); }
 }
+
+/* Accessibility overrides applied via JS to document.body */
+body.a11y-large-text { font-size: 120% !important; }
+body.a11y-large-text * { font-size: inherit; }
+
+body.a11y-contrast {
+  filter: contrast(1.5);
+}
+body.a11y-contrast * {
+  background-color: revert !important;
+  color: revert !important;
+  border-color: revert !important;
+}
+
+body.a11y-spacing * {
+  letter-spacing: 0.05em !important;
+  word-spacing: 0.1em !important;
+  line-height: 1.8 !important;
+}
+
+body.a11y-links a {
+  text-decoration: underline !important;
+  text-underline-offset: 3px !important;
+  font-weight: bold !important;
+  outline: 2px solid currentColor !important;
+  outline-offset: 2px !important;
+}
+
+body.a11y-dyslexia,
+body.a11y-dyslexia * {
+  font-family: 'OpenDyslexic', 'Comic Sans MS', 'Arial', sans-serif !important;
+  letter-spacing: 0.05em !important;
+  word-spacing: 0.15em !important;
+}
+
+body.a11y-no-anim *,
+body.a11y-no-anim *::before,
+body.a11y-no-anim *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
