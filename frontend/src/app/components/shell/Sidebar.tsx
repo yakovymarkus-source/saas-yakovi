@@ -1,6 +1,6 @@
 import { motion } from 'motion/react'
 import {
-  Home, Sparkles, MessageSquare, Search, BarChart3,
+  Home, Sparkles, MessageSquare, BarChart3,
   Users, Image, BookOpen, Bell, Settings, Shield, Plug,
   Megaphone, LayoutTemplate, HeadphonesIcon,
 } from 'lucide-react'
@@ -19,7 +19,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'agents',        icon: Sparkles,         label: 'סוכנים'       },
   { id: 'chat',          icon: MessageSquare,    label: 'צ\'אט AI'     },
   { id: 'campaigns',     icon: Megaphone,        label: 'קמפיינים'     },
-  { id: 'research',      icon: Search,           label: 'מחקר שוק'     },
   { id: 'analytics',     icon: BarChart3,        label: 'תובנות'        },
   { id: 'leads',         icon: Users,            label: 'לידים'         },
   { id: 'assets',        icon: Image,            label: 'נכסים'         },
