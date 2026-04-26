@@ -418,6 +418,17 @@ function renderShell(content) {
           </button>
         </div>
         ${content}
+        <footer role="contentinfo" style="margin-top:3rem;padding:1.25rem 0 0.5rem;border-top:1px solid #e2e8f0;text-align:center;font-size:0.75rem;color:#94a3b8">
+          <div style="display:flex;align-items:center;justify-content:center;gap:1rem;flex-wrap:wrap">
+            <a href="/legal/terms.html" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:none" onmouseover="this.style.color='#6366f1'" onmouseout="this.style.color='#94a3b8'">תנאי שימוש</a>
+            <span aria-hidden="true">·</span>
+            <a href="/legal/privacy.html" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:none" onmouseover="this.style.color='#6366f1'" onmouseout="this.style.color='#94a3b8'">מדיניות פרטיות</a>
+            <span aria-hidden="true">·</span>
+            <a href="/legal/accessibility.html" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:none" onmouseover="this.style.color='#6366f1'" onmouseout="this.style.color='#94a3b8'">נגישות</a>
+            <span aria-hidden="true">·</span>
+            <span>© 2025 CampaignBrain</span>
+          </div>
+        </footer>
       </main>
     </div>`;
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
@@ -2347,10 +2358,12 @@ function _renderAICreationShell(bp, saved) {
       <h1 class="page-title">✨ יצירה עם AI</h1>
       <p class="page-subtitle">בנה נכסים שיווקיים מנצחים ללא תלות בחיבור אינטגרציות</p>
     </div>
-    <div role="note" style="background:#fefce8;border:1.5px solid #fde68a;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.82rem;color:#713f12;display:flex;align-items:flex-start;gap:0.5rem">
+    ${localStorage.getItem('ai_disclaimer_dismissed') ? '' : `
+    <div role="note" id="ai-disclaimer-bar" style="background:#fefce8;border:1.5px solid #fde68a;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.82rem;color:#713f12;display:flex;align-items:flex-start;gap:0.5rem">
       <span style="flex-shrink:0">⚠️</span>
-      <span>תוצרי AI עשויים להכיל שגיאות או אי-דיוקים. יש לבדוק ולאשר כל תוכן לפני שימוש בפרסום בפועל. השימוש הוא באחריות המשתמש בלבד. <a href="/legal/terms.html#ai-disclaimer" target="_blank" rel="noopener" style="color:#92400e;text-decoration:underline">קרא עוד</a></span>
-    </div>
+      <span style="flex:1">תוצרי AI עשויים להכיל שגיאות או אי-דיוקים. יש לבדוק ולאשר כל תוכן לפני שימוש בפרסום בפועל. השימוש הוא באחריות המשתמש בלבד. <a href="/legal/terms.html#ai-disclaimer" target="_blank" rel="noopener" style="color:#92400e;text-decoration:underline">קרא עוד</a></span>
+      <button onclick="localStorage.setItem('ai_disclaimer_dismissed','1');document.getElementById('ai-disclaimer-bar')?.remove()" aria-label="סגור הודעה" style="background:none;border:none;cursor:pointer;font-size:1rem;color:#92400e;flex-shrink:0;padding:0;line-height:1">✕</button>
+    </div>`}
     <div class="ai-tabs">
       <button class="ai-tab ${tab==='ad_script'?'active':''}"     onclick="switchAITab('ad_script')">✍️ תסריט מודעה</button>
       <button class="ai-tab ${tab==='ad_creative'?'active':''}"   onclick="switchAITab('ad_creative')">🖼️ מודעה מוכנה</button>
@@ -5532,10 +5545,12 @@ function renderBusinessFromScratch() {
       <p class="page-subtitle">מערכת סוכנים חכמה שבונה את כל אסטרטגיית השיווק שלך — מחקר, אסטרטגיה, ביצוע ובקרת איכות</p>
     </div>
 
-    <div role="note" style="background:#fefce8;border:1.5px solid #fde68a;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.82rem;color:#713f12;display:flex;align-items:flex-start;gap:0.5rem">
+    ${localStorage.getItem('ai_disclaimer_dismissed') ? '' : `
+    <div role="note" id="ai-disclaimer-bar" style="background:#fefce8;border:1.5px solid #fde68a;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.82rem;color:#713f12;display:flex;align-items:flex-start;gap:0.5rem">
       <span style="flex-shrink:0">⚠️</span>
-      <span>תוצרי AI עשויים להכיל שגיאות או אי-דיוקים. יש לבדוק ולאשר כל תוכן לפני שימוש בפרסום בפועל. השימוש הוא באחריות המשתמש בלבד. <a href="/legal/terms.html#ai-disclaimer" target="_blank" rel="noopener" style="color:#92400e;text-decoration:underline">קרא עוד</a></span>
-    </div>
+      <span style="flex:1">תוצרי AI עשויים להכיל שגיאות או אי-דיוקים. יש לבדוק ולאשר כל תוכן לפני שימוש בפרסום בפועל. השימוש הוא באחריות המשתמש בלבד. <a href="/legal/terms.html#ai-disclaimer" target="_blank" rel="noopener" style="color:#92400e;text-decoration:underline">קרא עוד</a></span>
+      <button onclick="localStorage.setItem('ai_disclaimer_dismissed','1');document.getElementById('ai-disclaimer-bar')?.remove()" aria-label="סגור הודעה" style="background:none;border:none;cursor:pointer;font-size:1rem;color:#92400e;flex-shrink:0;padding:0;line-height:1">✕</button>
+    </div>`}
 
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1rem">
       ${agentCards}
@@ -8208,7 +8223,7 @@ function initCookieConsent() {
     <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
       <span style="flex:1;min-width:200px;font-size:0.82rem;color:#e2e8f0;line-height:1.5">
         🍪 אנחנו משתמשים בעוגיות הכרחיות לצורך הפעלת השירות.
-        <a href="/legal/privacy.html" target="_blank" rel="noopener" style="color:#a5b4fc;text-decoration:underline">מדיניות פרטיות</a>
+        <a href="/legal/privacy.html#cookies" target="_blank" rel="noopener" style="color:#a5b4fc;text-decoration:underline">מדיניות פרטיות</a>
       </span>
       <div style="display:flex;gap:0.5rem;flex-shrink:0">
         <button id="cookie-accept" style="background:#6366f1;color:white;border:none;border-radius:0.5rem;padding:0.4rem 1.1rem;font-size:0.82rem;font-weight:600;cursor:pointer;font-family:inherit">הבנתי ✓</button>
