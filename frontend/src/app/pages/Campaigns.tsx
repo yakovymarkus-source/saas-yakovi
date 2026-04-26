@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   Megaphone, Plus, Play, ChevronRight, Loader2,
-  AlertTriangle, CheckCircle2, BarChart3, Share2, X, RefreshCw,
+  AlertTriangle, CheckCircle2, BarChart3, Share2, X, RefreshCw, Sparkles,
 } from 'lucide-react'
 import { useAppState, setState } from '../state/store'
 import { useUpgradeModal } from '../hooks/useUpgradeModal'
@@ -164,25 +164,40 @@ export function Campaigns() {
   const loadCamps = async () => {
     setLoading(true)
     try {
-      const { data: campsData } = await sb.from('campaigns')
+      const { data: campsData, error: campsErr } = await sb.from('campaigns')
         .select('id,name,created_at')
         .eq('owner_user_id', state.user!.id)
         .order('created_at', { ascending: false })
 
+      if (campsErr) throw campsErr
+
       const campIds = (campsData || []).map((c: Record<string, unknown>) => c.id as string)
-      const { data: scoresData } = campIds.length
-        ? await sb.from('campaign_scores').select('campaign_id,score_payload').in('campaign_id', campIds)
-        : { data: [] }
-      const scoresMap = Object.fromEntries((scoresData || []).map((s: Record<string, unknown>) => [s.campaign_id, s.score_payload]))
+
+      let scoresMap: Record<string, unknown> = {}
+      if (campIds.length) {
+        const { data: scoresData } = await sb
+          .from('campaign_scores')
+          .select('campaign_id,score_payload')
+          .in('campaign_id', campIds)
+        scoresMap = Object.fromEntries(
+          (scoresData || []).map((s: Record<string, unknown>) => [s.campaign_id, s.score_payload])
+        )
+      }
 
       const list: Camp[] = (campsData || []).map((c: Record<string, unknown>) => ({
-        id: c.id as string, name: c.name as string, created_at: c.created_at as string,
-        score: (scoresMap[c.id as string] as CampaignScore | null) ?? null, analysing: false,
+        id: c.id as string,
+        name: c.name as string,
+        created_at: c.created_at as string,
+        score: (scoresMap[c.id as string] as CampaignScore | null) ?? null,
+        analysing: false,
       }))
       setCamps(list)
       setState(dispatch, { campaigns: list.map(c => ({ id: c.id, name: c.name, created_at: c.created_at })) })
-    } catch { toast('שגיאה בטעינה', 'error') }
-    finally { setLoading(false) }
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'שגיאה בטעינת קמפיינים', 'error')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const createCamp = async () => {
@@ -250,6 +265,7 @@ export function Campaigns() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto" dir="rtl">
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-lg">
@@ -260,56 +276,97 @@ export function Campaigns() {
             <p className="text-slate-400 text-sm">{camps.length} קמפיינים</p>
           </div>
         </div>
-        <button onClick={() => canCreate ? setShowCreate(v => !v) : openUpgrade('יצירת קמפיין')}
+        <button
+          onClick={() => canCreate ? setShowCreate(v => !v) : openUpgrade('יצירת קמפיין')}
           className="flex items-center gap-2 bg-gradient-to-l from-violet-600 to-purple-700 text-white px-4 py-2.5 rounded-xl text-sm font-bold hover:opacity-90 transition-opacity">
           <Plus className="w-4 h-4" /> קמפיין חדש
         </button>
       </div>
 
+      {/* Free-user upgrade banner */}
+      {!canCreate && (
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          className="mb-6 bg-gradient-to-l from-violet-900/40 to-purple-900/40 border border-violet-500/30 rounded-2xl p-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-violet-500/20 flex items-center justify-center flex-shrink-0">
+              <Sparkles className="w-4 h-4 text-violet-400" />
+            </div>
+            <div>
+              <p className="text-white font-semibold text-sm">נדרש שדרוג ליצירת קמפיינים</p>
+              <p className="text-slate-400 text-xs mt-0.5">חבילת Early Bird כוללת קמפיין אחד, Pro כוללת עד 20</p>
+            </div>
+          </div>
+          <button onClick={() => openUpgrade('קמפיינים')}
+            className="bg-gradient-to-l from-violet-600 to-purple-700 text-white text-xs font-bold px-4 py-2 rounded-xl hover:opacity-90 transition-opacity flex-shrink-0">
+            שדרג עכשיו
+          </button>
+        </motion.div>
+      )}
+
+      {/* Create input */}
       <AnimatePresence>
         {showCreate && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mb-5 overflow-hidden">
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }} className="mb-5 overflow-hidden">
             <div className="bg-slate-900/60 border border-violet-500/30 rounded-2xl p-4 flex gap-3">
-              <input autoFocus value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && createCamp()}
-                placeholder="שם הקמפיין..." className="flex-1 bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+              <input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && createCamp()}
+                placeholder="שם הקמפיין..."
+                className="flex-1 bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
               <button onClick={createCamp} disabled={creating}
                 className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
                 {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} צור
               </button>
-              <button onClick={() => setShowCreate(false)} className="p-2 text-slate-500 hover:text-white rounded-xl hover:bg-white/5"><X className="w-4 h-4" /></button>
+              <button onClick={() => setShowCreate(false)} className="p-2 text-slate-500 hover:text-white rounded-xl hover:bg-white/5">
+                <X className="w-4 h-4" />
+              </button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
+      {/* Limit bar (paid users) */}
       {canCreate && limits.campaignLimit && (
         <div className="mb-5">
           <div className="flex justify-between text-xs text-slate-500 mb-1">
-            <span>קמפיינים פעילים</span><span>{camps.length} / {limits.campaignLimit}</span>
+            <span>קמפיינים פעילים</span>
+            <span>{camps.length} / {limits.campaignLimit}</span>
           </div>
           <div className="bg-slate-800 rounded-full h-1 overflow-hidden">
-            <div className="h-full bg-gradient-to-l from-violet-500 to-purple-600 rounded-full"
+            <div className="h-full bg-gradient-to-l from-violet-500 to-purple-600 rounded-full transition-all"
               style={{ width: `${Math.min(100, (camps.length / limits.campaignLimit) * 100)}%` }} />
           </div>
         </div>
       )}
 
+      {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 text-violet-400 animate-spin" /></div>
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 text-violet-400 animate-spin" />
+        </div>
       ) : camps.length === 0 ? (
         <div className="text-center py-16">
           <div className="w-16 h-16 rounded-3xl bg-slate-800/60 border border-white/10 flex items-center justify-center mx-auto mb-4">
             <Megaphone className="w-8 h-8 text-slate-600" />
           </div>
-          <p className="text-slate-500 text-sm">אין קמפיינים עדיין</p>
-          <p className="text-slate-600 text-xs mt-1">צור קמפיין וקבל ניתוח AI</p>
+          <p className="text-slate-400 font-semibold text-sm">אין קמפיינים עדיין</p>
+          <p className="text-slate-600 text-xs mt-1">
+            {canCreate ? 'צור קמפיין וקבל ניתוח AI מקיף' : 'שדרג לחבילה בתשלום כדי להתחיל'}
+          </p>
+          {canCreate && (
+            <button onClick={() => setShowCreate(true)}
+              className="mt-4 inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-bold px-5 py-2.5 rounded-xl transition-colors">
+              <Plus className="w-4 h-4" /> צור קמפיין ראשון
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {camps.map((camp, i) => {
             const v = camp.score ? VERDICT[camp.score.verdict] : null
             return (
-              <motion.div key={camp.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+              <motion.div key={camp.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
                 className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 hover:border-violet-500/30 transition-colors">
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="flex-1 min-w-0">
@@ -346,7 +403,8 @@ export function Campaigns() {
                     <ChevronRight className="w-3.5 h-3.5" /> פרטים
                   </button>
                   {camp.score && (
-                    <button onClick={() => shareReport(camp)} className="p-2 text-slate-500 hover:text-blue-400 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors">
+                    <button onClick={() => shareReport(camp)}
+                      className="p-2 text-slate-500 hover:text-blue-400 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors">
                       <Share2 className="w-3.5 h-3.5" />
                     </button>
                   )}
