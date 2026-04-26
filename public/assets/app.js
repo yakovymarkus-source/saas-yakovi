@@ -753,7 +753,23 @@ function renderLiveStatsContent() {
 
   const connected = (state.integrations || []).filter(i => i.connection_status !== 'revoked');
   if (!connected.length) {
-    return '<div class="text-muted text-sm" style="padding:1rem">אין אינטגרציות פעילות</div>';
+    const emptyProviders = [
+      { label: 'Google Ads', icon: '🟢' },
+      { label: 'Meta Ads',   icon: '🔵' },
+      { label: 'GA4',        icon: '📈' },
+    ];
+    return `<div class="stats-grid" style="margin-top:0.5rem">
+      ${emptyProviders.map(p => `
+        <div class="stat-card" style="min-width:0;opacity:0.55">
+          <div class="stat-label">${p.icon} ${p.label}</div>
+          <div style="font-size:0.8rem;margin-top:0.5rem">
+            <div class="flex justify-between"><span class="text-muted">קליקים</span><strong>—</strong></div>
+            <div class="flex justify-between"><span class="text-muted">חשיפות</span><strong>—</strong></div>
+            <div class="flex justify-between"><span class="text-muted">הוצאה</span><strong>—</strong></div>
+            <div class="flex justify-between"><span class="text-muted">המרות</span><strong>—</strong></div>
+          </div>
+        </div>`).join('')}
+    </div>`;
   }
 
   return `<div class="stats-grid" style="margin-top:0.5rem">
@@ -3252,47 +3268,35 @@ function renderInsights(tabOverride) {
 
   const hasMetrics = (state.integrations || []).some(i => i.connection_status === 'active');
 
+  const connectBanner = !hasMetrics ? `
+    <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:0.625rem;font-size:0.85rem;color:#1e40af">
+        <span>🔌</span>
+        <span>חבר אינטגרציות כדי לראות נתונים אמיתיים — Google Ads, Meta, GA4</span>
+      </div>
+      <button class="btn btn-sm btn-primary" style="white-space:nowrap" onclick="switchSettingsTab('integrations');navigate('settings')">חבר עכשיו</button>
+    </div>` : '';
+
   const tabContent = {
-    performance: hasMetrics
-      ? `<div class="card">
-           <div class="card-title">📈 ביצועי קמפיינים</div>
-           <div id="live-stats-container">${renderLiveStatsContent()}</div>
-           <button class="btn btn-sm btn-secondary mt-3" onclick="refreshLiveStats()">רענן נתונים</button>
-         </div>`
+    performance: `
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
+          <div class="card-title" style="margin:0">📈 ביצועי קמפיינים</div>
+          ${hasMetrics ? `<button id="refresh-stats-btn" class="btn btn-sm btn-secondary" onclick="refreshLiveStats()">רענן</button>` : ''}
+        </div>
+        <div id="live-stats-container">${renderLiveStatsContent()}</div>
+      </div>`,
+    recommendations: hasMetrics
+      ? comingSoon('המלצות AI', '💡', 'ה-AI מנתח את הנתונים שלך ויוציא המלצות בקרוב.')
       : `<div class="card">
-           <div style="text-align:center;padding:2.5rem 1.5rem">
-             <div style="font-size:3rem;margin-bottom:1rem">📡</div>
-             <div style="font-size:1.125rem;font-weight:700;color:#1e293b;margin-bottom:0.5rem">אין נתוני ביצועים עדיין</div>
-             <div style="font-size:0.9rem;color:#64748b;margin-bottom:1.5rem;line-height:1.65;max-width:380px;margin-left:auto;margin-right:auto">
-               חבר את חשבון Google Ads, Meta Ads, או Google Analytics שלך — ה-AI יתחיל לנתח את הביצועים בזמן אמת.
-             </div>
-             <button class="btn btn-primary" style="width:auto;padding:0.75rem 2rem"
-               onclick="switchSettingsTab('integrations');navigate('settings')">
-               🔌 חבר אינטגרציה עכשיו
-             </button>
-             <div style="margin-top:1.5rem;display:flex;justify-content:center;gap:1.5rem;flex-wrap:wrap">
-               <span style="font-size:0.82rem;color:#64748b">✓ Google Ads</span>
-               <span style="font-size:0.82rem;color:#64748b">✓ Meta Ads</span>
-               <span style="font-size:0.82rem;color:#64748b">✓ Google Analytics</span>
-               <span style="font-size:0.82rem;color:#64748b">✓ TikTok Ads</span>
-             </div>
+           <div class="card-title">💡 המלצות AI</div>
+           <div style="display:flex;flex-direction:column;gap:0.75rem;opacity:0.5">
+             ${['שפר את ה-CTR על מודעה #1','הגדל תקציב לקמפיין עם ROAS גבוה','בדוק ירידה בחשיפות ב-Meta'].map(r =>
+               `<div style="background:#f8fafc;border-radius:0.5rem;padding:0.875rem 1rem;font-size:0.88rem;color:#374151;border:1px solid #e2e8f0">💡 ${r}</div>`
+             ).join('')}
            </div>
+           <p style="font-size:0.8rem;color:#94a3b8;margin-top:1rem;text-align:center">חבר אינטגרציות לקבלת המלצות אמיתיות</p>
          </div>`,
-    recommendations: !hasMetrics
-      ? `<div class="card">
-           <div style="text-align:center;padding:2.5rem 1.5rem">
-             <div style="font-size:3rem;margin-bottom:1rem">💡</div>
-             <div style="font-size:1.125rem;font-weight:700;color:#1e293b;margin-bottom:0.5rem">המלצות AI — מחכות לנתונים</div>
-             <div style="font-size:0.9rem;color:#64748b;margin-bottom:1.5rem;line-height:1.65;max-width:380px;margin-left:auto;margin-right:auto">
-               ברגע שתחבר אינטגרציה ויהיו נתוני ביצועים — ה-AI יזהה בעיות, יסביר <strong>למה</strong> הן קורות, ויציע פעולות לשיפור.
-             </div>
-             <button class="btn btn-primary" style="width:auto;padding:0.75rem 2rem"
-               onclick="switchSettingsTab('integrations');navigate('settings')">
-               🔌 חבר אינטגרציה
-             </button>
-           </div>
-         </div>`
-      : comingSoon('המלצות AI', '💡', 'ה-AI מנתח את הנתונים שלך ויוציא המלצות בקרוב.'),
     economics: comingSoon('כלכלת יחידה', '💰', 'ניתוח עלות לרכישה, ROI, ו-LTV — יהיה זמין בקרוב.'),
     abtests:   comingSoon('A/B Tests', '🧪', 'השוואת גרסאות מודעות ודפי נחיתה — יהיה זמין בקרוב.'),
   }[insightsTab] || '';
@@ -3300,8 +3304,9 @@ function renderInsights(tabOverride) {
   renderShell(`
     <div class="page-header">
       <h1 class="page-title">📈 תובנות</h1>
-      <p class="page-subtitle">${hasMetrics ? 'נתוני ביצועים בזמן אמת מכל הפלטפורמות' : 'חבר פלטפורמות פרסום לראות נתונים אמיתיים'}</p>
+      <p class="page-subtitle">נתוני ביצועים מכל הפלטפורמות</p>
     </div>
+    ${connectBanner}
     ${_insightsTabBar()}
     ${tabContent}
   `);
