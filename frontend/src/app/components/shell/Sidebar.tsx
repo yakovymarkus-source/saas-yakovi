@@ -37,7 +37,7 @@ export function Sidebar() {
   const isAdmin = state.profile?.is_admin
 
   const navigate = (page: string) => {
-    if (page === 'admin') { window.location.href = '/admin'; return }
+    if (page === 'admin') { window.location.href = '/admin/'; return }
     window.location.hash = page
     setState(dispatch, { currentPage: page, updatesCount: page === 'updates' ? 0 : state.updatesCount })
   }
