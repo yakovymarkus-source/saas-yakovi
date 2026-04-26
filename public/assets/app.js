@@ -3454,9 +3454,10 @@ function _ytId(url) {
 }
 
 function _tutorialCard(t, isAdmin) {
-  const ytId  = _ytId(t.youtube_url);
-  const thumb = t.thumbnail_url || (ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : null);
+  const ytId    = _ytId(t.youtube_url);
+  const thumb   = t.thumbnail_url || (ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : null);
   const catLabel = (TUTORIAL_CATEGORIES.find(c => c.id === t.category) || {}).label || t.category;
+  const watched  = _getWatched().has(t.id);
 
   return `
   <div style="background:white;border:1.5px solid #e2e8f0;border-radius:1rem;overflow:hidden;transition:box-shadow 0.2s;cursor:pointer"
@@ -3475,6 +3476,9 @@ function _tutorialCard(t, isAdmin) {
       <div style="position:absolute;top:0.6rem;right:0.6rem;background:rgba(0,0,0,0.6);color:white;font-size:0.68rem;font-weight:600;padding:0.2rem 0.6rem;border-radius:9999px">
         ${escHtml(catLabel)}
       </div>
+      <div id="tut-watched-${t.id}" style="position:absolute;bottom:0.6rem;right:0.6rem;background:rgba(34,197,94,0.92);color:white;font-size:0.68rem;font-weight:700;padding:0.2rem 0.6rem;border-radius:9999px;display:${watched?'flex':'none'};align-items:center;gap:0.3rem">
+        ✓ נצפה
+      </div>
       ${isAdmin ? `<div onclick="event.stopPropagation()" style="position:absolute;top:0.6rem;left:0.6rem;display:flex;gap:0.35rem">
         <button onclick="openTutorialModal('${t.id}')" style="background:rgba(255,255,255,0.9);border:none;border-radius:0.375rem;padding:0.25rem 0.5rem;font-size:0.75rem;cursor:pointer">✏️</button>
         <button onclick="deleteTutorial('${t.id}')" style="background:rgba(239,68,68,0.9);color:white;border:none;border-radius:0.375rem;padding:0.25rem 0.5rem;font-size:0.75rem;cursor:pointer">🗑️</button>
@@ -3492,10 +3496,27 @@ function _setTutorialCategory(cat) {
   renderTutorials();
 }
 
+function _tutorialsWatchedKey() {
+  return 'tutorials_watched_' + (state.user?.id || 'anon');
+}
+function _getWatched() {
+  try { return new Set(JSON.parse(localStorage.getItem(_tutorialsWatchedKey()) || '[]')); } catch { return new Set(); }
+}
+function _markWatched(id) {
+  const watched = _getWatched();
+  if (watched.has(id)) return;
+  watched.add(id);
+  localStorage.setItem(_tutorialsWatchedKey(), JSON.stringify([...watched]));
+  // Update badge on card if visible
+  const badge = document.getElementById('tut-watched-' + id);
+  if (badge) badge.style.display = 'flex';
+}
+
 function openTutorialViewer(id) {
   const t = (_tutorialsCache || []).find(x => x.id === id);
   if (!t) return;
   const ytId = _ytId(t.youtube_url);
+  _markWatched(id);
 
   const overlay = document.createElement('div');
   overlay.id = 'tutorial-viewer';
