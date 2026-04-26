@@ -130,12 +130,19 @@ function toast(msg, type = 'info') {
     const el = document.createElement('div');
     el.id = 'toast-container';
     el.className = 'toast-container';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    el.setAttribute('aria-atomic', 'true');
     document.body.appendChild(el);
     return el;
   })();
   const t = document.createElement('div');
   t.className = `toast ${type}`;
   t.textContent = msg;
+  if (type === 'error') {
+    t.setAttribute('role', 'alert');
+    t.setAttribute('aria-live', 'assertive');
+  }
   container.appendChild(t);
   setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3500);
 }
@@ -314,43 +321,50 @@ function renderShell(content) {
 
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
-      <aside class="sidebar">
-        <div class="sidebar-logo">
+      <aside class="sidebar" role="complementary" aria-label="ניווט ראשי">
+        <div class="sidebar-logo" aria-hidden="true">
           <div class="sidebar-logo-badge">🧠</div>
           Campaign<span>AI</span>
         </div>
-        <nav class="sidebar-nav">
+        <nav class="sidebar-nav" role="navigation" aria-label="תפריט ניווט">
           ${mainNav.map(n => `
-            <div class="nav-item ${isActive(n.id) ? 'active' : ''}" data-page="${n.id}">
-              <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
+            <div class="nav-item ${isActive(n.id) ? 'active' : ''}" data-page="${n.id}"
+              role="button" tabindex="0"
+              aria-label="${n.label}"
+              ${isActive(n.id) ? 'aria-current="page"' : ''}>
+              <span class="nav-icon" aria-hidden="true">${n.icon}</span><span class="nav-label">${n.label}</span>
             </div>`).join('')}
           ${state.profile?.is_admin ? `
-            <div style="height:1px;background:rgba(255,255,255,0.1);margin:0.75rem 1rem;"></div>
-            <div class="nav-item ${isActive('admin') ? 'active' : ''}" data-page="admin">
-              <span class="nav-icon">🛡️</span><span class="nav-label">ניהול</span>
-              ${state.supportCount > 0 ? `<span style="margin-right:auto;background:#ef4444;color:#fff;font-size:0.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px">${state.supportCount > 99 ? '99+' : state.supportCount}</span>` : ''}
+            <div style="height:1px;background:rgba(255,255,255,0.1);margin:0.75rem 1rem;" role="separator"></div>
+            <div class="nav-item ${isActive('admin') ? 'active' : ''}" data-page="admin"
+              role="button" tabindex="0" aria-label="ניהול"
+              ${isActive('admin') ? 'aria-current="page"' : ''}>
+              <span class="nav-icon" aria-hidden="true">🛡️</span><span class="nav-label">ניהול</span>
+              ${state.supportCount > 0 ? `<span aria-label="${state.supportCount} פניות תמיכה פתוחות" style="margin-right:auto;background:#ef4444;color:#fff;font-size:0.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px">${state.supportCount > 99 ? '99+' : state.supportCount}</span>` : ''}
             </div>` : ''}
         </nav>
         <div class="sidebar-footer">
-          <button onclick="navigate('support')" style="width:100%;text-align:center;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:rgba(255,255,255,0.7);font-size:0.8rem;padding:0.45rem 0.75rem;cursor:pointer;margin-bottom:0.75rem;">
+          <button onclick="navigate('support')" aria-label="פתח דף תמיכה"
+            style="width:100%;text-align:center;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:rgba(255,255,255,0.7);font-size:0.8rem;padding:0.45rem 0.75rem;cursor:pointer;margin-bottom:0.75rem;">
             💬 תמיכה
           </button>
           <div class="flex items-center gap-2">
-            <div class="user-avatar">${initials}</div>
+            <div class="user-avatar" role="img" aria-label="תמונת פרופיל — ${state.profile?.name || 'משתמש'}">${initials}</div>
             <div style="flex:1;overflow:hidden;min-width:0">
               <div class="text-sm font-semibold truncate" style="color:white">${state.profile?.name || 'משתמש'}</div>
               <div class="plan-pill">${getPlanLabel(sidebarPlan)}</div>
             </div>
-            <button onclick="handleLogout()" class="btn btn-sm btn-secondary" style="font-size:0.75rem;flex-shrink:0">יציאה</button>
+            <button onclick="handleLogout()" class="btn btn-sm btn-secondary" aria-label="יציאה מהחשבון" style="font-size:0.75rem;flex-shrink:0">יציאה</button>
           </div>
         </div>
       </aside>
-      <main class="main-content" id="page-content">
+      <main class="main-content" id="page-content" role="main" aria-label="תוכן ראשי" tabindex="-1">
         <div style="margin:-2rem -2rem 1.5rem;padding:0.5rem 1.5rem;display:flex;justify-content:flex-end;align-items:center;border-bottom:1px solid #f1f5f9;background:white;position:sticky;top:0;z-index:10;">
-          <button data-bell-btn onclick="navigate('updates')" title="התראות ועדכונים"
+          <button data-bell-btn onclick="navigate('updates')"
+            aria-label="${bellCount > 0 ? bellCount + ' התראות חדשות' : 'עדכונים'}"
             style="position:relative;background:none;border:none;cursor:pointer;font-size:1.3rem;padding:0.3rem;border-radius:50%;transition:background 0.15s;line-height:1;">
-            🔔
-            ${bellCount > 0 ? `<span data-bell-badge style="position:absolute;top:0;right:0;background:#ef4444;color:white;font-size:0.58rem;font-weight:700;min-width:1rem;height:1rem;border-radius:9999px;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1;">${bellCount > 99 ? '99+' : bellCount}</span>` : ''}
+            <span aria-hidden="true">🔔</span>
+            ${bellCount > 0 ? `<span aria-hidden="true" data-bell-badge style="position:absolute;top:0;right:0;background:#ef4444;color:white;font-size:0.58rem;font-weight:700;min-width:1rem;height:1rem;border-radius:9999px;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1;">${bellCount > 99 ? '99+' : bellCount}</span>` : ''}
           </button>
         </div>
         ${content}
@@ -358,6 +372,9 @@ function renderShell(content) {
     </div>`;
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
     el.addEventListener('click', () => navigate(el.dataset.page));
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(el.dataset.page); }
+    });
   });
 }
 
@@ -7966,4 +7983,121 @@ window.teamRemoveMember        = teamRemoveMember;
 window.showAchievementPopup    = showAchievementPopup;
 window.checkNewAchievements    = checkNewAchievements;
 
+// ── Accessibility Widget ──────────────────────────────────────────────────────
+function initA11yWidget() {
+  const PREFS_KEY = 'a11y_prefs_v1';
+  let prefs = {};
+  try { prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch {}
+
+  // Apply saved preferences immediately on load
+  Object.entries(prefs).forEach(([k, v]) => { if (v) document.body.classList.add(k); });
+
+  const options = [
+    { key: 'a11y-large-text', icon: 'Aa',  label: 'טקסט גדול' },
+    { key: 'a11y-contrast',   icon: '◑',   label: 'ניגודיות גבוהה' },
+    { key: 'a11y-spacing',    icon: '↔',   label: 'ריווח מוגבר' },
+    { key: 'a11y-links',      icon: '🔗',  label: 'הדגש קישורים' },
+    { key: 'a11y-dyslexia',   icon: 'Dy',  label: 'פונט נגיש' },
+    { key: 'a11y-no-anim',    icon: '⏸',  label: 'עצור אנימציות' },
+  ];
+
+  const container = document.createElement('div');
+  container.id = 'a11y-container';
+  container.setAttribute('role', 'region');
+  container.setAttribute('aria-label', 'אפשרויות נגישות');
+
+  container.innerHTML = `
+    <button id="a11y-btn"
+      aria-expanded="false" aria-haspopup="true"
+      aria-label="פתח תפריט נגישות"
+      title="נגישות">
+      ♿
+    </button>
+    <div id="a11y-panel" role="dialog" aria-modal="false" aria-label="תפריט נגישות" hidden>
+      <div class="a11y-panel-head">
+        <div class="a11y-panel-title">
+          <span aria-hidden="true">♿</span> נגישות
+        </div>
+        <button id="a11y-close" aria-label="סגור תפריט נגישות">✕</button>
+      </div>
+      <div class="a11y-options" role="group" aria-label="אפשרויות נגישות">
+        ${options.map(o => `
+          <button class="a11y-option ${prefs[o.key] ? 'active' : ''}"
+            role="switch" aria-checked="${!!prefs[o.key]}"
+            data-key="${o.key}">
+            <span class="a11y-opt-icon" aria-hidden="true">${o.icon}</span>
+            <span class="a11y-opt-label">${o.label}</span>
+            <span class="a11y-opt-check" aria-hidden="true">${prefs[o.key] ? '✓' : ''}</span>
+          </button>`).join('')}
+      </div>
+      <button id="a11y-reset" aria-label="איפוס כל הגדרות הנגישות">איפוס הכל</button>
+    </div>`;
+
+  document.body.appendChild(container);
+
+  const btn   = document.getElementById('a11y-btn');
+  const panel = document.getElementById('a11y-panel');
+
+  // Toggle panel open/close
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const opening = panel.hidden;
+    panel.hidden = !opening;
+    btn.setAttribute('aria-expanded', String(opening));
+    if (opening) { panel.querySelector('.a11y-option')?.focus(); }
+  });
+
+  document.getElementById('a11y-close').addEventListener('click', () => {
+    panel.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    btn.focus();
+  });
+
+  // Toggle each option
+  panel.querySelectorAll('.a11y-option').forEach(optBtn => {
+    optBtn.addEventListener('click', () => {
+      const key = optBtn.dataset.key;
+      prefs[key] = !prefs[key];
+      document.body.classList.toggle(key, prefs[key]);
+      optBtn.setAttribute('aria-checked', String(prefs[key]));
+      optBtn.classList.toggle('active', prefs[key]);
+      optBtn.querySelector('.a11y-opt-check').textContent = prefs[key] ? '✓' : '';
+      try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
+    });
+  });
+
+  // Reset all
+  document.getElementById('a11y-reset').addEventListener('click', () => {
+    options.forEach(o => {
+      prefs[o.key] = false;
+      document.body.classList.remove(o.key);
+    });
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
+    panel.querySelectorAll('.a11y-option').forEach(optBtn => {
+      optBtn.setAttribute('aria-checked', 'false');
+      optBtn.classList.remove('active');
+      optBtn.querySelector('.a11y-opt-check').textContent = '';
+    });
+    toast('הגדרות הנגישות אופסו', 'info');
+  });
+
+  // Close on outside click
+  document.addEventListener('click', (e) => {
+    if (!container.contains(e.target) && !panel.hidden) {
+      panel.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  // Escape closes panel
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !panel.hidden) {
+      panel.hidden = true;
+      btn.setAttribute('aria-expanded', 'false');
+      btn.focus();
+    }
+  });
+}
+
+initA11yWidget();
 boot();

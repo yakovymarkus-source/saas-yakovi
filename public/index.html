@@ -17,8 +17,10 @@
   <link rel="stylesheet" href="/assets/chat.css?v=a678200b" />
 </head>
 <body>
-  <div id="app">
-    <div class="loading-screen">
+  <!-- Skip navigation — visible only on keyboard focus -->
+  <a href="#page-content" id="skip-link" class="skip-link">דלג לתוכן הראשי</a>
+  <div id="app" role="application" aria-label="CampaignAI">
+    <div class="loading-screen" role="status" aria-label="טוען...">
       <div class="spinner"></div>
     </div>
   </div>
