@@ -139,6 +139,11 @@
   status = 200
 
 [[redirects]]
+  from   = "/api/unsubscribe"
+  to     = "/.netlify/functions/unsubscribe"
+  status = 200
+
+[[redirects]]
   from   = "/terms"
   to     = "/legal/terms.html"
   status = 200

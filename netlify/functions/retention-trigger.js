@@ -68,7 +68,21 @@ const TRIGGERS = {
 
 async function sendRetentionEmail(to, subject, text) {
   try {
-    await sendEmail({ to, subject, html: `<div dir="rtl" style="font-family:sans-serif;color:#1e293b;padding:1.5rem"><p style="font-size:1rem">${text.replace(/\n/g,'<br>')}</p></div>` });
+    const appUrl  = process.env.APP_URL || process.env.URL || 'https://campaignbrain.app';
+    const encoded = Buffer.from(to).toString('base64');
+    const unsubFooter = `
+<hr style="border:none;border-top:1px solid #e5e5e5;margin:24px 0 12px;">
+<p style="font-size:11px;color:#999;margin:0;">
+  קיבלת מייל זה כי נרשמת ל-CampaignBrain.<br>
+  <a href="${appUrl}/api/unsubscribe?e=${encoded}" style="color:#999;text-decoration:underline;">הסר אותי מרשימת התפוצה</a>
+  &nbsp;|&nbsp;
+  <a href="${appUrl}/legal/privacy.html" style="color:#999;text-decoration:underline;">מדיניות פרטיות</a>
+</p>`;
+    await sendEmail({
+      to,
+      subject,
+      html: `<div dir="rtl" style="font-family:sans-serif;color:#1e293b;padding:1.5rem"><p style="font-size:1rem">${text.replace(/\n/g,'<br>')}</p>${unsubFooter}</div>`
+    });
   } catch (e) { console.warn('[retention-trigger] email error:', e.message); }
 }
 
