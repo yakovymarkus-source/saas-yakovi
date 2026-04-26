@@ -1,6 +1,6 @@
 [build]
-  command = "node scripts/inject-env.js"
-  publish = "public"
+  command = "cd frontend && npm install && npm run build"
+  publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20"
