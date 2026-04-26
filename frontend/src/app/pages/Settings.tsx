@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   Settings as SettingsIcon, Building2, CreditCard,
-  Bell, Shield, Lock, Users, Loader2, CheckCircle2, Zap,
+  Bell, Shield, Lock, Users, Loader2, CheckCircle2, Zap, UserCircle, Camera,
 } from 'lucide-react'
 import { useAppState, setState } from '../state/store'
 import { useToast } from '../hooks/useToast'
@@ -10,6 +10,7 @@ import { api, sb } from '../api/client'
 import { getPlanLabel } from '../state/types'
 
 const TABS = [
+  { id: 'profile',       icon: UserCircle, label: 'פרופיל אישי' },
   { id: 'business',      icon: Building2,  label: 'פרופיל עסקי' },
   { id: 'billing',       icon: CreditCard, label: 'חיוב ומנוי' },
   { id: 'notifications', icon: Bell,       label: 'התראות' },
@@ -34,9 +35,17 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 export function Settings() {
   const { state, dispatch } = useAppState()
   const toast = useToast()
-  const [tab, setTab] = useState<TabId>('business')
+  const [tab, setTab] = useState<TabId>('profile')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [profileForm, setProfileForm] = useState({
+    name: state.profile?.name || state.profile?.full_name || '',
+    avatarUrl: state.profile?.avatar_url || '',
+  })
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(state.profile?.avatar_url || null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
 
   const bp = state.businessProfile
   const [form, setForm] = useState({
@@ -92,6 +101,52 @@ export function Settings() {
       setTimeout(() => setSaved(false), 2500)
       toast('פרופיל עסקי נשמר', 'success')
     } catch (err: unknown) {
+      toast('שגיאה בשמירה', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAvatarFile = async (file: File) => {
+    if (!state.user) return
+    if (file.size > 2 * 1024 * 1024) { toast('הקובץ גדול מדי (מקסימום 2MB)', 'warning'); return }
+    setUploadingAvatar(true)
+    try {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const path = `${state.user.id}/avatar.${ext}`
+      const { error: upErr } = await sb.storage.from('avatars').upload(path, file, {
+        upsert: true, contentType: file.type,
+      })
+      if (upErr) throw upErr
+      const { data: { publicUrl } } = sb.storage.from('avatars').getPublicUrl(path)
+      const cacheBusted = `${publicUrl}?t=${Date.now()}`
+      setAvatarPreview(cacheBusted)
+      setProfileForm(p => ({ ...p, avatarUrl: cacheBusted }))
+      toast('תמונה הועלתה', 'success')
+    } catch {
+      toast('שגיאה בהעלאת התמונה', 'error')
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
+
+  const saveProfile = async () => {
+    if (!state.user) return
+    setSaving(true)
+    try {
+      const updated = await api<{ name: string | null; avatar_url: string | null }>(
+        'PUT', 'account-profile',
+        { name: profileForm.name || null, avatarUrl: profileForm.avatarUrl || null }
+      )
+      setState(dispatch, {
+        profile: state.profile
+          ? { ...state.profile, name: updated.name, avatar_url: profileForm.avatarUrl || null }
+          : state.profile,
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+      toast('פרופיל נשמר', 'success')
+    } catch {
       toast('שגיאה בשמירה', 'error')
     } finally {
       setSaving(false)
@@ -162,6 +217,78 @@ export function Settings() {
               transition={{ duration: 0.15 }}
               className="bg-slate-900/60 border border-white/10 rounded-2xl p-5"
             >
+              {/* Personal Profile */}
+              {tab === 'profile' && (
+                <div className="space-y-5">
+                  <h2 className="text-white font-bold">פרופיל אישי</h2>
+
+                  {/* Avatar */}
+                  <div className="flex items-center gap-5">
+                    <div className="relative flex-shrink-0">
+                      <div className="w-20 h-20 rounded-full overflow-hidden bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center">
+                        {avatarPreview ? (
+                          <img src={avatarPreview} alt="תמונת פרופיל" className="w-full h-full object-cover" />
+                        ) : (
+                          <UserCircle className="w-10 h-10 text-white/60" />
+                        )}
+                      </div>
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingAvatar}
+                        className="absolute -bottom-1 -left-1 w-7 h-7 rounded-full bg-purple-600 border-2 border-slate-900 flex items-center justify-center hover:bg-purple-500 transition-colors disabled:opacity-50"
+                        title="שנה תמונה"
+                      >
+                        {uploadingAvatar
+                          ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" />
+                          : <Camera className="w-3.5 h-3.5 text-white" />}
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleAvatarFile(f) }}
+                      />
+                    </div>
+                    <div className="text-sm text-slate-400">
+                      <p className="font-medium text-white">{profileForm.name || state.profile?.email || '—'}</p>
+                      <p className="text-xs mt-0.5">{state.profile?.email}</p>
+                      <p className="text-xs text-slate-600 mt-1">JPG, PNG או WebP · עד 2MB</p>
+                    </div>
+                  </div>
+
+                  {/* Name */}
+                  <div>
+                    <label className="block text-slate-400 text-xs mb-1">שם תצוגה</label>
+                    <input
+                      value={profileForm.name}
+                      onChange={e => setProfileForm(p => ({ ...p, name: e.target.value }))}
+                      placeholder="השם שיוצג בממשק"
+                      className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+
+                  {/* Email (read-only) */}
+                  <div>
+                    <label className="block text-slate-400 text-xs mb-1">כתובת מייל</label>
+                    <input
+                      value={state.profile?.email || state.user?.email || ''}
+                      readOnly
+                      className="w-full bg-slate-800/30 border border-white/5 rounded-xl px-3 py-2.5 text-slate-500 text-sm cursor-not-allowed"
+                    />
+                  </div>
+
+                  <button
+                    onClick={saveProfile}
+                    disabled={saving}
+                    className="flex items-center gap-2 bg-gradient-to-l from-purple-600 to-indigo-600 text-white font-bold px-5 py-2.5 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : saved ? <CheckCircle2 className="w-4 h-4" /> : null}
+                    {saved ? 'נשמר!' : 'שמור שינויים'}
+                  </button>
+                </div>
+              )}
+
               {/* Business Profile */}
               {tab === 'business' && (
                 <div className="space-y-4">

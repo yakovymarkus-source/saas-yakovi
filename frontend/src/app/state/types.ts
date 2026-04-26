@@ -6,7 +6,9 @@ export interface User {
 export interface Profile {
   id: string
   name: string | null
+  full_name: string | null
   email: string | null
+  avatar_url: string | null
   is_admin: boolean
   marketing_consent: boolean
 }

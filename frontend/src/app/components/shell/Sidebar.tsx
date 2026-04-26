@@ -2,7 +2,7 @@ import { motion } from 'motion/react'
 import {
   Home, Sparkles, MessageSquare, BarChart3,
   Users, Image, BookOpen, Settings, Shield, Plug,
-  Megaphone, LayoutTemplate, HeadphonesIcon,
+  Megaphone, LayoutTemplate, HeadphonesIcon, UserCircle,
 } from 'lucide-react'
 import { useAppState, setState } from '../../state/store'
 import { useAuth } from '../../hooks/useAuth'
@@ -82,8 +82,19 @@ export function Sidebar() {
       {/* Notification Bell */}
       <NotificationBell />
 
-      {/* Sign out */}
-      <div className="mt-auto">
+      {/* Avatar + Sign out */}
+      <div className="mt-auto flex flex-col items-center gap-2">
+        <button
+          onClick={() => navigate('settings')}
+          title={state.profile?.name || state.profile?.email || 'פרופיל'}
+          className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center ring-2 ring-white/10 hover:ring-white/30 transition-all"
+        >
+          {state.profile?.avatar_url ? (
+            <img src={state.profile.avatar_url} alt="פרופיל" className="w-full h-full object-cover" />
+          ) : (
+            <UserCircle className="w-5 h-5 text-white/70" />
+          )}
+        </button>
         <button
           onClick={signOut}
           className="text-white/30 hover:text-white/70 transition-colors p-2 rounded-xl hover:bg-white/10"
