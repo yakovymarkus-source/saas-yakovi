@@ -34,7 +34,7 @@ export function useAuth() {
       const { data: campaigns } = await sb
         .from('campaigns')
         .select('id,name,created_at')
-        .eq('user_id', userId)
+        .eq('owner_user_id', userId)
         .order('created_at', { ascending: false })
 
       const profile = profileRes.data as Profile | null

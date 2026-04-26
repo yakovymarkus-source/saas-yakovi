@@ -164,13 +164,20 @@ export function Campaigns() {
   const loadCamps = async () => {
     setLoading(true)
     try {
-      const { data } = await sb.from('campaigns')
-        .select('id,name,created_at,score_payload')
-        .eq('user_id', state.user!.id)
+      const { data: campsData } = await sb.from('campaigns')
+        .select('id,name,created_at')
+        .eq('owner_user_id', state.user!.id)
         .order('created_at', { ascending: false })
-      const list: Camp[] = (data || []).map((c: Record<string, unknown>) => ({
+
+      const campIds = (campsData || []).map((c: Record<string, unknown>) => c.id as string)
+      const { data: scoresData } = campIds.length
+        ? await sb.from('campaign_scores').select('campaign_id,score_payload').in('campaign_id', campIds)
+        : { data: [] }
+      const scoresMap = Object.fromEntries((scoresData || []).map((s: Record<string, unknown>) => [s.campaign_id, s.score_payload]))
+
+      const list: Camp[] = (campsData || []).map((c: Record<string, unknown>) => ({
         id: c.id as string, name: c.name as string, created_at: c.created_at as string,
-        score: (c.score_payload as CampaignScore | null) ?? null, analysing: false,
+        score: (scoresMap[c.id as string] as CampaignScore | null) ?? null, analysing: false,
       }))
       setCamps(list)
       setState(dispatch, { campaigns: list.map(c => ({ id: c.id, name: c.name, created_at: c.created_at })) })
@@ -184,10 +191,7 @@ export function Campaigns() {
     if (limits.campaignLimit && camps.length >= limits.campaignLimit) { openUpgrade('קמפיינים נוספים'); return }
     setCreating(true)
     try {
-      const { data, error } = await sb.from('campaigns')
-        .insert({ user_id: state.user!.id, name: newName.trim() })
-        .select('id,name,created_at').single()
-      if (error) throw error
+      const data = await api<{ id: string; name: string; created_at: string }>('POST', 'create-campaign', { name: newName.trim() })
       setCamps(prev => [{ id: data.id, name: data.name, created_at: data.created_at, score: null, analysing: false }, ...prev])
       setNewName(''); setShowCreate(false)
       toast('קמפיין נוצר!', 'success')

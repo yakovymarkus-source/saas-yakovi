@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
-  LayoutTemplate, Plus, Eye, EyeOff, Trash2, Edit3,
+  LayoutTemplate, Plus, Eye, Trash2,
   Loader2, ExternalLink, Copy, CheckCheck, X, Save,
 } from 'lucide-react'
 import { useAppState } from '../state/store'
@@ -13,17 +13,8 @@ import { ProgressBanner } from '../components/ui/ProgressBanner'
 interface LandingPage {
   id: string
   title: string
-  slug: string
-  status: 'active' | 'inactive' | 'draft'
-  views: number | null
+  status: 'active' | 'deleted'
   created_at: string
-  content_html: string | null
-}
-
-const STATUS_CFG = {
-  active:   { label: 'פעיל',  color: 'text-green-400',  bg: 'bg-green-500/20' },
-  inactive: { label: 'כבוי',  color: 'text-slate-400',  bg: 'bg-slate-500/20' },
-  draft:    { label: 'טיוטה', color: 'text-yellow-400', bg: 'bg-yellow-500/20' },
 }
 
 export function LandingPages() {
@@ -40,7 +31,6 @@ export function LandingPages() {
   const [bannerName, setBannerName] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
-  const [toggling, setToggling] = useState<string | null>(null)
 
   const plan = state.subscription?.plan || 'free'
   const canGenerate = plan !== 'free'
@@ -50,17 +40,17 @@ export function LandingPages() {
   const load = async () => {
     setLoading(true)
     try {
-      const { data } = await sb.from('assets')
-        .select('*').eq('user_id', state.user!.id).eq('type', 'landing_page')
+      const { data } = await sb.from('generated_assets')
+        .select('id,title,status,created_at')
+        .eq('user_id', state.user!.id)
+        .eq('type', 'landing_page_html')
+        .neq('status', 'deleted')
         .order('created_at', { ascending: false })
       setPages((data || []).map((d: Record<string, unknown>) => ({
         id: d.id as string,
-        title: d.name as string,
-        slug: (d.url as string).split('/').pop() || d.id as string,
-        status: (d.status as LandingPage['status']) || 'draft',
-        views: d.views as number | null,
+        title: (d.title as string) || 'דף ללא שם',
+        status: (d.status as 'active' | 'deleted') || 'active',
         created_at: d.created_at as string,
-        content_html: null,
       })))
     } catch { toast('שגיאה בטעינה', 'error') }
     finally { setLoading(false) }
@@ -89,21 +79,11 @@ export function LandingPages() {
     finally { setGenerating(false); setBannerName(null) }
   }
 
-  const toggleStatus = async (page: LandingPage) => {
-    setToggling(page.id)
-    const next = page.status === 'active' ? 'inactive' : 'active'
-    try {
-      await sb.from('assets').update({ status: next }).eq('id', page.id)
-      setPages(prev => prev.map(p => p.id === page.id ? { ...p, status: next } : p))
-    } catch { toast('שגיאה', 'error') }
-    finally { setToggling(null) }
-  }
-
   const deletePage = async (id: string) => {
     if (!confirm('למחוק דף זה?')) return
     setDeleting(id)
     try {
-      await sb.from('assets').delete().eq('id', id)
+      await sb.from('generated_assets').update({ status: 'deleted' }).eq('id', id)
       setPages(prev => prev.filter(p => p.id !== id))
       toast('דף נמחק', 'success')
     } catch { toast('שגיאה במחיקה', 'error') }
@@ -182,43 +162,32 @@ export function LandingPages() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {pages.map((page, i) => {
-            const sc = STATUS_CFG[page.status]
-            return (
-              <motion.div key={page.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-                className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 hover:border-emerald-500/30 transition-colors">
-                <div className="flex items-start justify-between gap-2 mb-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-semibold text-sm truncate">{page.title}</p>
-                    <p className="text-slate-500 text-xs mt-0.5">{new Date(page.created_at).toLocaleDateString('he-IL')}</p>
-                  </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${sc.bg} ${sc.color}`}>{sc.label}</span>
+          {pages.map((page, i) => (
+            <motion.div key={page.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+              className="bg-slate-900/60 border border-white/10 rounded-2xl p-4 hover:border-emerald-500/30 transition-colors">
+              <div className="flex items-start justify-between gap-2 mb-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-semibold text-sm truncate">{page.title}</p>
+                  <p className="text-slate-500 text-xs mt-0.5">{new Date(page.created_at).toLocaleDateString('he-IL')}</p>
                 </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 bg-green-500/20 text-green-400">פעיל</span>
+              </div>
 
-                {page.views != null && (
-                  <p className="text-slate-500 text-xs mb-3">{page.views.toLocaleString()} צפיות</p>
-                )}
-
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setPreview(page)}
-                    className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 py-2 rounded-xl transition-colors">
-                    <Eye className="w-3.5 h-3.5" /> תצוגה מקדימה
-                  </button>
-                  <button onClick={() => toggleStatus(page)} disabled={toggling === page.id}
-                    className="p-2 text-slate-500 hover:text-white bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors">
-                    {toggling === page.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : page.status === 'active' ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                  <button onClick={() => copyLink(page)} className="p-2 text-slate-500 hover:text-blue-400 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors">
-                    {copied === page.id ? <CheckCheck className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                  <button onClick={() => deletePage(page.id)} disabled={deleting === page.id}
-                    className="p-2 text-slate-500 hover:text-red-400 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors">
-                    {deleting === page.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </motion.div>
-            )
-          })}
+              <div className="flex items-center gap-2">
+                <button onClick={() => setPreview(page)}
+                  className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 py-2 rounded-xl transition-colors">
+                  <Eye className="w-3.5 h-3.5" /> תצוגה מקדימה
+                </button>
+                <button onClick={() => copyLink(page)} className="p-2 text-slate-500 hover:text-blue-400 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors">
+                  {copied === page.id ? <CheckCheck className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+                <button onClick={() => deletePage(page.id)} disabled={deleting === page.id}
+                  className="p-2 text-slate-500 hover:text-red-400 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors">
+                  {deleting === page.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </motion.div>
+          ))}
         </div>
       )}
 
