@@ -1,11 +1,12 @@
 import { motion } from 'motion/react'
 import {
   Home, Sparkles, MessageSquare, BarChart3,
-  Users, Image, BookOpen, Bell, Settings, Shield, Plug,
+  Users, Image, BookOpen, Settings, Shield, Plug,
   Megaphone, LayoutTemplate, HeadphonesIcon,
 } from 'lucide-react'
 import { useAppState, setState } from '../../state/store'
 import { useAuth } from '../../hooks/useAuth'
+import { NotificationBell } from '../ui/NotificationPanel'
 
 interface NavItem {
   id: string
@@ -15,20 +16,19 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard',     icon: Home,             label: 'לוח בקרה'    },
-  { id: 'agents',        icon: Sparkles,         label: 'סוכנים'       },
-  { id: 'chat',          icon: MessageSquare,    label: 'צ\'אט AI'     },
-  { id: 'campaigns',     icon: Megaphone,        label: 'קמפיינים'     },
-  { id: 'analytics',     icon: BarChart3,        label: 'תובנות'        },
-  { id: 'leads',         icon: Users,            label: 'לידים'         },
-  { id: 'assets',        icon: Image,            label: 'נכסים'         },
-  { id: 'landing-pages', icon: LayoutTemplate,   label: 'דפי נחיתה'    },
-  { id: 'integrations',  icon: Plug,             label: 'אינטגרציות'    },
-  { id: 'tutorials',     icon: BookOpen,         label: 'הדרכות'        },
-  { id: 'updates',       icon: Bell,             label: 'עדכונים'       },
-  { id: 'support',       icon: HeadphonesIcon,   label: 'תמיכה'         },
-  { id: 'settings',      icon: Settings,         label: 'הגדרות'        },
-  { id: 'admin',         icon: Shield,           label: 'Admin', adminOnly: true },
+  { id: 'dashboard',     icon: Home,           label: 'לוח בקרה'   },
+  { id: 'agents',        icon: Sparkles,       label: 'סוכנים'      },
+  { id: 'chat',          icon: MessageSquare,  label: 'צ\'אט AI'    },
+  { id: 'campaigns',     icon: Megaphone,      label: 'קמפיינים'    },
+  { id: 'analytics',     icon: BarChart3,      label: 'תובנות'       },
+  { id: 'leads',         icon: Users,          label: 'לידים'        },
+  { id: 'assets',        icon: Image,          label: 'נכסים'        },
+  { id: 'landing-pages', icon: LayoutTemplate, label: 'דפי נחיתה'   },
+  { id: 'integrations',  icon: Plug,           label: 'אינטגרציות'   },
+  { id: 'tutorials',     icon: BookOpen,       label: 'הדרכות'       },
+  { id: 'support',       icon: HeadphonesIcon, label: 'תמיכה'        },
+  { id: 'settings',      icon: Settings,       label: 'הגדרות'       },
+  { id: 'admin',         icon: Shield,         label: 'Admin', adminOnly: true },
 ]
 
 export function Sidebar() {
@@ -39,10 +39,9 @@ export function Sidebar() {
   const navigate = (page: string) => {
     if (page === 'admin') { window.location.href = '/admin/'; return }
     window.location.hash = page
-    setState(dispatch, { currentPage: page, updatesCount: page === 'updates' ? 0 : state.updatesCount })
+    setState(dispatch, { currentPage: page })
   }
 
-  const totalBadge = (state.updatesCount || 0) + (state.localNotifCount || 0)
   const visible = NAV_ITEMS.filter(item => !item.adminOnly || isAdmin)
 
   return (
@@ -55,7 +54,6 @@ export function Sidebar() {
       {visible.map(item => {
         const Icon = item.icon
         const isActive = state.currentPage === item.id
-        const showBadge = item.id === 'updates' && totalBadge > 0
 
         return (
           <motion.button
@@ -73,14 +71,7 @@ export function Sidebar() {
             {isActive && (
               <div className="absolute inset-0 bg-gradient-to-br from-cyan-400 to-purple-500 rounded-2xl opacity-20 blur-xl pointer-events-none" />
             )}
-            <div className="relative">
-              <Icon className="w-5 h-5 relative z-10" />
-              {showBadge && (
-                <span className="absolute -top-1.5 -left-1.5 bg-red-500 text-white text-[9px] font-bold min-w-[14px] h-[14px] rounded-full flex items-center justify-center px-0.5 leading-none">
-                  {totalBadge > 99 ? '99+' : totalBadge}
-                </span>
-              )}
-            </div>
+            <Icon className="w-5 h-5 relative z-10" />
             <span className="text-[9px] font-semibold tracking-wide relative z-10 text-center leading-tight">
               {item.label}
             </span>
@@ -88,7 +79,10 @@ export function Sidebar() {
         )
       })}
 
-      {/* Sign out at bottom */}
+      {/* Notification Bell */}
+      <NotificationBell />
+
+      {/* Sign out */}
       <div className="mt-auto">
         <button
           onClick={signOut}
