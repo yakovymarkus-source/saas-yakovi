@@ -1,9 +1,39 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Send, Bot, User, Sparkles, RotateCcw, Loader2 } from 'lucide-react'
+import { Send, Bot, User, Sparkles, RotateCcw, Loader2, CheckCircle2 } from 'lucide-react'
 import { useAppState } from '../state/store'
 import { useUpgradeModal } from '../hooks/useUpgradeModal'
 import { api } from '../api/client'
+
+const MILESTONES = ['חיבור עסק', 'ניתוח שוק', 'יצירת אסטרטגיה', 'השקת קמפיין']
+
+function MilestoneBar({ completed }: { completed: number }) {
+  return (
+    <div className="px-6 py-3 border-b border-white/10 bg-slate-900/60 flex-shrink-0">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-slate-400 text-xs">התקדמות</span>
+        <span className="text-slate-400 text-xs">{completed}/{MILESTONES.length}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        {MILESTONES.map((m, i) => (
+          <div key={m} className="flex items-center flex-1 gap-1">
+            <div className={`flex items-center gap-1 flex-1 ${i < completed ? 'opacity-100' : 'opacity-40'}`}>
+              <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${i < completed ? 'bg-green-500' : 'bg-slate-700'}`}>
+                {i < completed
+                  ? <CheckCircle2 className="w-3 h-3 text-white" />
+                  : <span className="text-[9px] text-slate-400 font-bold">{i + 1}</span>}
+              </div>
+              <span className="text-[9px] text-slate-400 hidden sm:block truncate">{m}</span>
+            </div>
+            {i < MILESTONES.length - 1 && (
+              <div className={`h-px flex-1 mx-1 ${i < completed - 1 ? 'bg-green-500' : 'bg-slate-700'}`} />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 interface Message {
   id: string
@@ -33,6 +63,14 @@ export function Chat() {
   const canChat = plan !== 'free'
   const msgCount = messages.filter(m => m.role === 'user').length
   const FREE_LIMIT = 3
+
+  // milestone: derive from state
+  const milestonesCompleted = [
+    !!state.businessProfile?.business_name,
+    !!state.businessProfile?.offer,
+    state.campaigns.length > 0,
+    state.integrations.some(i => i.connection_status === 'active'),
+  ].filter(Boolean).length
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -92,6 +130,7 @@ export function Chat() {
 
   return (
     <div className="flex flex-col h-full bg-slate-950" dir="rtl">
+      <MilestoneBar completed={milestonesCompleted} />
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 flex-shrink-0">
         <div className="flex items-center gap-3">

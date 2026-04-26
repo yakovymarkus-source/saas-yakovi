@@ -2,6 +2,7 @@ import { motion } from 'motion/react'
 import {
   Home, Sparkles, MessageSquare, Search, BarChart3,
   Users, Image, BookOpen, Bell, Settings, Shield, Plug,
+  Megaphone, LayoutTemplate, HeadphonesIcon,
 } from 'lucide-react'
 import { useAppState, setState } from '../../state/store'
 import { useAuth } from '../../hooks/useAuth'
@@ -14,18 +15,21 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard',    icon: Home,          label: 'לוח בקרה'      },
-  { id: 'agents',       icon: Sparkles,      label: 'סוכנים'         },
-  { id: 'chat',         icon: MessageSquare, label: 'צ\'אט AI'       },
-  { id: 'research',     icon: Search,        label: 'מחקר שוק'       },
-  { id: 'analytics',    icon: BarChart3,     label: 'תובנות'          },
-  { id: 'leads',        icon: Users,         label: 'לידים'           },
-  { id: 'assets',       icon: Image,         label: 'נכסים'           },
-  { id: 'integrations', icon: Plug,          label: 'אינטגרציות'      },
-  { id: 'tutorials',    icon: BookOpen,      label: 'הדרכות'          },
-  { id: 'updates',      icon: Bell,          label: 'עדכונים'         },
-  { id: 'settings',     icon: Settings,      label: 'הגדרות'          },
-  { id: 'admin',        icon: Shield,        label: 'Admin', adminOnly: true },
+  { id: 'dashboard',     icon: Home,             label: 'לוח בקרה'    },
+  { id: 'agents',        icon: Sparkles,         label: 'סוכנים'       },
+  { id: 'chat',          icon: MessageSquare,    label: 'צ\'אט AI'     },
+  { id: 'campaigns',     icon: Megaphone,        label: 'קמפיינים'     },
+  { id: 'research',      icon: Search,           label: 'מחקר שוק'     },
+  { id: 'analytics',     icon: BarChart3,        label: 'תובנות'        },
+  { id: 'leads',         icon: Users,            label: 'לידים'         },
+  { id: 'assets',        icon: Image,            label: 'נכסים'         },
+  { id: 'landing-pages', icon: LayoutTemplate,   label: 'דפי נחיתה'    },
+  { id: 'integrations',  icon: Plug,             label: 'אינטגרציות'    },
+  { id: 'tutorials',     icon: BookOpen,         label: 'הדרכות'        },
+  { id: 'updates',       icon: Bell,             label: 'עדכונים'       },
+  { id: 'support',       icon: HeadphonesIcon,   label: 'תמיכה'         },
+  { id: 'settings',      icon: Settings,         label: 'הגדרות'        },
+  { id: 'admin',         icon: Shield,           label: 'Admin', adminOnly: true },
 ]
 
 export function Sidebar() {

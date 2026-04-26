@@ -2,20 +2,21 @@ import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   Settings as SettingsIcon, Building2, CreditCard,
-  Bell, Shield, Lock, Users, Loader2, CheckCircle2,
+  Bell, Shield, Lock, Users, Loader2, CheckCircle2, Zap,
 } from 'lucide-react'
 import { useAppState, setState } from '../state/store'
 import { useToast } from '../hooks/useToast'
-import { sb } from '../api/client'
+import { api, sb } from '../api/client'
 import { getPlanLabel } from '../state/types'
 
 const TABS = [
-  { id: 'business',      icon: Building2,     label: 'פרופיל עסקי' },
-  { id: 'billing',       icon: CreditCard,    label: 'חיוב ומנוי' },
-  { id: 'notifications', icon: Bell,          label: 'התראות' },
-  { id: 'privacy',       icon: Shield,        label: 'פרטיות' },
-  { id: 'security',      icon: Lock,          label: 'אבטחה' },
-  { id: 'team',          icon: Users,         label: 'צוות' },
+  { id: 'business',      icon: Building2,  label: 'פרופיל עסקי' },
+  { id: 'billing',       icon: CreditCard, label: 'חיוב ומנוי' },
+  { id: 'notifications', icon: Bell,       label: 'התראות' },
+  { id: 'meta',          icon: Zap,        label: 'Meta Pixel' },
+  { id: 'privacy',       icon: Shield,     label: 'פרטיות' },
+  { id: 'security',      icon: Lock,       label: 'אבטחה' },
+  { id: 'team',          icon: Users,      label: 'צוות' },
 ] as const
 type TabId = typeof TABS[number]['id']
 
@@ -55,6 +56,9 @@ export function Settings() {
   })
 
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' })
+  const [metaForm, setMetaForm] = useState({ pixelId: '', accessToken: '' })
+  const [metaStatus, setMetaStatus] = useState<'idle' | 'ok' | 'error'>('idle')
+  const [metaTesting, setMetaTesting] = useState(false)
 
   const field = (k: keyof typeof form) => (
     <input
@@ -347,6 +351,50 @@ export function Settings() {
                       {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                       שנה סיסמה
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Meta Pixel */}
+              {tab === 'meta' && (
+                <div>
+                  <h2 className="text-white font-bold mb-1">Meta Pixel & CAPI</h2>
+                  <p className="text-slate-500 text-xs mb-4">חבר את הפיקסל של פייסבוק לאינסטגרם/מטא לדיווח המרות מדויק</p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-slate-400 text-xs mb-1">Pixel ID</label>
+                      <input value={metaForm.pixelId} onChange={e => setMetaForm(p => ({ ...p, pixelId: e.target.value }))}
+                        placeholder="123456789012345"
+                        className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div>
+                      <label className="block text-slate-400 text-xs mb-1">Access Token (CAPI)</label>
+                      <input value={metaForm.accessToken} onChange={e => setMetaForm(p => ({ ...p, accessToken: e.target.value }))}
+                        placeholder="EAAxxxxxxxxxxxxxxx"
+                        type="password"
+                        className="w-full bg-slate-800/60 border border-white/10 rounded-xl px-3 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          if (!metaForm.pixelId) { toast('נא להזין Pixel ID', 'warning'); return }
+                          setMetaTesting(true)
+                          try {
+                            await api('POST', 'meta-setup', { pixelId: metaForm.pixelId, accessToken: metaForm.accessToken })
+                            setMetaStatus('ok'); toast('Meta Pixel חובר בהצלחה!', 'success')
+                          } catch { setMetaStatus('error'); toast('שגיאה בחיבור', 'error') }
+                          finally { setMetaTesting(false) }
+                        }}
+                        disabled={metaTesting}
+                        className="flex items-center gap-2 bg-gradient-to-l from-blue-600 to-blue-700 text-white font-bold px-5 py-2.5 rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity"
+                      >
+                        {metaTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                        {metaTesting ? 'בודק...' : 'שמור ובדוק חיבור'}
+                      </button>
+                      {metaStatus === 'ok' && <span className="flex items-center gap-1 text-green-400 text-sm"><CheckCircle2 className="w-4 h-4" /> מחובר</span>}
+                      {metaStatus === 'error' && <span className="text-red-400 text-sm">✗ שגיאה</span>}
+                    </div>
+                    <p className="text-slate-600 text-xs">ניתן למצוא את הפרטים ב-Meta Events Manager → הגדרות → Pixel</p>
                   </div>
                 </div>
               )}
