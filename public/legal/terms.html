@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>תנאי שימוש — CampaignBrain</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --brand:#6366f1; --gray-50:#f8fafc; --gray-100:#f1f5f9; --gray-200:#e2e8f0; --gray-500:#64748b; --gray-700:#374151; --gray-800:#1e293b; --gray-900:#0f172a; }
+    *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Inter',-apple-system,sans-serif; background:var(--gray-50); color:var(--gray-800); line-height:1.75; direction:rtl; font-size:16px; }
+    a { color:var(--brand); }
+    .top-bar { background:var(--gray-900); padding:1rem 2rem; display:flex; align-items:center; justify-content:space-between; }
+    .top-bar-logo { color:white; font-weight:800; font-size:1.1rem; text-decoration:none; display:flex; align-items:center; gap:0.5rem; }
+    .back-btn { background:rgba(255,255,255,0.1); color:white; border:1px solid rgba(255,255,255,0.2); border-radius:0.5rem; padding:0.4rem 1rem; font-size:0.875rem; cursor:pointer; text-decoration:none; font-family:inherit; }
+    .back-btn:hover { background:rgba(255,255,255,0.18); }
+    .container { max-width:780px; margin:2.5rem auto; padding:0 1.5rem 4rem; }
+    .doc-header { margin-bottom:2.5rem; padding-bottom:1.5rem; border-bottom:2px solid var(--gray-200); }
+    .doc-header h1 { font-size:1.875rem; font-weight:800; color:var(--gray-900); margin-bottom:0.375rem; }
+    .doc-meta { font-size:0.875rem; color:var(--gray-500); }
+    .toc { background:var(--gray-100); border-radius:0.75rem; padding:1.25rem 1.5rem; margin-bottom:2rem; }
+    .toc h2 { font-size:0.9rem; font-weight:700; color:var(--gray-700); margin-bottom:0.75rem; }
+    .toc ol { padding-right:1.25rem; display:flex; flex-direction:column; gap:0.3rem; }
+    .toc li a { font-size:0.875rem; color:var(--brand); text-decoration:none; }
+    .toc li a:hover { text-decoration:underline; }
+    h2 { font-size:1.25rem; font-weight:700; color:var(--gray-900); margin:2.25rem 0 0.875rem; padding-top:1rem; }
+    h3 { font-size:1rem; font-weight:600; color:var(--gray-800); margin:1.25rem 0 0.5rem; }
+    p { margin-bottom:0.875rem; color:var(--gray-700); }
+    ul,ol { padding-right:1.5rem; margin-bottom:0.875rem; color:var(--gray-700); }
+    li { margin-bottom:0.3rem; }
+    .highlight-box { background:#fefce8; border:1.5px solid #fde68a; border-radius:0.625rem; padding:1rem 1.25rem; margin:1.25rem 0; }
+    .highlight-box p { margin:0; font-size:0.9rem; }
+    .contact-box { background:var(--gray-100); border-radius:0.75rem; padding:1.25rem 1.5rem; margin-top:2rem; }
+    .contact-box h3 { margin-top:0; }
+    footer { text-align:center; margin-top:3rem; padding-top:1.5rem; border-top:1px solid var(--gray-200); font-size:0.8rem; color:var(--gray-500); }
+    footer a { color:var(--gray-500); margin:0 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="top-bar">
+    <a href="/" class="top-bar-logo">🧠 CampaignBrain</a>
+    <a href="/" class="back-btn">← חזרה לאפליקציה</a>
+  </div>
+
+  <div class="container">
+    <div class="doc-header">
+      <h1>תנאי שימוש</h1>
+      <p class="doc-meta">עדכון אחרון: אפריל 2025 &nbsp;|&nbsp; גרסה 1.0</p>
+    </div>
+
+    <div class="toc">
+      <h2>תוכן עניינים</h2>
+      <ol>
+        <li><a href="#about">על השירות</a></li>
+        <li><a href="#ai-disclaimer">שימוש ב-AI — גילוי נאות</a></li>
+        <li><a href="#allowed-use">שימוש מותר ואסור</a></li>
+        <li><a href="#ownership">בעלות על תוכן ותוצרים</a></li>
+        <li><a href="#subscription">מנוי ותשלומים</a></li>
+        <li><a href="#cancellation">ביטול והחזרים</a></li>
+        <li><a href="#availability">זמינות השירות</a></li>
+        <li><a href="#termination">חסימה והפסקת שירות</a></li>
+        <li><a href="#liability">הגבלת אחריות</a></li>
+        <li><a href="#changes">שינויים בתנאים</a></li>
+        <li><a href="#contact">יצירת קשר</a></li>
+      </ol>
+    </div>
+
+    <h2 id="about">1. על השירות</h2>
+    <p>CampaignBrain ("השירות", "המערכת") היא פלטפורמת SaaS המספקת כלים ליצירת תוכן שיווקי, ניתוח קמפיינים, מחקר שוק וניהול לידים, בסיוע בינה מלאכותית (AI). השירות מיועד לבעלי עסקים, משווקים ומנהלי קמפיינים.</p>
+    <p>השירות מופעל על ידי יעקב מרקוס ("אנחנו", "החברה"). על ידי שימוש בשירות אתה מסכים לתנאים אלה.</p>
+
+    <h2 id="ai-disclaimer">2. שימוש ב-AI — גילוי נאות</h2>
+    <div class="highlight-box">
+      <p>⚠️ המערכת משתמשת בטכנולוגיות בינה מלאכותית (AI) ליצירת תוכן. <strong>התוצאות אינן מובטחות ואינן מהוות ייעוץ מקצועי מכל סוג</strong> (שיווקי, משפטי, פיננסי או אחר). השימוש בתוצרי ה-AI הוא באחריות המשתמש בלבד.</p>
+    </div>
+    <p>בפרט:</p>
+    <ul>
+      <li>תוצרי AI עשויים להכיל שגיאות, אי-דיוקים, או מידע מיושן.</li>
+      <li>אין לסמוך על תוצרי AI כתחליף לייעוץ מקצועי.</li>
+      <li>החברה אינה אחראית לנזקים הנובעים משימוש בתוצרי AI.</li>
+      <li>תוכן שיווקי שנוצר בעזרת ה-AI יש לבדוק ולאשר לפני שימוש בפרסום.</li>
+    </ul>
+
+    <h2 id="allowed-use">3. שימוש מותר ואסור</h2>
+    <h3>מותר:</h3>
+    <ul>
+      <li>שימוש בשירות למטרות עסקיות חוקיות</li>
+      <li>יצירת תוכן שיווקי לעסק שלך</li>
+      <li>ניתוח נתוני קמפיינים שלך</li>
+      <li>שיתוף גישה עם חברי צוות (בגבולות התוכנית)</li>
+    </ul>
+    <h3>אסור:</h3>
+    <ul>
+      <li>יצירת תוכן מטעה, שגוי, או הפוגע בצד שלישי</li>
+      <li>שימוש בשירות לפרסום ספאם</li>
+      <li>ניסיון לעקוף מגבלות השירות</li>
+      <li>העברה, מכירה, או השכרה של חשבונך לאחרים</li>
+      <li>הנדסה לאחור של המערכת</li>
+      <li>כל שימוש הנוגד את הדין הישראלי</li>
+    </ul>
+
+    <h2 id="ownership">4. בעלות על תוכן ותוצרים</h2>
+    <p><strong>תוכן שאתה מזין:</strong> נשאר בבעלותך המלאה. אנחנו לא נעשה בו שימוש מסחרי.</p>
+    <p><strong>תוצרי AI שנוצרו:</strong> שייכים לך עם יצירתם, בכפוף לתנאי ספקי ה-AI (Anthropic ו-OpenRouter). לידיעתך — ספקי AI עשויים להשתמש בפניות לשיפור המודל שלהם, בהתאם למדיניותם.</p>
+    <p><strong>קניין רוחני של CampaignBrain:</strong> העיצוב, הקוד, ושם המוצר שייכים לנו בלעדית.</p>
+
+    <h2 id="subscription">5. מנוי ותשלומים</h2>
+    <ul>
+      <li>המחירים מוצגים בשקלים חדשים (₪), כולל מע"מ כנדרש על פי חוק.</li>
+      <li>המנוי מתחדש אוטומטית בתום כל תקופת חיוב, אלא אם ביטלת לפני כן.</li>
+      <li>החיוב מתבצע בתחילת כל תקופה דרך מעבד התשלומים.</li>
+      <li>אנחנו רשאים לשנות מחירים עם הודעה מוקדמת של 30 יום.</li>
+      <li>שינוי תוכנית (שדרוג/הורדה) בתוך תקופת חיוב — יחול מהחיוב הבא.</li>
+    </ul>
+
+    <h2 id="cancellation">6. ביטול והחזרים</h2>
+    <p>ניתן לבטל את המנוי בכל עת דרך הגדרות החשבון. הביטול ייכנס לתוקף בסיום תקופת החיוב הנוכחית.</p>
+    <p><strong>מדיניות החזרים:</strong> בקשות החזר תטופלנה בתוך 7 ימי עסקים. החזר מלא ניתן בתוך 14 יום מהרכישה הראשונה, בתנאי שלא נעשה שימוש אינטנסיבי בשירות (מעל 50 יצירות). לאחר 14 יום — אין החזרים, אך המנוי יישאר פעיל עד סיום התקופה ששולמה.</p>
+
+    <h2 id="availability">7. זמינות השירות</h2>
+    <p>אנו שואפים לזמינות גבוהה, אך <strong>לא מתחייבים על uptime מינימלי</strong>. השירות עשוי להיות מושבת זמנית לצורך תחזוקה, עדכונים, או בשל תקלות טכניות. לא נישא באחריות להפסדים הנובעים מהשבתה.</p>
+
+    <h2 id="termination">8. חסימה והפסקת שירות</h2>
+    <p>אנו רשאים להשעות או לסגור חשבון שעושה שימוש אסור, פוגע בשירות, או פוגע במשתמשים אחרים — ללא הודעה מוקדמת במקרים חמורים. במקרים רגילים תינתן הודעה של 7 ימים.</p>
+
+    <h2 id="liability">9. הגבלת אחריות</h2>
+    <p>השירות ניתן "AS IS" ללא אחריות מכל סוג. במידה המרבית המותרת בחוק:</p>
+    <ul>
+      <li>אין אחריות לנזקים עקיפים, תוצאתיים, או אובדן רווח.</li>
+      <li>האחריות הכוללת שלנו לא תעלה על הסכום ששילמת ב-3 החודשים האחרונים.</li>
+      <li>אין אחריות להפסדים עסקיים הנובעים משימוש בתוצרי AI.</li>
+    </ul>
+
+    <h2 id="changes">10. שינויים בתנאים</h2>
+    <p>אנו עשויים לעדכן תנאים אלה מעת לעת. שינויים מהותיים יפורסמו באפליקציה ובמייל ב-30 יום מראש. המשך שימוש לאחר השינוי = הסכמה לתנאים החדשים.</p>
+
+    <h2 id="contact">11. יצירת קשר</h2>
+    <div class="contact-box">
+      <h3>שאלות משפטיות ופניות כלליות</h3>
+      <p>אימייל: <a href="mailto:yakovymarkus@gmail.com">yakovymarkus@gmail.com</a></p>
+      <p>זמן תגובה: עד 3 ימי עסקים</p>
+    </div>
+
+    <footer>
+      <a href="/legal/privacy.html">מדיניות פרטיות</a>
+      <a href="/legal/accessibility.html">הצהרת נגישות</a>
+      <a href="/">חזרה לאפליקציה</a>
+      <p style="margin-top:0.75rem">© 2025 CampaignBrain. כל הזכויות שמורות.</p>
+    </footer>
+  </div>
+</body>
+</html>

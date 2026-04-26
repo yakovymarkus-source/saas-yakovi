@@ -139,6 +139,21 @@
   status = 200
 
 [[redirects]]
+  from   = "/terms"
+  to     = "/legal/terms.html"
+  status = 200
+
+[[redirects]]
+  from   = "/privacy"
+  to     = "/legal/privacy.html"
+  status = 200
+
+[[redirects]]
+  from   = "/accessibility"
+  to     = "/legal/accessibility.html"
+  status = 200
+
+[[redirects]]
   from   = "/*"
   to     = "/index.html"
   status = 200

@@ -92,6 +92,7 @@ function navigate(page, params = {}) {
   Object.assign(state, params);
   // Update URL hash so page survives refresh
   window.location.hash = page;
+  trackEvent('page_view', { label: page });
   render();
 }
 
@@ -122,6 +123,29 @@ async function api(method, path, body) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+// ── Event Tracking ───────────────────────────────────────────────────────────
+(function _initTrackingSession() {
+  if (!sessionStorage.getItem('_cbsid')) {
+    sessionStorage.setItem('_cbsid', 'app-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+  }
+})();
+
+function trackEvent(eventType, extra = {}) {
+  const session_id = sessionStorage.getItem('_cbsid') || 'unknown';
+  const payload = {
+    session_id,
+    event_type: eventType,
+    url: window.location.href,
+    device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
+    ...extra
+  };
+  fetch('/api/track-event', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).catch(() => {});
 }
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
@@ -208,6 +232,16 @@ function renderAuth() {
             <label class="form-label">סיסמה</label>
             <input class="form-input" type="password" id="auth-password" placeholder="לפחות 8 תווים" required />
           </div>
+          <div id="consent-group" style="display:none;margin:0.75rem 0 0.25rem">
+            <label style="display:flex;align-items:flex-start;gap:0.625rem;cursor:pointer;font-size:0.82rem;color:#374151;line-height:1.5">
+              <input type="checkbox" id="auth-terms" style="margin-top:0.18rem;flex-shrink:0;accent-color:#6366f1" />
+              <span>קראתי ואני מסכים/ה ל<a href="/legal/terms.html" target="_blank" rel="noopener" style="color:#6366f1">תנאי השימוש</a> ול<a href="/legal/privacy.html" target="_blank" rel="noopener" style="color:#6366f1">מדיניות הפרטיות</a> <span style="color:#ef4444">*</span></span>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:0.625rem;cursor:pointer;font-size:0.82rem;color:#374151;line-height:1.5;margin-top:0.5rem">
+              <input type="checkbox" id="auth-marketing" style="margin-top:0.18rem;flex-shrink:0;accent-color:#6366f1" />
+              <span>אני מסכים/ה לקבל עדכונים ומידע שיווקי מ-CampaignBrain (ניתן לביטול בכל עת)</span>
+            </label>
+          </div>
           <div id="auth-error" class="form-error" style="display:none"></div>
           <button type="submit" class="btn btn-primary mt-4" id="auth-submit">כניסה</button>
           <p style="text-align:center;margin-top:0.75rem;font-size:0.85rem">
@@ -236,8 +270,9 @@ function renderAuth() {
     tab.addEventListener('click', () => {
       mode = tab.dataset.tab;
       document.querySelectorAll('.auth-tab').forEach(t => t.classList.toggle('active', t === tab));
-      document.getElementById('name-group').style.display = mode === 'signup' ? '' : 'none';
-      document.getElementById('auth-submit').textContent  = mode === 'signup' ? 'הרשמה' : 'כניסה';
+      document.getElementById('name-group').style.display    = mode === 'signup' ? '' : 'none';
+      document.getElementById('consent-group').style.display = mode === 'signup' ? '' : 'none';
+      document.getElementById('auth-submit').textContent     = mode === 'signup' ? 'הרשמה' : 'כניסה';
     });
   });
 
@@ -269,21 +304,31 @@ function renderAuth() {
 
   document.getElementById('auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const btn   = document.getElementById('auth-submit');
-    const email = document.getElementById('auth-email').value.trim();
-    const pass  = document.getElementById('auth-password').value;
-    const name  = document.getElementById('auth-name')?.value.trim();
-    const errEl = document.getElementById('auth-error');
+    const btn       = document.getElementById('auth-submit');
+    const email     = document.getElementById('auth-email').value.trim();
+    const pass      = document.getElementById('auth-password').value;
+    const name      = document.getElementById('auth-name')?.value.trim();
+    const errEl     = document.getElementById('auth-error');
     btn.disabled = true; btn.textContent = 'טוען...';
     errEl.style.display = 'none';
     try {
       if (mode === 'signup') {
-        const { error } = await sb.auth.signUp({ email, password: pass, options: { data: { name } } });
+        const termsChecked = document.getElementById('auth-terms')?.checked;
+        if (!termsChecked) {
+          errEl.textContent = 'יש לאשר את תנאי השימוש ומדיניות הפרטיות כדי להמשיך.';
+          errEl.style.display = '';
+          btn.disabled = false; btn.textContent = 'הרשמה';
+          return;
+        }
+        const marketingConsent = document.getElementById('auth-marketing')?.checked || false;
+        const { error } = await sb.auth.signUp({ email, password: pass, options: { data: { name, marketing_consent: marketingConsent } } });
         if (error) throw error;
+        trackEvent('signup', { label: 'email', marketing_consent: marketingConsent });
         toast('נרשמת בהצלחה! בדוק את האימייל לאימות.', 'success');
       } else {
         const { error } = await sb.auth.signInWithPassword({ email, password: pass });
         if (error) throw error;
+        trackEvent('login', { label: 'email' });
       }
     } catch (err) {
       errEl.textContent = err.message || 'שגיאה בכניסה';
@@ -355,6 +400,11 @@ function renderShell(content) {
               <div class="plan-pill">${getPlanLabel(sidebarPlan)}</div>
             </div>
             <button onclick="handleLogout()" class="btn btn-sm btn-secondary" aria-label="יציאה מהחשבון" style="font-size:0.75rem;flex-shrink:0">יציאה</button>
+          </div>
+          <div style="margin-top:0.625rem;display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap">
+            <a href="/legal/terms.html" target="_blank" rel="noopener" style="font-size:0.68rem;color:rgba(255,255,255,0.4);text-decoration:none;white-space:nowrap" onmouseover="this.style.color='rgba(255,255,255,0.7)'" onmouseout="this.style.color='rgba(255,255,255,0.4)'">תנאי שימוש</a>
+            <a href="/legal/privacy.html" target="_blank" rel="noopener" style="font-size:0.68rem;color:rgba(255,255,255,0.4);text-decoration:none;white-space:nowrap" onmouseover="this.style.color='rgba(255,255,255,0.7)'" onmouseout="this.style.color='rgba(255,255,255,0.4)'">פרטיות</a>
+            <a href="/legal/accessibility.html" target="_blank" rel="noopener" style="font-size:0.68rem;color:rgba(255,255,255,0.4);text-decoration:none;white-space:nowrap" onmouseover="this.style.color='rgba(255,255,255,0.7)'" onmouseout="this.style.color='rgba(255,255,255,0.4)'">נגישות</a>
           </div>
         </div>
       </aside>
@@ -1783,6 +1833,7 @@ function pollPaymentActivation() {
         .maybeSingle();
       if (sub && sub.payment_status === 'verified') {
         state.subscription = sub;
+        trackEvent('purchase', { label: sub.plan });
         toast('🎉 התשלום אושר! החשבון שלך הופעל.', 'success');
         navigate('dashboard');
         return;
@@ -2037,6 +2088,7 @@ function saveAIWork(type, title, content) {
     const works = loadAISavedWorks();
     works.unshift({ id: Date.now(), type, title, content, created_at: new Date().toISOString() });
     localStorage.setItem(key, JSON.stringify(works.slice(0, 50)));
+    trackEvent('asset_created', { label: type });
     toast('נשמר בהצלחה!', 'success');
   } catch { toast('שגיאה בשמירה', 'error'); }
 }
@@ -2294,6 +2346,10 @@ function _renderAICreationShell(bp, saved) {
     <div class="page-header">
       <h1 class="page-title">✨ יצירה עם AI</h1>
       <p class="page-subtitle">בנה נכסים שיווקיים מנצחים ללא תלות בחיבור אינטגרציות</p>
+    </div>
+    <div role="note" style="background:#fefce8;border:1.5px solid #fde68a;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.82rem;color:#713f12;display:flex;align-items:flex-start;gap:0.5rem">
+      <span style="flex-shrink:0">⚠️</span>
+      <span>תוצרי AI עשויים להכיל שגיאות או אי-דיוקים. יש לבדוק ולאשר כל תוכן לפני שימוש בפרסום בפועל. השימוש הוא באחריות המשתמש בלבד. <a href="/legal/terms.html#ai-disclaimer" target="_blank" rel="noopener" style="color:#92400e;text-decoration:underline">קרא עוד</a></span>
     </div>
     <div class="ai-tabs">
       <button class="ai-tab ${tab==='ad_script'?'active':''}"     onclick="switchAITab('ad_script')">✍️ תסריט מודעה</button>
@@ -2973,6 +3029,20 @@ async function renderSettings(tabOverride) {
         <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">הורד עותק של כל הנתונים שלך (GDPR)</p>
         <button class="btn btn-secondary" style="width:auto" onclick="exportData()">הורד את הנתונים שלי</button>
       </div>
+      <div class="card mb-4" style="margin-bottom:1rem">
+        <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.5rem">📧 הסכמה לדיוור שיווקי</div>
+        <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">שלטו בהעדפות הדואר האלקטרוני השיווקי שלכם. ביטול זה לא ישפיע על אימיילים תפעוליים (חשבוניות, איפוס סיסמה).</p>
+        <div style="display:flex;align-items:center;gap:1rem">
+          <label style="display:flex;align-items:center;gap:0.625rem;cursor:pointer;font-size:0.88rem;color:#374151">
+            <input type="checkbox" id="marketing-consent-toggle"
+              ${state.profile?.marketing_consent ? 'checked' : ''}
+              style="accent-color:#6366f1;width:1rem;height:1rem"
+              onchange="updateMarketingConsent(this.checked)" />
+            <span>אני מסכים/ה לקבל עדכונים, טיפים ומידע שיווקי מ-CampaignBrain</span>
+          </label>
+        </div>
+        ${state.profile?.marketing_consent_at ? `<p style="font-size:0.75rem;color:#94a3b8;margin-top:0.625rem">הסכמה ניתנה: ${new Date(state.profile.marketing_consent_at).toLocaleDateString('he-IL')}</p>` : ''}
+      </div>
       <div class="card" style="border:1px solid #fca5a5;background:#fff5f5">
         <div style="font-weight:700;font-size:0.95rem;color:#991b1b;margin-bottom:0.5rem">⚠️ מחיקת חשבון</div>
         <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">
@@ -3370,6 +3440,26 @@ async function saveProfile(e) {
     _acctCancelChanges();
   } catch (err) {
     toast(err.message || 'שגיאה', 'error');
+  }
+}
+
+async function updateMarketingConsent(value) {
+  try {
+    const update = {
+      marketing_consent: value,
+      marketing_consent_at: value ? new Date().toISOString() : null
+    };
+    const { error } = await sb.from('profiles').update(update).eq('id', state.user.id);
+    if (error) throw error;
+    if (state.profile) {
+      state.profile.marketing_consent = value;
+      state.profile.marketing_consent_at = update.marketing_consent_at;
+    }
+    toast(value ? 'הסכמה לדיוור שיווקי עודכנה ✓' : 'בוטלה ההסכמה לדיוור שיווקי', 'success');
+  } catch (err) {
+    toast(err.message || 'שגיאה בעדכון', 'error');
+    const toggle = document.getElementById('marketing-consent-toggle');
+    if (toggle) toggle.checked = !value;
   }
 }
 
@@ -5440,6 +5530,11 @@ function renderBusinessFromScratch() {
     <div class="page-header">
       <h1 class="page-title">🧠 בניית עסק מאפס</h1>
       <p class="page-subtitle">מערכת סוכנים חכמה שבונה את כל אסטרטגיית השיווק שלך — מחקר, אסטרטגיה, ביצוע ובקרת איכות</p>
+    </div>
+
+    <div role="note" style="background:#fefce8;border:1.5px solid #fde68a;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.82rem;color:#713f12;display:flex;align-items:flex-start;gap:0.5rem">
+      <span style="flex-shrink:0">⚠️</span>
+      <span>תוצרי AI עשויים להכיל שגיאות או אי-דיוקים. יש לבדוק ולאשר כל תוכן לפני שימוש בפרסום בפועל. השימוש הוא באחריות המשתמש בלבד. <a href="/legal/terms.html#ai-disclaimer" target="_blank" rel="noopener" style="color:#92400e;text-decoration:underline">קרא עוד</a></span>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1rem">
@@ -7885,6 +7980,7 @@ async function obComplete(buildNew = false) {
 
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
+window.trackEvent            = trackEvent;
 window.handleLogout          = handleLogout;
 window.startResearch         = startResearch;
 window.startStrategy         = startStrategy;
@@ -7938,6 +8034,7 @@ window.adminSetTicketStatus  = adminSetTicketStatus;
 window.adminSupportTab       = adminSupportTab;
 window.saveProfile           = saveProfile;
 window.exportData            = exportData;
+window.updateMarketingConsent = updateMarketingConsent;
 window.deleteAccount         = deleteAccount;
 window.switchAcctSubTab      = switchAcctSubTab;
 window._acctMarkDirty        = _acctMarkDirty;
@@ -8099,5 +8196,41 @@ function initA11yWidget() {
   });
 }
 
+function initCookieConsent() {
+  const KEY = 'cookie_consent_v1';
+  if (localStorage.getItem(KEY)) return;
+
+  const bar = document.createElement('div');
+  bar.id = 'cookie-bar';
+  bar.setAttribute('role', 'region');
+  bar.setAttribute('aria-label', 'הסכמה לעוגיות');
+  bar.innerHTML = `
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <span style="flex:1;min-width:200px;font-size:0.82rem;color:#e2e8f0;line-height:1.5">
+        🍪 אנחנו משתמשים בעוגיות הכרחיות לצורך הפעלת השירות.
+        <a href="/legal/privacy.html" target="_blank" rel="noopener" style="color:#a5b4fc;text-decoration:underline">מדיניות פרטיות</a>
+      </span>
+      <div style="display:flex;gap:0.5rem;flex-shrink:0">
+        <button id="cookie-accept" style="background:#6366f1;color:white;border:none;border-radius:0.5rem;padding:0.4rem 1.1rem;font-size:0.82rem;font-weight:600;cursor:pointer;font-family:inherit">הבנתי ✓</button>
+      </div>
+    </div>`;
+
+  Object.assign(bar.style, {
+    position: 'fixed', bottom: '0', left: '0', right: '0', zIndex: '9998',
+    background: '#1e293b', borderTop: '1px solid #334155',
+    padding: '0.875rem 1.5rem', direction: 'rtl'
+  });
+
+  document.body.appendChild(bar);
+
+  document.getElementById('cookie-accept').addEventListener('click', () => {
+    localStorage.setItem(KEY, '1');
+    bar.style.transition = 'opacity 0.3s';
+    bar.style.opacity = '0';
+    setTimeout(() => bar.remove(), 300);
+  });
+}
+
+initCookieConsent();
 initA11yWidget();
 boot();
