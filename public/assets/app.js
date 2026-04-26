@@ -46,6 +46,7 @@ const routes = {
   leads:                   renderLeads,
   insights:                renderInsights,
   settings:                renderSettings,
+  tutorials:               renderTutorials,
   support:                 renderSupport,
   admin:                   renderAdmin,
   updates:                 renderUpdates,
@@ -356,6 +357,7 @@ function renderShell(content) {
     { id: 'campaigns',             icon: '🎯', label: 'קמפיינים' },
     { id: 'leads',                 icon: '📥', label: 'לידים' },
     { id: 'insights',              icon: '📈', label: 'תובנות' },
+    { id: 'tutorials',             icon: '📚', label: 'הדרכות' },
     { id: 'settings',              icon: '⚙️', label: 'הגדרות' },
   ];
 
@@ -3355,6 +3357,310 @@ async function renderUpdates() {
           </div>`).join('')}
       </div>`}
   `);
+}
+
+// ── Tutorials page ────────────────────────────────────────────────────────────
+const TUTORIAL_CATEGORIES = [
+  { id: 'all',        label: 'הכל' },
+  { id: 'general',    label: '🚀 התחלה מהירה' },
+  { id: 'ai',         label: '🤖 כלי AI' },
+  { id: 'campaigns',  label: '🎯 קמפיינים' },
+  { id: 'leads',      label: '📥 לידים' },
+  { id: 'insights',   label: '📈 תובנות' },
+  { id: 'billing',    label: '💳 חיוב ומנוי' },
+];
+
+let _tutorialsCache   = null;
+let _tutorialCategory = 'all';
+let _tutorialSearch   = '';
+
+async function renderTutorials() {
+  renderShell(`<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>`);
+
+  try {
+    let url = 'tutorials';
+    if (_tutorialCategory && _tutorialCategory !== 'all') url += `?category=${_tutorialCategory}`;
+    const data = await api('GET', url);
+    _tutorialsCache = Array.isArray(data) ? data : (data?.data || []);
+  } catch (err) {
+    renderShell(`<div class="card" style="text-align:center;padding:3rem;color:#ef4444">שגיאה בטעינת הדרכות: ${escHtml(err.message)}</div>`);
+    return;
+  }
+
+  _buildTutorialsUI();
+}
+
+function _buildTutorialsUI() {
+  const isAdmin = state.profile?.is_admin;
+  const all     = _tutorialsCache || [];
+
+  const filtered = all.filter(t => {
+    if (_tutorialSearch) {
+      const q = _tutorialSearch.toLowerCase();
+      return (t.title||'').toLowerCase().includes(q) || (t.description||'').toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const catBar = TUTORIAL_CATEGORIES.map(c => `
+    <button onclick="_setTutorialCategory('${c.id}')"
+      style="padding:0.45rem 1rem;border-radius:9999px;border:1.5px solid ${_tutorialCategory===c.id?'#6366f1':'#e2e8f0'};
+             background:${_tutorialCategory===c.id?'#6366f1':'white'};
+             color:${_tutorialCategory===c.id?'white':'#374151'};
+             font-size:0.82rem;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit">
+      ${c.label}
+    </button>`).join('');
+
+  const cards = filtered.length === 0
+    ? `<div class="empty-state" style="grid-column:1/-1">
+         <div class="empty-state-icon">📚</div>
+         <h3 class="empty-state-title">אין הדרכות עדיין</h3>
+         <p class="empty-state-desc">${isAdmin ? 'לחץ על "+ הוסף הדרכה" כדי להוסיף את הסרטון הראשון' : 'הדרכות יתווספו בקרוב'}</p>
+       </div>`
+    : filtered.map(t => _tutorialCard(t, isAdmin)).join('');
+
+  renderShell(`
+    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+      <div>
+        <h1 class="page-title">📚 הדרכות</h1>
+        <p class="page-subtitle">סרטוני הדרכה ומדריכים לשימוש במערכת</p>
+      </div>
+      ${isAdmin ? `<button class="btn btn-primary" style="width:auto" onclick="openTutorialModal()">+ הוסף הדרכה</button>` : ''}
+    </div>
+
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;flex-wrap:wrap">
+      <div style="flex:1;min-width:200px;position:relative">
+        <input id="tutorial-search" class="form-input" placeholder="🔍 חפש הדרכות..." value="${escHtml(_tutorialSearch)}"
+          oninput="_tutorialSearch=this.value;_buildTutorialsUI()"
+          style="padding-right:0.875rem" />
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        ${catBar}
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1.25rem">
+      ${cards}
+    </div>
+
+    <div id="tutorial-modal-root"></div>
+  `);
+}
+
+function _ytId(url) {
+  if (!url) return null;
+  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+function _tutorialCard(t, isAdmin) {
+  const ytId  = _ytId(t.youtube_url);
+  const thumb = t.thumbnail_url || (ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : null);
+  const catLabel = (TUTORIAL_CATEGORIES.find(c => c.id === t.category) || {}).label || t.category;
+
+  return `
+  <div style="background:white;border:1.5px solid #e2e8f0;border-radius:1rem;overflow:hidden;transition:box-shadow 0.2s;cursor:pointer"
+       onmouseover="this.style.boxShadow='0 4px 20px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'"
+       onclick="openTutorialViewer('${t.id}')">
+    <div style="position:relative;aspect-ratio:16/9;background:#0f172a;overflow:hidden">
+      ${thumb
+        ? `<img src="${escHtml(thumb)}" alt="${escHtml(t.title)}" style="width:100%;height:100%;object-fit:cover;opacity:0.85" loading="lazy" />`
+        : `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#475569;font-size:2.5rem">📹</div>`
+      }
+      ${ytId ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+        <div style="width:3.5rem;height:3.5rem;background:rgba(99,102,241,0.9);border-radius:50%;display:flex;align-items:center;justify-content:center">
+          <span style="color:white;font-size:1.25rem;padding-right:3px">▶</span>
+        </div>
+      </div>` : ''}
+      <div style="position:absolute;top:0.6rem;right:0.6rem;background:rgba(0,0,0,0.6);color:white;font-size:0.68rem;font-weight:600;padding:0.2rem 0.6rem;border-radius:9999px">
+        ${escHtml(catLabel)}
+      </div>
+      ${isAdmin ? `<div onclick="event.stopPropagation()" style="position:absolute;top:0.6rem;left:0.6rem;display:flex;gap:0.35rem">
+        <button onclick="openTutorialModal('${t.id}')" style="background:rgba(255,255,255,0.9);border:none;border-radius:0.375rem;padding:0.25rem 0.5rem;font-size:0.75rem;cursor:pointer">✏️</button>
+        <button onclick="deleteTutorial('${t.id}')" style="background:rgba(239,68,68,0.9);color:white;border:none;border-radius:0.375rem;padding:0.25rem 0.5rem;font-size:0.75rem;cursor:pointer">🗑️</button>
+      </div>` : ''}
+    </div>
+    <div style="padding:1rem">
+      <div style="font-weight:700;font-size:0.95rem;color:#1e293b;margin-bottom:0.375rem;line-height:1.4">${escHtml(t.title)}</div>
+      ${t.description ? `<div style="font-size:0.82rem;color:#64748b;line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escHtml(t.description)}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+function _setTutorialCategory(cat) {
+  _tutorialCategory = cat;
+  renderTutorials();
+}
+
+function openTutorialViewer(id) {
+  const t = (_tutorialsCache || []).find(x => x.id === id);
+  if (!t) return;
+  const ytId = _ytId(t.youtube_url);
+
+  const overlay = document.createElement('div');
+  overlay.id = 'tutorial-viewer';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;direction:rtl';
+
+  const content = ytId
+    ? `<div style="position:relative;width:100%;aspect-ratio:16/9">
+         <iframe src="https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0" frameborder="0"
+           allow="autoplay;encrypted-media;fullscreen" allowfullscreen
+           style="width:100%;height:100%;border-radius:0.75rem"></iframe>
+       </div>`
+    : (t.thumbnail_url
+        ? `<img src="${escHtml(t.thumbnail_url)}" style="max-width:100%;max-height:70vh;border-radius:0.75rem;object-fit:contain" />`
+        : `<div style="color:white;padding:2rem;text-align:center">אין תוכן וידאו זמין</div>`);
+
+  overlay.innerHTML = `
+    <div style="width:100%;max-width:860px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+        <h2 style="color:white;font-size:1.1rem;font-weight:700;margin:0">${escHtml(t.title)}</h2>
+        <button onclick="document.getElementById('tutorial-viewer').remove()"
+          aria-label="סגור" style="background:rgba(255,255,255,0.15);border:none;color:white;font-size:1.25rem;width:2.25rem;height:2.25rem;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
+      </div>
+      ${content}
+      ${t.description ? `<p style="color:rgba(255,255,255,0.75);font-size:0.88rem;margin-top:0.75rem;line-height:1.6">${escHtml(t.description)}</p>` : ''}
+    </div>`;
+
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.addEventListener('keydown', function esc(e) {
+    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
+  });
+}
+
+function openTutorialModal(editId) {
+  const existing = editId ? (_tutorialsCache || []).find(x => x.id === editId) : null;
+  const isEdit   = !!existing;
+
+  const root = document.getElementById('tutorial-modal-root');
+  if (!root) return;
+
+  root.innerHTML = `
+    <div id="tut-modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;display:flex;align-items:center;justify-content:center;padding:1rem;direction:rtl">
+      <div style="background:white;border-radius:1rem;padding:1.75rem;width:100%;max-width:560px;max-height:90vh;overflow-y:auto">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
+          <h2 style="font-size:1.1rem;font-weight:700;margin:0">${isEdit ? '✏️ עריכת הדרכה' : '+ הוספת הדרכה'}</h2>
+          <button onclick="document.getElementById('tut-modal-overlay').remove()" style="background:none;border:none;font-size:1.25rem;cursor:pointer;color:#64748b">✕</button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">כותרת <span style="color:#ef4444">*</span></label>
+          <input class="form-input" id="tut-title" value="${escHtml(existing?.title||'')}" placeholder="לדוגמה: איך ליצור מודעה ב-AI" />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">קישור יוטיוב</label>
+          <input class="form-input" id="tut-youtube" value="${escHtml(existing?.youtube_url||'')}"
+            placeholder="https://www.youtube.com/watch?v=..." dir="ltr"
+            oninput="_previewYtThumb(this.value)" />
+        </div>
+
+        <div id="tut-thumb-preview" style="margin-bottom:0.75rem;display:${existing?.youtube_url||existing?.thumbnail_url?'block':'none'}">
+          ${existing?.youtube_url ? `<img id="tut-yt-thumb" src="https://img.youtube.com/vi/${_ytId(existing.youtube_url)||''}/hqdefault.jpg" style="width:100%;max-height:160px;object-fit:cover;border-radius:0.5rem" />` : ''}
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">תמונה מותאמת (URL — אופציונלי)</label>
+          <input class="form-input" id="tut-thumbnail" value="${escHtml(existing?.thumbnail_url||'')}"
+            placeholder="https://..." dir="ltr" />
+          <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.3rem">אם לא תמולא, יוצג thumbnail מיוטיוב</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">תיאור</label>
+          <textarea class="form-input" id="tut-desc" rows="3"
+            placeholder="תיאור קצר של ההדרכה...">${escHtml(existing?.description||'')}</textarea>
+        </div>
+
+        <div class="form-grid-2">
+          <div class="form-group">
+            <label class="form-label">קטגוריה</label>
+            <select class="form-input" id="tut-category">
+              ${TUTORIAL_CATEGORIES.filter(c=>c.id!=='all').map(c =>
+                `<option value="${c.id}" ${(existing?.category||'general')===c.id?'selected':''}>${c.label}</option>`
+              ).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">סדר תצוגה</label>
+            <input class="form-input" type="number" id="tut-order" value="${existing?.order_index??0}" min="0" />
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem">
+          <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.88rem">
+            <input type="checkbox" id="tut-published" ${(existing?.published!==false)?'checked':''} style="accent-color:#6366f1" />
+            <span>פורסם (גלוי למשתמשים)</span>
+          </label>
+        </div>
+
+        <div id="tut-modal-error" class="form-error" style="display:none;margin-bottom:1rem"></div>
+
+        <div style="display:flex;gap:0.75rem;justify-content:flex-end">
+          <button class="btn btn-secondary" onclick="document.getElementById('tut-modal-overlay').remove()">ביטול</button>
+          <button class="btn btn-primary" onclick="saveTutorial(${isEdit ? `'${editId}'` : 'null'})">
+            ${isEdit ? 'שמור שינויים' : 'הוסף הדרכה'}
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function _previewYtThumb(url) {
+  const id = _ytId(url);
+  const preview = document.getElementById('tut-thumb-preview');
+  const img     = document.getElementById('tut-yt-thumb');
+  if (!preview) return;
+  if (id) {
+    const src = `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
+    if (img) { img.src = src; }
+    else {
+      preview.innerHTML = `<img id="tut-yt-thumb" src="${src}" style="width:100%;max-height:160px;object-fit:cover;border-radius:0.5rem" />`;
+    }
+    preview.style.display = 'block';
+  } else {
+    preview.style.display = 'none';
+  }
+}
+
+async function saveTutorial(editId) {
+  const title      = document.getElementById('tut-title')?.value.trim();
+  const youtube_url= document.getElementById('tut-youtube')?.value.trim();
+  const thumbnail_url = document.getElementById('tut-thumbnail')?.value.trim();
+  const description= document.getElementById('tut-desc')?.value.trim();
+  const category   = document.getElementById('tut-category')?.value;
+  const order_index= parseInt(document.getElementById('tut-order')?.value||'0',10);
+  const published  = document.getElementById('tut-published')?.checked !== false;
+  const errEl      = document.getElementById('tut-modal-error');
+
+  if (!title) {
+    if (errEl) { errEl.textContent='כותרת היא שדה חובה'; errEl.style.display=''; }
+    return;
+  }
+
+  try {
+    const payload = { title, description, youtube_url, thumbnail_url, category, order_index, published };
+    if (editId) payload.id = editId;
+
+    const result = await api(editId ? 'PUT' : 'POST', 'tutorials', payload);
+    document.getElementById('tut-modal-overlay')?.remove();
+    toast(editId ? 'ההדרכה עודכנה ✓' : 'ההדרכה נוספה ✓', 'success');
+    await renderTutorials();
+  } catch (err) {
+    if (errEl) { errEl.textContent = err.message || 'שגיאה בשמירה'; errEl.style.display=''; }
+  }
+}
+
+async function deleteTutorial(id) {
+  if (!confirm('למחוק הדרכה זו?')) return;
+  try {
+    await api('DELETE', 'tutorials', { id });
+    toast('ההדרכה נמחקה', 'info');
+    await renderTutorials();
+  } catch (err) {
+    toast(err.message || 'שגיאה במחיקה', 'error');
+  }
 }
 
 // ── Support page ──────────────────────────────────────────────────────────────
@@ -8071,6 +8377,13 @@ window.leadsCopy             = leadsCopy;
 window.leadsLoadAll          = leadsLoadAll;
 window.sendSupportMessage    = sendSupportMessage;
 window.renderSupport         = renderSupport;
+window.renderTutorials       = renderTutorials;
+window.openTutorialViewer    = openTutorialViewer;
+window.openTutorialModal     = openTutorialModal;
+window.saveTutorial          = saveTutorial;
+window.deleteTutorial        = deleteTutorial;
+window._setTutorialCategory  = _setTutorialCategory;
+window._previewYtThumb       = _previewYtThumb;
 window.switchSettingsTab      = switchSettingsTab;
 window.switchInsightsTab      = switchInsightsTab;
 window.renderInsights         = renderInsights;

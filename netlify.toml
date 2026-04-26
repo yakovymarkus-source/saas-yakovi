@@ -39,6 +39,9 @@
 [functions."admin-jobs"]
   timeout = 15
 
+[functions."tutorials"]
+  timeout = 10
+
 [functions."admin-system"]
   timeout = 15
 
