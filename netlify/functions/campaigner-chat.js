@@ -84,7 +84,7 @@ function detectIntent(message) {
   for (const { intent, patterns } of INTENT_PATTERNS) {
     if (patterns.test(lower)) return intent;
   }
-  return 'overview';
+  return 'general';
 }
 
 // ── Context builder ───────────────────────────────────────────────────────────
@@ -1286,9 +1286,45 @@ function providerLabel(provider) {
   return { google_ads: 'Google Ads', ga4: 'Google Analytics 4', meta: 'Meta Ads' }[provider] || provider;
 }
 
+// ── General / welcome response (no integration required) ─────────────────────
+function generateGeneralResponse(context) {
+  const { profileName, integrations, businessProfile } = context;
+  const name = profileName || 'שם';
+  const hasInteg = integrations.some(i => i.connection_status === 'active');
+  const hasBP    = !!businessProfile?.business_name;
+
+  const greeting = `היי ${name}! 👋 אני CampaignAI — הסוכן השיווקי שלך.`;
+
+  const capabilities = [
+    '📊 **ניתוח ביצועים** — Google Ads, Meta Ads ו-GA4 בזמן אמת',
+    '💡 **המלצות חכמות** — מה לתקן, מה להגדיל, מה לעצור',
+    '✍️ **כתיבת קופי** — מודעות, כותרות, מיילים ו-CTA',
+    '💰 **ניהול תקציב** — מאיפה להזיז כסף ומאיפה לחתוך',
+    '🔬 **תכנון A/B** — אילו וריאציות לבדוק ואיך לפרש תוצאות',
+    '📈 **כלכלת קמפיין** — CAC, LTV, ROAS ונקודת פריצה לרווח',
+  ].join('\n');
+
+  let next = '';
+  if (!hasBP) {
+    next = '\n\n🚀 **להתחלה:** ספר לי על העסק שלך — מה אתה מוכר, למי ובכמה? אבנה לך בסיס שיווקי מותאם.';
+  } else if (!hasInteg) {
+    next = '\n\n📌 **כדי לנתח ביצועים אמיתיים:** חבר חשבון Google Ads או Meta Ads דרך **אינטגרציות**.\n_בינתיים — שאל אותי כל שאלה שיווקית, אכתוב לך קופי, אנתח אסטרטגיה._';
+  } else {
+    next = '\n\n🔥 **מה עומד על הפרק?** שאל אותי על הקמפיינים שלך ואני אנתח ואמליץ.';
+  }
+
+  return {
+    reply: `${greeting}\n\n**מה אני יכול לעשות עבורך:**\n${capabilities}${next}`,
+    quickActions: hasBP
+      ? ['נתח ביצועים', 'כתוב לי קופי', 'המלץ על הצעד הבא', 'חשב ROAS']
+      : ['ספר לי על העסק שלי', 'כתוב לי מודעה', 'מה זה ROAS?', 'איך בונים קמפיין?'],
+  };
+}
+
 // ── Router ────────────────────────────────────────────────────────────────────
 async function generateResponse(intent, context) {
   switch (intent) {
+    case 'general':       return generateGeneralResponse(context);
     case 'overview':      return generateOverviewResponse(context);
     case 'budget':        return generateBudgetResponse(context);
     case 'top_ads':       return generateTopAdsResponse(context);
@@ -1303,7 +1339,7 @@ async function generateResponse(intent, context) {
     case 'test':          return generateTestResponse(context);
     case 'copy':          return await generateCopyResponse(context);
     case 'landing_page':  return await generateLandingPageResponse(context);
-    default:              return generateOverviewResponse(context);
+    default:              return generateGeneralResponse(context);
   }
 }
 
