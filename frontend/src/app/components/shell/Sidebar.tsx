@@ -1,8 +1,8 @@
 import { motion } from 'motion/react'
 import {
   Home, Sparkles, MessageSquare, BarChart3,
-  Users, Image, BookOpen, Settings, Shield, Plug,
-  Megaphone, HeadphonesIcon, UserCircle,
+  Users, Image, Settings, Shield, Plug,
+  Megaphone, LifeBuoy, UserCircle,
 } from 'lucide-react'
 import { useAppState, setState } from '../../state/store'
 import { useAuth } from '../../hooks/useAuth'
@@ -16,18 +16,17 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'dashboard',     icon: Home,           label: 'לוח בקרה'   },
-  { id: 'agents',        icon: Sparkles,       label: 'סוכנים'      },
-  { id: 'chat',          icon: MessageSquare,  label: 'צ\'אט AI'    },
-  { id: 'campaigns',     icon: Megaphone,      label: 'קמפיינים'    },
-  { id: 'analytics',     icon: BarChart3,      label: 'תובנות'       },
-  { id: 'leads',         icon: Users,          label: 'לידים'        },
-  { id: 'assets',        icon: Image,          label: 'נכסים'        },
-  { id: 'integrations',  icon: Plug,           label: 'אינטגרציות'   },
-  { id: 'tutorials',     icon: BookOpen,       label: 'הדרכות'       },
-  { id: 'support',       icon: HeadphonesIcon, label: 'תמיכה'        },
-  { id: 'settings',      icon: Settings,       label: 'הגדרות'       },
-  { id: 'admin',         icon: Shield,         label: 'Admin', adminOnly: true },
+  { id: 'dashboard',   icon: Home,          label: 'לוח בקרה'  },
+  { id: 'agents',      icon: Sparkles,      label: 'סוכנים'     },
+  { id: 'chat',        icon: MessageSquare, label: 'צ\'אט AI'   },
+  { id: 'campaigns',   icon: Megaphone,     label: 'קמפיינים'   },
+  { id: 'analytics',   icon: BarChart3,     label: 'תובנות'      },
+  { id: 'leads',       icon: Users,         label: 'לידים'       },
+  { id: 'assets',      icon: Image,         label: 'נכסים'       },
+  { id: 'integrations',icon: Plug,          label: 'אינטגרציות'  },
+  { id: 'help-center', icon: LifeBuoy,      label: 'מרכז עזרה'  },
+  { id: 'settings',    icon: Settings,      label: 'הגדרות'      },
+  { id: 'admin',       icon: Shield,        label: 'Admin', adminOnly: true },
 ]
 
 export function Sidebar() {
@@ -46,9 +45,14 @@ export function Sidebar() {
   return (
     <div className="w-20 bg-gradient-to-b from-slate-900 via-purple-900 to-indigo-900 flex flex-col items-center py-6 gap-2 shadow-2xl flex-shrink-0 h-screen sticky top-0 overflow-y-auto">
       {/* Logo */}
-      <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center mb-4 shadow-lg">
+      <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center mb-2 shadow-lg">
         <Sparkles className="w-5 h-5 text-white" />
       </div>
+
+      {/* Notification Bell — top of nav */}
+      <NotificationBell />
+
+      <div className="w-10 h-px bg-white/10 my-1" />
 
       {visible.map(item => {
         const Icon = item.icon
@@ -77,9 +81,6 @@ export function Sidebar() {
           </motion.button>
         )
       })}
-
-      {/* Notification Bell */}
-      <NotificationBell />
 
       {/* Avatar + Sign out */}
       <div className="mt-auto flex flex-col items-center gap-2">

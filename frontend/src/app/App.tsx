@@ -20,8 +20,7 @@ const Leads         = lazy(() => import('./pages/Leads').then(m => ({ default: m
 const Assets        = lazy(() => import('./pages/Assets').then(m => ({ default: m.Assets })))
 const Integrations  = lazy(() => import('./pages/Integrations').then(m => ({ default: m.Integrations })))
 const Settings      = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
-const Support       = lazy(() => import('./pages/Support').then(m => ({ default: m.Support })))
-const Tutorials     = lazy(() => import('./pages/Tutorials').then(m => ({ default: m.Tutorials })))
+const HelpCenter    = lazy(() => import('./pages/HelpCenter').then(m => ({ default: m.HelpCenter })))
 const Updates       = lazy(() => import('./pages/Updates').then(m => ({ default: m.Updates })))
 
 function PageFallback() {
@@ -86,8 +85,7 @@ function AppShell() {
               {page === 'assets'        && <Assets />}
               {page === 'integrations'  && <Integrations />}
               {page === 'settings'      && <Settings />}
-              {page === 'support'       && <Support />}
-              {page === 'tutorials'     && <Tutorials />}
+              {page === 'help-center'   && <HelpCenter />}
               {page === 'updates'       && <Updates />}
             </Suspense>
           </motion.div>
