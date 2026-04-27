@@ -29,7 +29,7 @@ function buildSystemPrompt({ userName, plan, genderPreference, goals, personalNo
     : '';
 
   const recentBlock = recentSessions?.length
-    ? `סיכום שיחות אחרונות:\n${recentSessions.map(s => `[${s.session_date}]: ${s.summary || 'שיחה ללא סיכום'}`).join('\n')}`
+    ? `📅 זיכרון שיחות קודמות (${recentSessions.length} סשנים אחרונים):\n${recentSessions.map(s => `[${s.session_date}]: ${s.summary}`).join('\n\n')}`
     : '';
 
   const timingLine = hasInteractedToday
@@ -77,6 +77,14 @@ ${recentBlock}
 - ${timingLine}
 - יוזם פניות עצמאיות: אינאקטיביות / תקיעה / הצלחה / יעד שלא מתקדם.
 ${onboardingLine}
+
+🧠 זיכרון פעיל — חובה
+אתה חייב להפעיל save_user_data באופן יזום במהלך השיחה:
+- ברגע שהמשתמש מזכיר יעד, חלום, תוכנית, כאב עסקי → שמור goals
+- ברגע שהמשתמש מספר פרט אישי (משפחה, מגורים, מקצוע, תחביב) → שמור personal_note
+- ברגע שהמשתמש מדווח על הצלחה, תוצאה, הישג → שמור success
+- ברגע שאתה מזהה דפוס תקשורת (מעדיף תשובות קצרות, רגיש לטון, שואל הרבה) → שמור communication_hint
+- מידע שלא נשמר עכשיו — יימחק בסוף השיחה. שמור בזמן אמת.
 
 🧠 קבלת החלטות
 אם המשתמש מתעצל: "תקשיב ${name}, אני שם לב שאנחנו נמרחים ומאבדים כיוון. אם אנחנו רוצים תוצאה — חייבים לחזור לפוקוס. בוא נתקדם."

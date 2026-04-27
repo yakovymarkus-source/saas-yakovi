@@ -167,6 +167,9 @@ exports.handler = async (event, context) => {
     // ── Bootstrap memory record if new user ──────────────────────────────────
     await mem.ensureMemory(sb, user.id);
 
+    // ── Summarise yesterday lazily (fire-and-forget, non-blocking) ───────────
+    mem.summarizeYesterdaySession(sb, user.id).catch(() => {});
+
     // ── Load full context ─────────────────────────────────────────────────────
     const ctx = await mem.loadContext(sb, user.id);
 
