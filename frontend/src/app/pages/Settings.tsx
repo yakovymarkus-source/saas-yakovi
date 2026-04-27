@@ -123,8 +123,20 @@ export function Settings() {
       const cacheBusted = `${publicUrl}?t=${Date.now()}`
       setAvatarPreview(cacheBusted)
       setProfileForm(p => ({ ...p, avatarUrl: cacheBusted }))
-      toast('תמונה הועלתה', 'success')
-    } catch {
+
+      // Auto-save avatar URL to profile immediately
+      const updated = await api<{ name: string | null; avatar_url: string | null }>(
+        'PUT', 'account-profile',
+        { avatarUrl: cacheBusted }
+      )
+      setState(dispatch, {
+        profile: state.profile
+          ? { ...state.profile, avatar_url: updated.avatar_url ?? cacheBusted }
+          : state.profile,
+      })
+      toast('תמונת פרופיל עודכנה', 'success')
+    } catch (err: unknown) {
+      console.error('[handleAvatarFile]', err)
       toast('שגיאה בהעלאת התמונה', 'error')
     } finally {
       setUploadingAvatar(false)
@@ -141,14 +153,15 @@ export function Settings() {
       )
       setState(dispatch, {
         profile: state.profile
-          ? { ...state.profile, name: updated.name, avatar_url: profileForm.avatarUrl || null }
+          ? { ...state.profile, name: updated.name ?? profileForm.name, avatar_url: updated.avatar_url ?? profileForm.avatarUrl || null }
           : state.profile,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
       toast('פרופיל נשמר', 'success')
-    } catch {
-      toast('שגיאה בשמירה', 'error')
+    } catch (err: unknown) {
+      console.error('[saveProfile]', err)
+      toast('שגיאה בשמירה — פרטים בקונסול', 'error')
     } finally {
       setSaving(false)
     }
