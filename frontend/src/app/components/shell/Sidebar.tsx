@@ -6,7 +6,6 @@ import {
 } from 'lucide-react'
 import { useAppState, setState } from '../../state/store'
 import { useAuth } from '../../hooks/useAuth'
-import { NotificationBell } from '../ui/NotificationPanel'
 
 interface NavItem {
   id: string
@@ -48,11 +47,6 @@ export function Sidebar() {
       <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center mb-2 shadow-lg">
         <Sparkles className="w-5 h-5 text-white" />
       </div>
-
-      {/* Notification Bell — top of nav */}
-      <NotificationBell />
-
-      <div className="w-10 h-px bg-white/10 my-1" />
 
       {visible.map(item => {
         const Icon = item.icon

@@ -5,6 +5,7 @@ import { ToastProvider } from './hooks/useToast'
 import { UpgradeModalProvider } from './hooks/useUpgradeModal'
 import { useAuth } from './hooks/useAuth'
 import { Sidebar } from './components/shell/Sidebar'
+import { TopBar } from './components/shell/TopBar'
 import { Auth } from './pages/Auth'
 import { ResetPassword } from './pages/ResetPassword'
 import { Dashboard } from './pages/Dashboard'
@@ -65,6 +66,7 @@ function AppShell() {
     <div className={`flex h-screen overflow-hidden ${isLight ? 'bg-slate-200' : 'bg-slate-950'}`} dir="rtl">
       <Sidebar />
       <main className={`flex-1 overflow-y-auto ${mainBg}`}>
+        <TopBar />
         <AnimatePresence mode="wait">
           <motion.div
             key={page}
