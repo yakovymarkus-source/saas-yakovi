@@ -55,11 +55,11 @@ async function ensureTodayConversation(sb, userId) {
   return created;
 }
 
-async function appendTurn(sb, convId, existing, userMsg, assistantMsg) {
+async function appendTurn(sb, convId, existing, userMsg, assistantMsg, extraMeta = {}) {
   const now = new Date().toISOString();
   const updated = [
     ...existing,
-    { role: 'user',      content: userMsg,      ts: now },
+    { role: 'user',      content: userMsg,      ts: now, ...extraMeta },
     { role: 'assistant', content: assistantMsg, ts: now },
   ].slice(-(MAX_TURNS_IN_CONTEXT * 2));
 

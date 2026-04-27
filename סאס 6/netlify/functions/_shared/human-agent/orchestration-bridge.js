@@ -31,15 +31,17 @@ const TOOLS = [
   },
   {
     name: 'save_user_data',
-    description: 'שמור מידע על המשתמש בזיכרון הסוכן: יעדים עסקיים, פרטים אישיים, תאריך לידה, העדפת מגדר הסוכן. השתמש בזה כשהמשתמש מספר על עצמו או מגדיר יעדים.',
+    description: 'שמור מידע על המשתמש בזיכרון הסוכן: יעדים, פרטים אישיים, תאריך לידה, סגנון תקשורת, הצלחות. השתמש בזה כשהמשתמש מספר על עצמו, מגדיר יעדים, מספר על הצלחה, או כשאתה מזהה דפוס תקשורת.',
     input_schema: {
       type: 'object',
       properties: {
-        goals:             { type: 'array',  items: { type: 'string' }, description: 'יעדים עסקיים מעודכנים (רשימה מלאה)' },
-        personal_note:     { type: 'string', description: 'פרט אישי שהמשתמש שיתף' },
-        birth_date:        { type: 'string', description: 'תאריך לידה בפורמט YYYY-MM-DD' },
-        gender_preference: { type: 'string', enum: ['male', 'female'], description: 'העדפת מגדר הסוכן' },
-        onboarding_done:   { type: 'boolean', description: 'סמן true כשהמשתמש השלים את שאלות הכניסה' },
+        goals:              { type: 'array',  items: { type: 'string' }, description: 'יעדים עסקיים מעודכנים (רשימה מלאה)' },
+        personal_note:      { type: 'string', description: 'פרט אישי שהמשתמש שיתף — משפחה, תחביב, מצב, ערך מרכזי' },
+        birth_date:         { type: 'string', description: 'תאריך לידה בפורמט YYYY-MM-DD' },
+        gender_preference:  { type: 'string', enum: ['male', 'female'], description: 'העדפת מגדר הסוכן' },
+        onboarding_done:    { type: 'boolean', description: 'סמן true כשהמשתמש השלים את שאלות הכניסה' },
+        success:            { type: 'string', description: 'הצלחה או הישג שהמשתמש דיווח עליו — שמור כדי לחגוג ולחזור אליו' },
+        communication_hint: { type: 'string', description: 'תובנה על סגנון התקשורת המועדף של המשתמש (למשל: מעדיף תשובות קצרות, רגיש לביקורת, אוהב הומור)' },
       },
     },
   },
@@ -135,20 +137,36 @@ async function runAgent({ agent, task }, { appUrl, internalSecret, userId }) {
 async function saveUserData(input, { sb, userId }) {
   const patch = {};
 
-  if (input.goals)             patch.business_goals     = input.goals;
-  if (input.birth_date)        patch.birth_date          = input.birth_date;
-  if (input.gender_preference) patch.gender_preference   = input.gender_preference;
+  if (input.goals)             patch.business_goals      = input.goals;
+  if (input.birth_date)        patch.birth_date           = input.birth_date;
+  if (input.gender_preference) patch.gender_preference    = input.gender_preference;
   if (input.onboarding_done)   patch.onboarding_completed = true;
 
-  if (Object.keys(patch).length) {
-    await sb.from('human_agent_memory').update(patch).eq('user_id', userId);
-  }
+  const needsArrayRead = input.personal_note || input.success || input.communication_hint;
 
-  if (input.personal_note) {
-    // Append note to array
-    const { data } = await sb.from('human_agent_memory').select('personal_notes').eq('user_id', userId).maybeSingle();
-    const notes = [...(data?.personal_notes || []), input.personal_note];
-    await sb.from('human_agent_memory').update({ personal_notes: notes }).eq('user_id', userId);
+  if (Object.keys(patch).length || needsArrayRead) {
+    const { data } = await sb
+      .from('human_agent_memory')
+      .select('personal_notes, successes, communication_style')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (input.personal_note) {
+      patch.personal_notes = [...(data?.personal_notes || []), input.personal_note];
+    }
+    if (input.success) {
+      patch.successes = [
+        ...(data?.successes || []),
+        { text: input.success, ts: new Date().toISOString() },
+      ];
+    }
+    if (input.communication_hint) {
+      const existing = data?.communication_style || {};
+      const hints = Array.isArray(existing.hints) ? existing.hints : [];
+      patch.communication_style = { ...existing, hints: [...hints, input.communication_hint] };
+    }
+
+    await sb.from('human_agent_memory').update(patch).eq('user_id', userId);
   }
 
   return { ok: true, message: 'המידע נשמר בזיכרון' };

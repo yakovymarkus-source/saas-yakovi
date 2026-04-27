@@ -89,6 +89,9 @@
 [functions."scheduled-human-agent"]
   schedule = "0 * * * *"
 
+[functions."human-agent-whatsapp-webhook"]
+  timeout = 26
+
 # Raw body for Stripe webhook
 [functions."billing-webhook"]
   included_files = []

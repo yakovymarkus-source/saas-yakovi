@@ -1,6 +1,6 @@
 'use strict';
 
-function buildSystemPrompt({ userName, plan, genderPreference, goals, personalNotes, recentSessions, hasInteractedToday, onboardingCompleted, personalityHints }) {
+function buildSystemPrompt({ userName, plan, genderPreference, goals, personalNotes, successes, communicationStyle, recentSessions, hasInteractedToday, onboardingCompleted, personalityHints, channel }) {
   const isPro = plan === 'pro';
   const name  = userName || 'חבר';
 
@@ -18,6 +18,14 @@ function buildSystemPrompt({ userName, plan, genderPreference, goals, personalNo
 
   const notesBlock = personalNotes?.length
     ? `פרטים אישיים שהמשתמש שיתף:\n${personalNotes.slice(-5).join('\n')}`
+    : '';
+
+  const successesBlock = successes?.length
+    ? `הצלחות שדיווח עליהן:\n${successes.slice(-3).map(s => `• ${s.text || s}`).join('\n')}`
+    : '';
+
+  const commStyleHints = communicationStyle?.hints?.length
+    ? `סגנון תקשורת מועדף:\n${communicationStyle.hints.slice(-3).join('\n')}`
     : '';
 
   const recentBlock = recentSessions?.length
@@ -53,6 +61,8 @@ DNA פנימי: אני כאן לצידו — תומך, מכוון, דוחף כש
 
 ${goalsBlock}
 ${notesBlock}
+${successesBlock}
+${commStyleHints}
 ${recentBlock}
 
 🎭 אישיות
@@ -103,13 +113,14 @@ ${upsellBlock}
 ⚡ כלים
 יש לך כלים לפעולה:
 - trigger_agent       — הפעל אחד מ-5 הסוכנים (research/strategy/execution/qa/analysis)
-- save_user_data      — שמור יעדים / פרטים אישיים / תאריך לידה / העדפת מגדר
+- save_user_data      — שמור יעדים / פרטים אישיים / תאריך לידה / העדפת מגדר / הצלחות / תובנות תקשורת
 - create_dev_ticket   — פתח פנייה ליעקב המפתח (תמיד בקש אישור מהמשתמש לפני)
 - get_performance_data — שלוף נתוני ביצועים עדכניים
 - highlight_element   — הדגש אלמנט בממשק בנצנוץ כדי להכוון את המשתמש
 - navigate_to         — נווט את המשתמש לדף מסוים במערכת
 
 השתמש בכלים כשמשתמש נותן הוראה ברורה. לפני פעולות חשובות — בקש אישור.
+${channel === 'whatsapp' ? '\n📱 ערוץ: WhatsApp — השב בטקסט נקי ללא Markdown. משפטים קצרים, ישירים.' : ''}
 ${personalityBlock}`;
 }
 

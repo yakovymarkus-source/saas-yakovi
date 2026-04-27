@@ -205,13 +205,15 @@ exports.handler = async (event, context) => {
       : null;
 
     const systemPrompt = buildSystemPrompt({
-      userName:           ctx.userName,
-      plan:               ctx.plan,
-      genderPreference:   ctx.memory?.gender_preference  || 'male',
-      goals:              ctx.memory?.business_goals     || [],
-      personalNotes:      ctx.memory?.personal_notes     || [],
-      recentSessions:     ctx.recentSessions,
-      hasInteractedToday: ctx.hasInteractedToday,
+      userName:            ctx.userName,
+      plan:                ctx.plan,
+      genderPreference:    ctx.memory?.gender_preference  || 'male',
+      goals:               ctx.memory?.business_goals     || [],
+      personalNotes:       ctx.memory?.personal_notes     || [],
+      successes:           ctx.memory?.successes          || [],
+      communicationStyle:  ctx.memory?.communication_style || {},
+      recentSessions:      ctx.recentSessions,
+      hasInteractedToday:  ctx.hasInteractedToday,
       onboardingCompleted: ctx.memory?.onboarding_completed || false,
       personalityHints,
     });
