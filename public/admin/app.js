@@ -61,6 +61,7 @@ function shell(content) {
     { id: 'onboarding-mgmt',  icon: '🎯', label: 'Onboarding' },
     { id: 'metrics-mgmt',     icon: '📈', label: 'Metrics' },
     { id: 'billing',          icon: '💰', label: 'Billing' },
+    { id: 'qa',               icon: '🔬',  label: 'QA' },
     { id: 'system',           icon: '🖥️',  label: 'System' },
     { id: 'audit',            icon: '📋', label: 'Audit Log' },
     { id: 'updates-mgmt',     icon: '📣', label: 'Updates' },
@@ -844,6 +845,7 @@ async function render() {
     'onboarding-mgmt':     renderAdminOnboarding,
     'metrics-mgmt':        renderAdminMetrics,
     billing:               renderBilling,
+    qa:                    renderQA,
     system:                renderSystem,
     audit:                 renderAudit,
     'updates-mgmt':        renderAdminUpdates,
@@ -852,6 +854,126 @@ async function render() {
   const fn = routes[state.page] || renderOverview;
   await fn().catch(e => { if (e.message !== 'forbidden') console.error(e); });
 }
+
+// ── QA Dashboard ─────────────────────────────────────────────────────────────
+async function renderQA() {
+  setContent('<div class="loading-screen"><div class="spinner"></div></div>');
+  const d = await api('GET', 'admin-qa');
+
+  const scoreColor = s => s >= 90 ? 'green' : s >= 70 ? 'orange' : 'red';
+  const latencyColor = ms => ms < 3000 ? 'green' : ms < 10000 ? 'orange' : 'red';
+  const fmtMs = ms => ms >= 1000 ? `${(ms/1000).toFixed(1)}s` : `${ms}ms`;
+  const fmtTime = t => new Date(t).toLocaleString('he-IL');
+
+  const GOLDEN_PATHS = [
+    { id: 1, label: 'הרשמה וכניסה — משתמש חדש מגיע למסך ראשי', area: 'Auth' },
+    { id: 2, label: 'הפעלת סוכן — שליחת בקשה מורכבת וזיהוי משימה', area: 'Agents' },
+    { id: 3, label: 'מעבר בין סוכנים — מידע עובר בין סוכנים', area: 'Orchestration' },
+    { id: 4, label: 'שמירת נתונים — תוצר נשמר ב-Supabase ומוצג', area: 'Data' },
+    { id: 5, label: 'בדיקת קצה — בקשה לא ברורה → בקשת פרטים', area: 'Robustness' },
+  ];
+
+  setContent(`
+    <div class="page-header"><h1 class="page-title">🔬 QA Dashboard</h1></div>
+
+    <!-- Summary KPIs -->
+    <div class="kpi-row" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem">
+      <div class="kpi-card ${scoreColor(d.summary.successRate1h)}">
+        <div class="kpi-label">Success Rate (1h)</div>
+        <div class="kpi-value">${d.summary.successRate1h}%</div>
+        <div class="kpi-sub">${d.summary.error1h} errors / ${d.summary.total1h} total</div>
+      </div>
+      <div class="kpi-card ${scoreColor(d.summary.successRate24h)}">
+        <div class="kpi-label">Success Rate (24h)</div>
+        <div class="kpi-value">${d.summary.successRate24h}%</div>
+        <div class="kpi-sub">${d.summary.error24h} errors / ${d.summary.total24h} total</div>
+      </div>
+      <div class="kpi-card ${latencyColor(d.summary.avgLatencyMs)}">
+        <div class="kpi-label">Avg Latency (1h)</div>
+        <div class="kpi-value">${fmtMs(d.summary.avgLatencyMs)}</div>
+        <div class="kpi-sub">p95: ${fmtMs(d.summary.p95LatencyMs)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Logs (24h)</div>
+        <div class="kpi-value">${d.summary.total24h}</div>
+        <div class="kpi-sub">sampled (10% success, 100% errors)</div>
+      </div>
+    </div>
+
+    <!-- Agent Health + Top Error Agents -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem">
+      <div class="card">
+        <div class="card-title">Agent Health (24h)</div>
+        ${d.agentHealth.length === 0 ? '<p style="color:#666;font-size:.85rem">No data yet</p>' : `
+        <table><thead><tr><th>Agent</th><th>Total</th><th>Errors</th><th>Success</th></tr></thead>
+        <tbody>${d.agentHealth.map(a => `
+          <tr>
+            <td><b>${a.name}</b></td>
+            <td>${a.total}</td>
+            <td>${a.errors}</td>
+            <td style="color:${scoreColor(a.successRate)};font-weight:600">${a.successRate}%</td>
+          </tr>`).join('')}
+        </tbody></table>`}
+      </div>
+      <div class="card">
+        <div class="card-title">Top Error Agents (7 days)</div>
+        ${d.topErrorAgents.length === 0 ? '<p style="color:#666;font-size:.85rem">No errors recorded</p>' : `
+        <table><thead><tr><th>Agent</th><th>Errors</th></tr></thead>
+        <tbody>${d.topErrorAgents.map(a => `
+          <tr><td>${a.name}</td><td style="color:#ef4444;font-weight:600">${a.count}</td></tr>`).join('')}
+        </tbody></table>`}
+      </div>
+    </div>
+
+    <!-- Recent Failures -->
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="card-title">Recent Failures (24h)</div>
+      ${d.recentFailures.length === 0
+        ? '<p style="color:#10b981;font-size:.85rem">✅ No failures in the last 24h</p>'
+        : `<div class="table-wrap"><table>
+          <thead><tr><th>Time</th><th>Agent</th><th>Type</th><th>Status</th><th>Latency</th><th>Error</th></tr></thead>
+          <tbody>${d.recentFailures.map(f => `
+            <tr>
+              <td style="white-space:nowrap;font-size:.8rem">${fmtTime(f.time)}</td>
+              <td><b>${f.agent}</b></td>
+              <td><span style="font-size:.75rem;opacity:.7">${f.type}</span></td>
+              <td><span style="color:${f.status==='TECH_ERROR'?'#ef4444':'#f59e0b'};font-weight:600;font-size:.8rem">${f.status}</span></td>
+              <td>${f.latency ? fmtMs(f.latency) : '—'}</td>
+              <td style="font-size:.78rem;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(f.error||'').replace(/"/g,"'")}">
+                ${f.error || '—'}
+              </td>
+            </tr>`).join('')}
+          </tbody></table></div>`}
+    </div>
+
+    <!-- Golden Paths Checklist -->
+    <div class="card">
+      <div class="card-title">✅ נתיבי זהב — Checklist ידני לפני Deploy</div>
+      <p style="color:#9ca3af;font-size:.82rem;margin-bottom:1rem">יש לבדוק ידנית לפני כל שחרור גרסה</p>
+      <table>
+        <thead><tr><th>#</th><th>תרחיש</th><th>אזור</th><th>סטטוס</th></tr></thead>
+        <tbody>
+          ${GOLDEN_PATHS.map(p => `
+            <tr>
+              <td>${p.id}</td>
+              <td>${p.label}</td>
+              <td><span style="font-size:.75rem;padding:2px 6px;border-radius:4px;background:#1e293b">${p.area}</span></td>
+              <td>
+                <select onchange="markGolden(${p.id}, this.value)"
+                  style="background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:2px 6px;font-size:.8rem">
+                  ${['—','✅ עבר','❌ נכשל','⚠️ חלקי'].map(v =>
+                    `<option value="${v}" ${(localStorage.getItem('golden_'+p.id)||'—')===v?'selected':''}>${v}</option>`
+                  ).join('')}
+                </select>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `);
+}
+
+window.markGolden = (id, val) => localStorage.setItem('golden_' + id, val);
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 async function handleLogout() {
