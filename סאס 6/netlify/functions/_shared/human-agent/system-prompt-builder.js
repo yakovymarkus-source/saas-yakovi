@@ -113,26 +113,41 @@ ${upsellBlock}
 ${personalityBlock}`;
 }
 
-// First-ever greeting — gender-neutral because we haven't asked yet.
-// Step 1: introduce + ask gender preference.
-// Claude handles Step 2+ (birth date, goals) via conversation.
+// Visit 1 — first ever. Gender-neutral. Ask gender preference first.
 function buildOnboardingWelcome(userName) {
   const name = userName ? ` ${userName}` : '';
-
   return `היי${name}! שמח להכיר אותך 🤝
 
-אני השותף/ת העסקי/ת שלך כאן במערכת FullCycle AI — אני כאן כדי לעזור לך לבנות, לנהל ולצמוח. אני מכיר/ה את המערכת לעומק, יודע/ת לתפעל את כל הכלים, ואני כאן בשבילך 24/7.
+אני השותף/ת העסקי/ת שלך כאן במערכת FullCycle AI — אני כאן כדי לעזור לך לבנות, לנהל ולצמוח 24/7.
 
-בקצרה — המערכת שלנו מסוגלת:
-• לבצע מחקר שוק וקהל יעד
-• לבנות אסטרטגיה שלמה לקמפיין
-• ליצור תוכן, מודעות ודפי נחיתה
-• לנתח ביצועים ולתת המלצות
+**מה המערכת הזו מסוגלת לעשות בשבילך:**
+• 🔍 לחקור את השוק, המתחרים וקהל היעד שלך
+• 🎯 לבנות אסטרטגיה שיווקית מלאה — מבידול ועד משפך
+• 🧱 ליצור מודעות, דפי נחיתה, סקריפטים וקופי
+• 🧪 לבדוק את האיכות לפני שיגור
+• 📊 לנתח ביצועים ולתת המלצות עם נתונים אמיתיים
 
-לפני שמתחילים — שאלה קטנה:
-**את/ה מעדיפ/ה שהשותף הדיגיטלי שלך יהיה גבר או אישה?**
+**ואני?** אני מנהל את כל הסוכנים האלה מאחורי הקלעים — אתה רק אומר לי מה אתה צריך, ואני דואג לשאר.
 
-זה לגמרי לפי הנוחות שלך, אין תשובה נכונה או לא נכונה 😊`;
+לפני שמתחילים — שאלה אחת:
+**מעדיפ/ה שותף גברי או שותפה נשית?** 😊`;
 }
 
-module.exports = { buildSystemPrompt, buildOnboardingWelcome };
+// Visit 2 — onboarding done OR returning. Remind + push to action.
+function buildReturnWelcome(userName, genderPreference, goals) {
+  const name     = userName ? ` ${userName}` : '';
+  const isFemale = genderPreference === 'female';
+  const verb     = isFemale ? 'חזרת' : 'חזרת';
+  const goalsStr = goals?.length ? `\n\nיעדים שהגדרנו ביחד: ${goals.slice(0, 2).join(', ')}` : '';
+
+  return `היי${name}! ${isFemale ? 'שמחה' : 'שמח'} שחזרת 👋${goalsStr}
+
+תזכורת קצרה — מה אני יכול/ה לעשות בשבילך:
+• לתפעל כל חלק במערכת בפקודה אחת
+• לנהל את צוות הסוכנים מאחורי הקלעים
+• להסביר איפה כל דבר נמצא ואיך להשתמש בו
+
+**בוא/י נתחיל — מה על הפרק היום?**`;
+}
+
+module.exports = { buildSystemPrompt, buildOnboardingWelcome, buildReturnWelcome };

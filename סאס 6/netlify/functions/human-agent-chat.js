@@ -27,7 +27,7 @@ const { parseJsonBody }                  = require('./_shared/request');
 const { getAdminClient }                 = require('./_shared/supabase');
 const { AppError }                       = require('./_shared/errors');
 const mem                                = require('./_shared/human-agent/memory');
-const { buildSystemPrompt, buildOnboardingWelcome } = require('./_shared/human-agent/system-prompt-builder');
+const { buildSystemPrompt, buildOnboardingWelcome, buildReturnWelcome } = require('./_shared/human-agent/system-prompt-builder');
 const { getPersonalityHints }            = require('./_shared/human-agent/personality-engine');
 const { TOOLS, executeTool }             = require('./_shared/human-agent/orchestration-bridge');
 const { getEnv }                         = require('./_shared/env');
@@ -133,7 +133,8 @@ exports.handler = async (event, context) => {
 
     // Support trigger:'welcome' from frontend on page load (no user message needed)
     const isWelcomeTrigger = body.trigger === 'welcome';
-    const message = (body.message || '').trim();
+    const visitNumber      = parseInt(body.visit_number || '1', 10);
+    const message          = (body.message || '').trim();
 
     if (!message && !isWelcomeTrigger) {
       throw new AppError({ code: 'BAD_REQUEST', userMessage: 'הודעה ריקה', status: 400 });
@@ -148,13 +149,33 @@ exports.handler = async (event, context) => {
     // ── Load full context ─────────────────────────────────────────────────────
     const ctx = await mem.loadContext(sb, user.id);
 
-    // ── First-ever session OR welcome trigger: return onboarding welcome ──────
-    if (!ctx.memory?.onboarding_completed && !ctx.hasInteractedToday) {
-      const welcome = buildOnboardingWelcome(ctx.userName);
-      const conv    = await mem.ensureTodayConversation(sb, user.id);
-      // Only save a turn if there was an actual user message
-      if (message) await mem.appendTurn(sb, conv.id, [], message, welcome);
-      return ok({ reply: welcome, isOnboarding: true }, reqCtx.requestId);
+    // ── Welcome trigger — first 2 visits get pre-built messages ──────────────
+    if (isWelcomeTrigger) {
+      let welcome;
+      const isFirstVisit = !ctx.memory?.onboarding_completed && !ctx.hasInteractedToday;
+
+      if (isFirstVisit || visitNumber === 1) {
+        // Visit 1: introduce system + ask gender preference
+        welcome = buildOnboardingWelcome(ctx.userName);
+      } else {
+        // Visit 2: returning user — remind what we can do + push to action
+        welcome = buildReturnWelcome(
+          ctx.userName,
+          ctx.memory?.gender_preference || 'male',
+          ctx.memory?.business_goals    || []
+        );
+      }
+
+      const conv = await mem.ensureTodayConversation(sb, user.id);
+      if (!ctx.hasInteractedToday) {
+        await mem.appendTurn(sb, conv.id, [], '(כניסה למערכת)', welcome);
+      }
+      return ok({ reply: welcome, isOnboarding: isFirstVisit }, reqCtx.requestId);
+    }
+
+    // ── Regular message — guard against empty ────────────────────────────────
+    if (!message) {
+      throw new AppError({ code: 'BAD_REQUEST', userMessage: 'הודעה ריקה', status: 400 });
     }
 
     // ── Build system prompt ───────────────────────────────────────────────────

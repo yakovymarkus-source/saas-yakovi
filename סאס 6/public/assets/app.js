@@ -6258,8 +6258,13 @@ async function haFetchWelcome() {
   haState.loading = true;
   haState.thinkingMsg = 'מתחבר...';
   haRenderMessages();
+
+  const userId    = state.user?.id;
+  const visitKey  = userId ? `ha_visits_${userId}` : null;
+  const visitNum  = visitKey ? parseInt(localStorage.getItem(visitKey) || '1') : 1;
+
   try {
-    const res = await api('POST', 'human-agent-chat', { trigger: 'welcome' });
+    const res = await api('POST', 'human-agent-chat', { trigger: 'welcome', visit_number: visitNum });
     if (res.reply) haState.messages.push({ role: 'assistant', content: res.reply });
     if (res.meta?.genderPreference) { haState.genderPref = res.meta.genderPreference; haInjectWidget(); }
   } catch {
@@ -6356,13 +6361,25 @@ async function initHumanAgent(userId) {
   haInjectWidget();
   haInitRealtime(userId);
 
-  // Proactive welcome after page settles
+  // Track visits per user — auto-open chat for first 2 visits
+  const visitKey   = `ha_visits_${userId}`;
+  const visitCount = parseInt(localStorage.getItem(visitKey) || '0') + 1;
+  localStorage.setItem(visitKey, String(visitCount));
+  const isEarlyVisit = visitCount <= 2;
+
   setTimeout(async () => {
     if (!haState.welcomed) {
       haState.welcomed = true;
+
+      // First 2 visits: open the panel immediately so user sees the welcome
+      if (isEarlyVisit) {
+        haState.open = true;
+        document.getElementById('chat-panel')?.classList.add('open');
+      }
+
       await haFetchWelcome();
     }
-  }, 1500);
+  }, 1200);
 }
 
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
