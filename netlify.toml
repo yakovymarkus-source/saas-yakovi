@@ -1,55 +1,9 @@
 [build]
-  command = "cd frontend && npm install && npm run build"
-  publish = "dist"
-
-[dev]
-  command = "npm run dev --prefix frontend"
-  targetPort = 5173
-  port = 8888
-  framework = "#custom"
+  command = "node scripts/inject-env.js"
+  publish = "public"
 
 [build.environment]
   NODE_VERSION = "20"
-
-[functions."campaign-score"]
-  timeout = 15
-
-[functions."share-create"]
-  timeout = 10
-
-[functions."share-view"]
-  timeout = 10
-
-[functions."retention-trigger"]
-  timeout = 50
-  schedule = "0 * * * *"
-
-[functions."track-event"]
-  timeout = 5
-
-[functions."meta-conversion"]
-  timeout = 10
-
-[functions."meta-setup"]
-  timeout = 30
-
-[functions."quick-analyze"]
-  timeout = 10
-
-[functions."team-invite"]
-  timeout = 15
-
-[functions."admin-ai-models"]
-  timeout = 15
-
-[functions."admin-jobs"]
-  timeout = 15
-
-[functions."tutorials"]
-  timeout = 10
-
-[functions."admin-system"]
-  timeout = 15
 
 # Orchestration background function (15 min limit, returns 202 immediately)
 [functions."analyze-campaign-background"]
@@ -132,6 +86,18 @@
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
 
+[functions."human-agent-chat"]
+  timeout = 26
+
+[functions."human-agent-proactive"]
+  timeout = 26
+
+[functions."scheduled-human-agent"]
+  schedule = "0 * * * *"
+
+[functions."human-agent-whatsapp-webhook"]
+  timeout = 26
+
 # Raw body for Stripe webhook
 [functions."billing-webhook"]
   included_files = []
@@ -145,26 +111,6 @@
 [[redirects]]
   from   = "/admin/*"
   to     = "/admin/index.html"
-  status = 200
-
-[[redirects]]
-  from   = "/api/unsubscribe"
-  to     = "/.netlify/functions/unsubscribe"
-  status = 200
-
-[[redirects]]
-  from   = "/terms"
-  to     = "/legal/terms.html"
-  status = 200
-
-[[redirects]]
-  from   = "/privacy"
-  to     = "/legal/privacy.html"
-  status = 200
-
-[[redirects]]
-  from   = "/accessibility"
-  to     = "/legal/accessibility.html"
   status = 200
 
 [[redirects]]

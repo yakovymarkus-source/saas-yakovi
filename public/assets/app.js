@@ -46,7 +46,6 @@ const routes = {
   leads:                   renderLeads,
   insights:                renderInsights,
   settings:                renderSettings,
-  tutorials:               renderTutorials,
   support:                 renderSupport,
   admin:                   renderAdmin,
   updates:                 renderUpdates,
@@ -93,8 +92,9 @@ function navigate(page, params = {}) {
   Object.assign(state, params);
   // Update URL hash so page survives refresh
   window.location.hash = page;
-  trackEvent('page_view', { label: page });
   render();
+  // Human Agent stuck-user detection — starts 3-min timer per page
+  if (typeof haStartPageTimer === 'function') haStartPageTimer(page);
 }
 
 // ── API helper ────────────────────────────────────────────────────────────────
@@ -126,48 +126,18 @@ async function api(method, path, body) {
   }
 }
 
-// ── Event Tracking ───────────────────────────────────────────────────────────
-(function _initTrackingSession() {
-  if (!sessionStorage.getItem('_cbsid')) {
-    sessionStorage.setItem('_cbsid', 'app-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
-  }
-})();
-
-function trackEvent(eventType, extra = {}) {
-  const session_id = sessionStorage.getItem('_cbsid') || 'unknown';
-  const payload = {
-    session_id,
-    event_type: eventType,
-    url: window.location.href,
-    device_type: /Mobi|Android/i.test(navigator.userAgent) ? 'mobile' : 'desktop',
-    ...extra
-  };
-  fetch('/api/track-event', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  }).catch(() => {});
-}
-
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function toast(msg, type = 'info') {
   const container = document.getElementById('toast-container') || (() => {
     const el = document.createElement('div');
     el.id = 'toast-container';
     el.className = 'toast-container';
-    el.setAttribute('role', 'status');
-    el.setAttribute('aria-live', 'polite');
-    el.setAttribute('aria-atomic', 'true');
     document.body.appendChild(el);
     return el;
   })();
   const t = document.createElement('div');
   t.className = `toast ${type}`;
   t.textContent = msg;
-  if (type === 'error') {
-    t.setAttribute('role', 'alert');
-    t.setAttribute('aria-live', 'assertive');
-  }
   container.appendChild(t);
   setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 3500);
 }
@@ -233,16 +203,6 @@ function renderAuth() {
             <label class="form-label">סיסמה</label>
             <input class="form-input" type="password" id="auth-password" placeholder="לפחות 8 תווים" required />
           </div>
-          <div id="consent-group" style="display:none;margin:0.75rem 0 0.25rem">
-            <label style="display:flex;align-items:flex-start;gap:0.625rem;cursor:pointer;font-size:0.82rem;color:#374151;line-height:1.5">
-              <input type="checkbox" id="auth-terms" style="margin-top:0.18rem;flex-shrink:0;accent-color:#6366f1" />
-              <span>קראתי ואני מסכים/ה ל<a href="/legal/terms.html" target="_blank" rel="noopener" style="color:#6366f1">תנאי השימוש</a> ול<a href="/legal/privacy.html" target="_blank" rel="noopener" style="color:#6366f1">מדיניות הפרטיות</a> <span style="color:#ef4444">*</span></span>
-            </label>
-            <label style="display:flex;align-items:flex-start;gap:0.625rem;cursor:pointer;font-size:0.82rem;color:#374151;line-height:1.5;margin-top:0.5rem">
-              <input type="checkbox" id="auth-marketing" style="margin-top:0.18rem;flex-shrink:0;accent-color:#6366f1" />
-              <span>אני מסכים/ה לקבל עדכונים ומידע שיווקי מ-CampaignBrain (ניתן לביטול בכל עת)</span>
-            </label>
-          </div>
           <div id="auth-error" class="form-error" style="display:none"></div>
           <button type="submit" class="btn btn-primary mt-4" id="auth-submit">כניסה</button>
           <p style="text-align:center;margin-top:0.75rem;font-size:0.85rem">
@@ -271,9 +231,8 @@ function renderAuth() {
     tab.addEventListener('click', () => {
       mode = tab.dataset.tab;
       document.querySelectorAll('.auth-tab').forEach(t => t.classList.toggle('active', t === tab));
-      document.getElementById('name-group').style.display    = mode === 'signup' ? '' : 'none';
-      document.getElementById('consent-group').style.display = mode === 'signup' ? '' : 'none';
-      document.getElementById('auth-submit').textContent     = mode === 'signup' ? 'הרשמה' : 'כניסה';
+      document.getElementById('name-group').style.display = mode === 'signup' ? '' : 'none';
+      document.getElementById('auth-submit').textContent  = mode === 'signup' ? 'הרשמה' : 'כניסה';
     });
   });
 
@@ -305,31 +264,21 @@ function renderAuth() {
 
   document.getElementById('auth-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const btn       = document.getElementById('auth-submit');
-    const email     = document.getElementById('auth-email').value.trim();
-    const pass      = document.getElementById('auth-password').value;
-    const name      = document.getElementById('auth-name')?.value.trim();
-    const errEl     = document.getElementById('auth-error');
+    const btn   = document.getElementById('auth-submit');
+    const email = document.getElementById('auth-email').value.trim();
+    const pass  = document.getElementById('auth-password').value;
+    const name  = document.getElementById('auth-name')?.value.trim();
+    const errEl = document.getElementById('auth-error');
     btn.disabled = true; btn.textContent = 'טוען...';
     errEl.style.display = 'none';
     try {
       if (mode === 'signup') {
-        const termsChecked = document.getElementById('auth-terms')?.checked;
-        if (!termsChecked) {
-          errEl.textContent = 'יש לאשר את תנאי השימוש ומדיניות הפרטיות כדי להמשיך.';
-          errEl.style.display = '';
-          btn.disabled = false; btn.textContent = 'הרשמה';
-          return;
-        }
-        const marketingConsent = document.getElementById('auth-marketing')?.checked || false;
-        const { error } = await sb.auth.signUp({ email, password: pass, options: { data: { name, marketing_consent: marketingConsent } } });
+        const { error } = await sb.auth.signUp({ email, password: pass, options: { data: { name } } });
         if (error) throw error;
-        trackEvent('signup', { label: 'email', marketing_consent: marketingConsent });
         toast('נרשמת בהצלחה! בדוק את האימייל לאימות.', 'success');
       } else {
         const { error } = await sb.auth.signInWithPassword({ email, password: pass });
         if (error) throw error;
-        trackEvent('login', { label: 'email' });
       }
     } catch (err) {
       errEl.textContent = err.message || 'שגיאה בכניסה';
@@ -351,13 +300,12 @@ function renderShell(content) {
   };
 
   const mainNav = [
-    { id: 'dashboard',             icon: '🏠', label: 'ראשי' },
-    { id: 'business-from-scratch', icon: '🧠', label: 'מנוע AI' },
-    { id: 'ai-creation',           icon: '✨', label: 'יצירה' },
+    { id: 'dashboard',             icon: '📊', label: 'דשבורד' },
+    { id: 'business-from-scratch', icon: '🧠', label: 'בניית עסק מאפס' },
+    { id: 'ai-creation',           icon: '🤖', label: 'צור נכסים בAI' },
     { id: 'campaigns',             icon: '🎯', label: 'קמפיינים' },
     { id: 'leads',                 icon: '📥', label: 'לידים' },
     { id: 'insights',              icon: '📈', label: 'תובנות' },
-    { id: 'tutorials',             icon: '📚', label: 'הדרכות' },
     { id: 'settings',              icon: '⚙️', label: 'הגדרות' },
   ];
 
@@ -368,76 +316,50 @@ function renderShell(content) {
 
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
-      <aside class="sidebar" role="complementary" aria-label="ניווט ראשי">
-        <div class="sidebar-logo" aria-hidden="true">
+      <aside class="sidebar">
+        <div class="sidebar-logo">
           <div class="sidebar-logo-badge">🧠</div>
           Campaign<span>AI</span>
         </div>
-        <nav class="sidebar-nav" role="navigation" aria-label="תפריט ניווט">
+        <nav class="sidebar-nav">
           ${mainNav.map(n => `
-            <div class="nav-item ${isActive(n.id) ? 'active' : ''}" data-page="${n.id}"
-              role="button" tabindex="0"
-              aria-label="${n.label}"
-              ${isActive(n.id) ? 'aria-current="page"' : ''}>
-              <span class="nav-icon" aria-hidden="true">${n.icon}</span><span class="nav-label">${n.label}</span>
+            <div class="nav-item ${isActive(n.id) ? 'active' : ''}" data-page="${n.id}">
+              <span class="nav-icon">${n.icon}</span><span class="nav-label">${n.label}</span>
             </div>`).join('')}
           ${state.profile?.is_admin ? `
-            <div style="height:1px;background:rgba(255,255,255,0.1);margin:0.75rem 1rem;" role="separator"></div>
-            <div class="nav-item ${isActive('admin') ? 'active' : ''}" data-page="admin"
-              role="button" tabindex="0" aria-label="ניהול"
-              ${isActive('admin') ? 'aria-current="page"' : ''}>
-              <span class="nav-icon" aria-hidden="true">🛡️</span><span class="nav-label">ניהול</span>
-              ${state.supportCount > 0 ? `<span aria-label="${state.supportCount} פניות תמיכה פתוחות" style="margin-right:auto;background:#ef4444;color:#fff;font-size:0.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px">${state.supportCount > 99 ? '99+' : state.supportCount}</span>` : ''}
+            <div style="height:1px;background:rgba(255,255,255,0.1);margin:0.75rem 1rem;"></div>
+            <div class="nav-item ${isActive('admin') ? 'active' : ''}" data-page="admin">
+              <span class="nav-icon">🛡️</span><span class="nav-label">ניהול</span>
+              ${state.supportCount > 0 ? `<span style="margin-right:auto;background:#ef4444;color:#fff;font-size:0.6rem;font-weight:700;min-width:1.1rem;height:1.1rem;border-radius:9999px;display:inline-flex;align-items:center;justify-content:center;padding:0 3px">${state.supportCount > 99 ? '99+' : state.supportCount}</span>` : ''}
             </div>` : ''}
         </nav>
         <div class="sidebar-footer">
-          <button onclick="navigate('support')" aria-label="פתח דף תמיכה"
-            style="width:100%;text-align:center;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:rgba(255,255,255,0.7);font-size:0.8rem;padding:0.45rem 0.75rem;cursor:pointer;margin-bottom:0.75rem;">
+          <button onclick="navigate('support')" style="width:100%;text-align:center;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;color:rgba(255,255,255,0.7);font-size:0.8rem;padding:0.45rem 0.75rem;cursor:pointer;margin-bottom:0.75rem;">
             💬 תמיכה
           </button>
           <div class="flex items-center gap-2">
-            <div class="user-avatar" role="img" aria-label="תמונת פרופיל — ${state.profile?.name || 'משתמש'}">${initials}</div>
+            <div class="user-avatar">${initials}</div>
             <div style="flex:1;overflow:hidden;min-width:0">
               <div class="text-sm font-semibold truncate" style="color:white">${state.profile?.name || 'משתמש'}</div>
               <div class="plan-pill">${getPlanLabel(sidebarPlan)}</div>
             </div>
-            <button onclick="handleLogout()" class="btn btn-sm btn-secondary" aria-label="יציאה מהחשבון" style="font-size:0.75rem;flex-shrink:0">יציאה</button>
-          </div>
-          <div style="margin-top:0.625rem;display:flex;gap:0.75rem;justify-content:center;flex-wrap:wrap">
-            <a href="/legal/terms.html" target="_blank" rel="noopener" style="font-size:0.68rem;color:rgba(255,255,255,0.4);text-decoration:none;white-space:nowrap" onmouseover="this.style.color='rgba(255,255,255,0.7)'" onmouseout="this.style.color='rgba(255,255,255,0.4)'">תנאי שימוש</a>
-            <a href="/legal/privacy.html" target="_blank" rel="noopener" style="font-size:0.68rem;color:rgba(255,255,255,0.4);text-decoration:none;white-space:nowrap" onmouseover="this.style.color='rgba(255,255,255,0.7)'" onmouseout="this.style.color='rgba(255,255,255,0.4)'">פרטיות</a>
-            <a href="/legal/accessibility.html" target="_blank" rel="noopener" style="font-size:0.68rem;color:rgba(255,255,255,0.4);text-decoration:none;white-space:nowrap" onmouseover="this.style.color='rgba(255,255,255,0.7)'" onmouseout="this.style.color='rgba(255,255,255,0.4)'">נגישות</a>
+            <button onclick="handleLogout()" class="btn btn-sm btn-secondary" style="font-size:0.75rem;flex-shrink:0">יציאה</button>
           </div>
         </div>
       </aside>
-      <main class="main-content" id="page-content" role="main" aria-label="תוכן ראשי" tabindex="-1">
+      <main class="main-content" id="page-content">
         <div style="margin:-2rem -2rem 1.5rem;padding:0.5rem 1.5rem;display:flex;justify-content:flex-end;align-items:center;border-bottom:1px solid #f1f5f9;background:white;position:sticky;top:0;z-index:10;">
-          <button data-bell-btn onclick="navigate('updates')"
-            aria-label="${bellCount > 0 ? bellCount + ' התראות חדשות' : 'עדכונים'}"
+          <button data-bell-btn onclick="navigate('updates')" title="התראות ועדכונים"
             style="position:relative;background:none;border:none;cursor:pointer;font-size:1.3rem;padding:0.3rem;border-radius:50%;transition:background 0.15s;line-height:1;">
-            <span aria-hidden="true">🔔</span>
-            ${bellCount > 0 ? `<span aria-hidden="true" data-bell-badge style="position:absolute;top:0;right:0;background:#ef4444;color:white;font-size:0.58rem;font-weight:700;min-width:1rem;height:1rem;border-radius:9999px;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1;">${bellCount > 99 ? '99+' : bellCount}</span>` : ''}
+            🔔
+            ${bellCount > 0 ? `<span data-bell-badge style="position:absolute;top:0;right:0;background:#ef4444;color:white;font-size:0.58rem;font-weight:700;min-width:1rem;height:1rem;border-radius:9999px;display:flex;align-items:center;justify-content:center;padding:0 2px;line-height:1;">${bellCount > 99 ? '99+' : bellCount}</span>` : ''}
           </button>
         </div>
         ${content}
-        <footer role="contentinfo" style="margin-top:3rem;padding:1.25rem 0 0.5rem;border-top:1px solid #e2e8f0;text-align:center;font-size:0.75rem;color:#94a3b8">
-          <div style="display:flex;align-items:center;justify-content:center;gap:1rem;flex-wrap:wrap">
-            <a href="/legal/terms.html" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:none" onmouseover="this.style.color='#6366f1'" onmouseout="this.style.color='#94a3b8'">תנאי שימוש</a>
-            <span aria-hidden="true">·</span>
-            <a href="/legal/privacy.html" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:none" onmouseover="this.style.color='#6366f1'" onmouseout="this.style.color='#94a3b8'">מדיניות פרטיות</a>
-            <span aria-hidden="true">·</span>
-            <a href="/legal/accessibility.html" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:none" onmouseover="this.style.color='#6366f1'" onmouseout="this.style.color='#94a3b8'">נגישות</a>
-            <span aria-hidden="true">·</span>
-            <span>© 2025 CampaignBrain</span>
-          </div>
-        </footer>
       </main>
     </div>`;
   document.querySelectorAll('.nav-item[data-page]').forEach(el => {
     el.addEventListener('click', () => navigate(el.dataset.page));
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigate(el.dataset.page); }
-    });
   });
 }
 
@@ -560,10 +482,7 @@ async function renderDashboard() {
         <h1 class="page-title">שלום, ${state.businessProfile?.business_name || state.profile?.name || 'משתמש'}! 👋</h1>
         <p class="page-subtitle">${_dashGreeting(steps)}</p>
       </div>
-      <div style="display:flex;align-items:center;gap:0.625rem">
-        ${connectedCount > 0 ? `<span style="display:inline-flex;align-items:center;gap:0.375rem;font-size:0.75rem;font-weight:600;color:#16a34a;background:#f0fdf4;border:1px solid #bbf7d0;padding:0.25rem 0.625rem;border-radius:9999px"><span style="width:7px;height:7px;border-radius:50%;background:#22c55e;animation:pulse 2s infinite"></span>מערכת פעילה</span>` : ''}
-        <span class="badge ${planBadge[plan] || 'badge-gray'}">${getPlanLabel(plan)}</span>
-      </div>
+      <span class="badge ${planBadge[plan] || 'badge-gray'}">${getPlanLabel(plan)}</span>
     </div>
 
     ${_renderOnboardingWidget(steps)}
@@ -596,13 +515,16 @@ async function renderDashboard() {
       </div>
     </div>
 
-    <!-- ── Barrel Effect Card ──────────────────────────────────────────────── -->
-    <div id="barrel-card" class="card mb-4" style="display:none"></div>
-
-    <!-- ── Campaign Score Card ───────────────────────────────────────────────── -->
-    <div id="score-card" class="card mb-4" style="display:none"></div>
-
-    ${_dashNextStep(steps, connectedCount)}
+    <div class="card mb-4">
+      <div class="card-title">⚡ פעולות מהירות</div>
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+        <button class="btn btn-primary" style="width:auto" onclick="navigate('ai-creation')">✨ צור נכס חדש</button>
+        <button class="btn btn-secondary" style="width:auto" onclick="navigate('leads')">📥 ניהול לידים</button>
+        <button class="btn btn-secondary" style="width:auto" onclick="navigate('campaigns')">🎯 קמפיינים</button>
+        <button class="btn btn-secondary" style="width:auto" onclick="navigate('insights')">📈 תובנות</button>
+        ${connectedCount === 0 ? `<button class="btn btn-secondary" style="width:auto" onclick="switchSettingsTab('integrations');navigate('settings')">🔌 חבר אינטגרציה</button>` : ''}
+      </div>
+    </div>
 
     ${connectedCount > 0 ? `
     <div class="card mb-4">
@@ -642,68 +564,14 @@ async function renderDashboard() {
       if (container) container.innerHTML = renderLiveStatsContent();
     });
   }
-
-  // Load Barrel Effect + Campaign Score in background
-  if (state.campaigns?.length > 0 || state.currentCampaignId) {
-    setTimeout(() => loadBarrelAndScore(), 400);
-  }
-
-  // Check for new achievements (delayed to avoid blocking render)
-  setTimeout(() => checkNewAchievements(), 2000);
 }
 
 function _dashGreeting(steps) {
   if (!steps.profile_started) return 'נתחיל עם פרופיל עסקי קצר';
-  if (!steps.first_asset)     return 'מוכן ליצור נכס שיווקי ראשון?';
+  if (!steps.first_asset)     return 'מוכן ליצור דף נחיתה ראשון?';
   if (!steps.multiple_assets) return 'כל הכבוד! ניצור עוד וריאציות?';
   if (!steps.has_metrics)     return 'הוסף מדדים כדי לראות ביצועים אמיתיים';
   return 'הנה סקירת הביצועים שלך';
-}
-
-// ── Dashboard: smart single-CTA strip (replaces 5-button "quick actions" card) ──
-function _dashNextStep(steps, connectedCount) {
-  let label, desc, cta, onclick;
-
-  if (!steps.profile_started) {
-    label   = 'הגדר פרופיל עסקי';
-    desc    = 'הצעד הראשון — ה-AI ידע למי לכתוב';
-    cta     = 'התחל עכשיו →';
-    onclick = "switchSettingsTab('business');navigate('settings')";
-  } else if (!steps.first_asset) {
-    label   = 'צור את הנכס השיווקי הראשון שלך';
-    desc    = 'מודעה, דף נחיתה, או פוסט — בעברית, בדקות';
-    cta     = 'צור נכס ✨';
-    onclick = "navigate('ai-creation')";
-  } else if (!steps.multiple_assets) {
-    label   = 'צור עוד וריאציות לבדיקה';
-    desc    = 'ה-AI כבר מכיר את העסק שלך — ניצור גרסה שנייה?';
-    cta     = 'צור וריאציה →';
-    onclick = "navigate('ai-creation')";
-  } else if (!steps.has_metrics) {
-    label   = 'חבר אינטגרציה לראות תוצאות אמיתיות';
-    desc    = 'Google Ads, Meta, או GA4 — 2 דקות חיבור';
-    cta     = 'חבר עכשיו 🔌';
-    onclick = "switchSettingsTab('integrations');navigate('settings')";
-  } else if (connectedCount === 0) {
-    label   = 'חבר אינטגרציה';
-    desc    = 'ראה נתוני ביצועים חיים';
-    cta     = 'חבר →';
-    onclick = "switchSettingsTab('integrations');navigate('settings')";
-  } else {
-    return '';
-  }
-
-  return `
-  <div style="background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);border-radius:0.875rem;padding:1.25rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-    <div style="color:white">
-      <div style="font-size:0.72rem;opacity:0.75;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:0.2rem">הצעד הבא</div>
-      <div style="font-weight:700;font-size:1rem;margin-bottom:0.2rem">${label}</div>
-      <div style="font-size:0.82rem;opacity:0.82">${desc}</div>
-    </div>
-    <button onclick="${onclick}" style="background:white;color:#6366f1;border:none;border-radius:0.625rem;padding:0.65rem 1.5rem;font-weight:700;font-size:0.9rem;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:opacity 0.15s" onmouseover="this.style.opacity='.88'" onmouseout="this.style.opacity='1'">
-      ${cta}
-    </button>
-  </div>`;
 }
 
 function _renderOnboardingWidget(steps) {
@@ -753,23 +621,7 @@ function renderLiveStatsContent() {
 
   const connected = (state.integrations || []).filter(i => i.connection_status !== 'revoked');
   if (!connected.length) {
-    const emptyProviders = [
-      { label: 'Google Ads', icon: '🟢' },
-      { label: 'Meta Ads',   icon: '🔵' },
-      { label: 'GA4',        icon: '📈' },
-    ];
-    return `<div class="stats-grid" style="margin-top:0.5rem">
-      ${emptyProviders.map(p => `
-        <div class="stat-card" style="min-width:0;opacity:0.55">
-          <div class="stat-label">${p.icon} ${p.label}</div>
-          <div style="font-size:0.8rem;margin-top:0.5rem">
-            <div class="flex justify-between"><span class="text-muted">קליקים</span><strong>—</strong></div>
-            <div class="flex justify-between"><span class="text-muted">חשיפות</span><strong>—</strong></div>
-            <div class="flex justify-between"><span class="text-muted">הוצאה</span><strong>—</strong></div>
-            <div class="flex justify-between"><span class="text-muted">המרות</span><strong>—</strong></div>
-          </div>
-        </div>`).join('')}
-    </div>`;
+    return '<div class="text-muted text-sm" style="padding:1rem">אין אינטגרציות פעילות</div>';
   }
 
   return `<div class="stats-grid" style="margin-top:0.5rem">
@@ -1641,9 +1493,7 @@ async function connectIntegration(provider) {
   } else if (provider === 'meta') {
     const appId       = window.__META_APP_ID__ || '';
     const redirectUri = `${appUrl}/.netlify/functions/oauth-callback-meta`;
-    // Scopes: ads_management + business_management require Meta app approval
-    // They are listed here so the request is ready the moment approval is granted
-    const scope = 'ads_read,read_insights,ads_management,business_management,pages_manage_ads';
+    const scope       = 'ads_read,ads_management,read_insights';
     const url = `https://www.facebook.com/dialog/oauth?client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&state=${state64}`;
     window.location.href = url;
   } else if (provider === 'tiktok') {
@@ -1862,7 +1712,6 @@ function pollPaymentActivation() {
         .maybeSingle();
       if (sub && sub.payment_status === 'verified') {
         state.subscription = sub;
-        trackEvent('purchase', { label: sub.plan });
         toast('🎉 התשלום אושר! החשבון שלך הופעל.', 'success');
         navigate('dashboard');
         return;
@@ -2117,7 +1966,6 @@ function saveAIWork(type, title, content) {
     const works = loadAISavedWorks();
     works.unshift({ id: Date.now(), type, title, content, created_at: new Date().toISOString() });
     localStorage.setItem(key, JSON.stringify(works.slice(0, 50)));
-    trackEvent('asset_created', { label: type });
     toast('נשמר בהצלחה!', 'success');
   } catch { toast('שגיאה בשמירה', 'error'); }
 }
@@ -2229,14 +2077,6 @@ function _renderAICreationShell(bp, saved) {
             </div>
           </div>
           <div id="ai-result-ad-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
-          <div style="border-top:1px solid #e2e8f0;margin-top:1.25rem;padding-top:1.25rem">
-            <div style="font-size:0.78rem;font-weight:600;color:#64748b;margin-bottom:0.75rem">מה עושים עכשיו?</div>
-            <div style="display:flex;gap:0.625rem;flex-wrap:wrap">
-              <button class="btn btn-sm btn-ghost" onclick="aiCreationTab='landing_page';navigate('ai-creation')">🏗️ צור דף נחיתה מזה</button>
-              <button class="btn btn-sm btn-secondary" onclick="navigate('campaigns')">🎯 הוסף לקמפיין</button>
-              <button class="btn btn-sm btn-secondary" onclick="aiCreationTab='ad_script';navigate('ai-creation')">🔁 צור וריאציה</button>
-            </div>
-          </div>
         </div>
       </div>`,
 
@@ -2281,14 +2121,6 @@ function _renderAICreationShell(bp, saved) {
             </div>
           </div>
           <div id="ai-result-lp-text" class="text-sm" style="white-space:pre-wrap;line-height:1.7"></div>
-          <div style="border-top:1px solid #e2e8f0;margin-top:1.25rem;padding-top:1.25rem">
-            <div style="font-size:0.78rem;font-weight:600;color:#64748b;margin-bottom:0.75rem">מה עושים עכשיו?</div>
-            <div style="display:flex;gap:0.625rem;flex-wrap:wrap">
-              <button class="btn btn-sm btn-ghost" onclick="navigate('landing-pages')">🚀 ראה את כל הדפים</button>
-              <button class="btn btn-sm btn-secondary" onclick="aiCreationTab='ad_script';navigate('ai-creation')">✍️ כתוב תסריט למודעה</button>
-              <button class="btn btn-sm btn-secondary" onclick="navigate('campaigns')">🎯 צור קמפיין</button>
-            </div>
-          </div>
         </div>
       </div>`,
 
@@ -2376,12 +2208,6 @@ function _renderAICreationShell(bp, saved) {
       <h1 class="page-title">✨ יצירה עם AI</h1>
       <p class="page-subtitle">בנה נכסים שיווקיים מנצחים ללא תלות בחיבור אינטגרציות</p>
     </div>
-    ${localStorage.getItem('ai_disclaimer_dismissed') ? '' : `
-    <div role="note" id="ai-disclaimer-bar" style="background:#fefce8;border:1.5px solid #fde68a;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.82rem;color:#713f12;display:flex;align-items:flex-start;gap:0.5rem">
-      <span style="flex-shrink:0">⚠️</span>
-      <span style="flex:1">תוצרי AI עשויים להכיל שגיאות או אי-דיוקים. יש לבדוק ולאשר כל תוכן לפני שימוש בפרסום בפועל. השימוש הוא באחריות המשתמש בלבד. <a href="/legal/terms.html#ai-disclaimer" target="_blank" rel="noopener" style="color:#92400e;text-decoration:underline">קרא עוד</a></span>
-      <button onclick="localStorage.setItem('ai_disclaimer_dismissed','1');document.getElementById('ai-disclaimer-bar')?.remove()" aria-label="סגור הודעה" style="background:none;border:none;cursor:pointer;font-size:1rem;color:#92400e;flex-shrink:0;padding:0;line-height:1">✕</button>
-    </div>`}
     <div class="ai-tabs">
       <button class="ai-tab ${tab==='ad_script'?'active':''}"     onclick="switchAITab('ad_script')">✍️ תסריט מודעה</button>
       <button class="ai-tab ${tab==='ad_creative'?'active':''}"   onclick="switchAITab('ad_creative')">🖼️ מודעה מוכנה</button>
@@ -2685,7 +2511,6 @@ function _settingsTabBar() {
   const tabs = [
     { id: 'business',     icon: '🏢', label: 'פרופיל עסקי' },
     { id: 'integrations', icon: '🔌', label: 'חיבורים' },
-    { id: 'team',         icon: '👥', label: 'צוות' },
     { id: 'billing',      icon: '💳', label: 'חיוב' },
     { id: 'account',      icon: '👤', label: 'חשבון' },
   ];
@@ -2722,10 +2547,6 @@ async function renderSettings(tabOverride) {
       const res = await api('GET', 'integration-connect');
       ints = Array.isArray(res) ? res : [];
       state.integrations = ints;
-    } else if (settingsTab === 'account') {
-      const fresh = await api('GET', 'account-profile');
-      if (fresh) state.profile = { ...state.profile, ...fresh };
-      if (!window._acctSubTab) window._acctSubTab = 'profile';
     }
   } catch {}
 
@@ -2953,226 +2774,36 @@ async function renderSettings(tabOverride) {
         </div>` : ''}`;
   };
 
-  const buildAccountTab = () => {
-    const plan      = state.subscription?.plan || 'free';
-    const isPaid    = ['early_bird','starter','pro','agency'].includes(plan);
-    const email     = state.profile?.email || state.user?.email || '';
-    const fullName  = state.profile?.full_name || state.profile?.name || '';
-    const avatarUrl = state.profile?.avatar_url || '';
-    const initials  = fullName ? fullName.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)
-                               : email.slice(0,2).toUpperCase();
-    const memberSince = state.profile?.created_at
-      ? new Date(state.profile.created_at).toLocaleDateString('he-IL', { year:'numeric', month:'long' })
-      : '—';
-
-    const planLabel = { free:'חינמי', early_bird:'Early Bird', starter:'Starter', pro:'Pro', agency:'Agency' }[plan] || plan;
-    const planColor = isPaid ? '#166534' : '#1e40af';
-    const planBg    = isPaid ? '#dcfce7' : '#dbeafe';
-
-    const subTabs = [
-      { id:'profile',  label:'פרופיל' },
-      { id:'security', label:'אבטחה' },
-      { id:'data',     label:'נתונים' },
-    ];
-    const sub = window._acctSubTab || 'profile';
-
-    const subTabBar = `<div style="display:flex;gap:0;border-bottom:1px solid #e2e8f0;margin-bottom:1.5rem">
-      ${subTabs.map(t=>`
-        <button onclick="switchAcctSubTab('${t.id}')"
-          style="padding:0.55rem 1.1rem;border:none;border-bottom:2px solid ${sub===t.id?'#6366f1':'transparent'};
-                 margin-bottom:-1px;background:none;cursor:pointer;font-size:0.83rem;
-                 font-weight:${sub===t.id?'700':'500'};color:${sub===t.id?'#6366f1':'#64748b'};white-space:nowrap">
-          ${t.label}
-        </button>`).join('')}
-    </div>`;
-
-    // ── Profile sub-tab ──────────────────────────────────────────────────────
-    const profileTab = `
-      <div style="display:flex;align-items:center;gap:1.25rem;margin-bottom:1.75rem">
-        <div style="position:relative;cursor:pointer" onclick="document.getElementById('avatar-file-input').click()">
-          ${avatarUrl
-            ? `<img src="${avatarUrl}" alt="avatar"
-                style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:2px solid #e2e8f0" />`
-            : `<div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);
-                            display:flex;align-items:center;justify-content:center;font-size:1.5rem;
-                            font-weight:700;color:#fff;border:2px solid #e2e8f0;user-select:none">
-                ${initials}
-               </div>`}
-          <div style="position:absolute;bottom:0;left:0;width:22px;height:22px;background:#6366f1;
-                      border-radius:50%;display:flex;align-items:center;justify-content:center;
-                      border:2px solid #fff;font-size:0.6rem;color:#fff">✎</div>
-          <input type="file" id="avatar-file-input" accept="image/jpeg,image/png,image/webp"
-            style="display:none" onchange="uploadAvatar(this)" />
-        </div>
-        <div>
-          <div style="font-weight:700;font-size:1rem">${fullName || email}</div>
-          <div style="font-size:0.8rem;color:#64748b">${email}</div>
-          <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.2rem">לחץ על התמונה לשינוי</div>
-        </div>
-      </div>
-      <div class="form-group" style="margin-bottom:1.25rem">
-        <label class="form-label">שם מלא</label>
-        <input class="form-input" id="profile-fullname"
-          value="${fullName.replace(/"/g,'&quot;')}"
-          oninput="_acctMarkDirty()"
-          placeholder="השם שיוצג בממשק" />
-      </div>
-      <div class="form-group" style="margin-bottom:0">
-        <label class="form-label">אימייל</label>
-        <input class="form-input" type="email" value="${email}"
-          readonly style="opacity:0.55;cursor:not-allowed;background:#f8fafc" />
-        <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.35rem">האימייל לא ניתן לשינוי כאן</div>
-      </div>`;
-
-    // ── Security sub-tab ─────────────────────────────────────────────────────
-    const securityTab = `
-      <div class="card mb-4" style="margin-bottom:1rem">
-        <div style="font-weight:700;font-size:0.95rem;margin-bottom:1rem">🔑 שינוי סיסמה</div>
-        <div class="form-group">
-          <label class="form-label">סיסמה חדשה</label>
-          <input class="form-input" type="password" id="new-password" placeholder="לפחות 8 תווים" autocomplete="new-password" />
-        </div>
-        <div class="form-group" style="margin-bottom:1rem">
-          <label class="form-label">אשר סיסמה חדשה</label>
-          <input class="form-input" type="password" id="confirm-password" placeholder="חזור על הסיסמה" autocomplete="new-password" />
-        </div>
-        <button class="btn btn-primary" style="width:auto" onclick="savePassword()">עדכן סיסמה</button>
-      </div>
-      <div class="card mb-4" style="margin-bottom:1rem">
-        <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.5rem">📱 כל המכשירים</div>
-        <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">התנתק מכל המכשירים האחרים שמחוברים לחשבון זה</p>
-        <button class="btn btn-secondary" style="width:auto" onclick="signOutAllDevices()">התנתק מכל המכשירים</button>
-      </div>
-      <div class="card" style="border:1px solid #e2e8f0;background:#f8fafc;opacity:0.7">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div>
-            <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.25rem">🔒 אימות דו-שלבי</div>
-            <p style="font-size:0.83rem;color:#64748b;margin:0">הגנה נוספת על חשבונך</p>
+  const buildAccountTab = () => `
+    <div class="flex flex-col gap-6">
+      <div class="card">
+        <div class="card-title">פרופיל משתמש</div>
+        <form onsubmit="saveProfile(event)">
+          <div class="form-group">
+            <label class="form-label">שם מלא</label>
+            <input class="form-input" id="profile-name" value="${state.profile?.name || ''}" />
           </div>
-          <span style="font-size:0.72rem;background:#fef3c7;color:#92400e;padding:0.2rem 0.6rem;border-radius:9999px;font-weight:600">בקרוב</span>
-        </div>
-      </div>`;
-
-    // ── Data sub-tab ─────────────────────────────────────────────────────────
-    const dataTab = `
-      <div class="card mb-4" style="margin-bottom:1rem">
-        <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.5rem">📥 ייצוא נתונים</div>
-        <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">הורד עותק של כל הנתונים שלך (GDPR)</p>
-        <button class="btn btn-secondary" style="width:auto" onclick="exportData()">הורד את הנתונים שלי</button>
-      </div>
-      <div class="card mb-4" style="margin-bottom:1rem">
-        <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.5rem">📧 הסכמה לדיוור שיווקי</div>
-        <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">שלטו בהעדפות הדואר האלקטרוני השיווקי שלכם. ביטול זה לא ישפיע על אימיילים תפעוליים (חשבוניות, איפוס סיסמה).</p>
-        <div style="display:flex;align-items:center;gap:1rem">
-          <label style="display:flex;align-items:center;gap:0.625rem;cursor:pointer;font-size:0.88rem;color:#374151">
-            <input type="checkbox" id="marketing-consent-toggle"
-              ${state.profile?.marketing_consent ? 'checked' : ''}
-              style="accent-color:#6366f1;width:1rem;height:1rem"
-              onchange="updateMarketingConsent(this.checked)" />
-            <span>אני מסכים/ה לקבל עדכונים, טיפים ומידע שיווקי מ-CampaignBrain</span>
-          </label>
-        </div>
-        ${state.profile?.marketing_consent_at ? `<p style="font-size:0.75rem;color:#94a3b8;margin-top:0.625rem">הסכמה ניתנה: ${new Date(state.profile.marketing_consent_at).toLocaleDateString('he-IL')}</p>` : ''}
-      </div>
-      <div class="card" style="border:1px solid #fca5a5;background:#fff5f5">
-        <div style="font-weight:700;font-size:0.95rem;color:#991b1b;margin-bottom:0.5rem">⚠️ מחיקת חשבון</div>
-        <p style="font-size:0.83rem;color:#64748b;margin-bottom:1rem">
-          פעולה זו בלתי הפיכה. כל הנתונים שלך יימחקו לצמיתות.
-        </p>
-        <div class="form-group" style="margin-bottom:1rem">
-          <label class="form-label" style="color:#991b1b">אשר על ידי הקלדת המייל שלך: <strong>${email}</strong></label>
-          <input class="form-input" type="email" id="delete-confirm-email"
-            placeholder="${email}"
-            style="border-color:#fca5a5" />
-        </div>
-        <button class="btn btn-danger" style="width:auto" onclick="deleteAccount()">מחק את החשבון לצמיתות</button>
-      </div>`;
-
-    const subContent = sub === 'security' ? securityTab
-                     : sub === 'data'     ? dataTab
-                     : profileTab;
-
-    const dirtySaveBar = `
-      <div id="acct-save-bar" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:1000;
-           background:#fff;border-top:1px solid #e2e8f0;padding:0.875rem 1.5rem;
-           box-shadow:0 -4px 12px rgba(0,0,0,0.08);align-items:center;justify-content:space-between;gap:1rem">
-        <span style="font-size:0.875rem;color:#64748b">יש שינויים שלא נשמרו</span>
-        <div style="display:flex;gap:0.5rem">
-          <button class="btn btn-secondary" style="width:auto" onclick="_acctCancelChanges()">ביטול</button>
-          <button class="btn btn-primary" style="width:auto" onclick="saveAcctChanges()">שמור שינויים</button>
-        </div>
-      </div>`;
-
-    return `
-      <div class="card" style="margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
-        <div>
-          <div style="font-size:0.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem">מצב חשבון</div>
-          <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
-            <span style="font-weight:700;font-size:1rem">${fullName || email}</span>
-            <span style="font-size:0.75rem;background:${planBg};color:${planColor};
-                         padding:0.2rem 0.65rem;border-radius:9999px;font-weight:600">${planLabel}</span>
+          <div class="form-group">
+            <label class="form-label">אימייל</label>
+            <input class="form-input" type="email" id="profile-email"
+              value="${state.profile?.email || state.user?.email || ''}"
+              readonly style="opacity:0.65;cursor:not-allowed" />
           </div>
-          <div style="font-size:0.8rem;color:#94a3b8;margin-top:0.2rem">חבר מאז ${memberSince}</div>
-        </div>
-        ${!isPaid ? `<button class="btn btn-gradient" style="width:auto" onclick="switchSettingsTab('billing');renderSettings()">שדרג תוכנית →</button>` : ''}
+          <button type="submit" class="btn btn-primary" style="width:auto">שמור שינויים</button>
+        </form>
       </div>
       <div class="card">
-        ${subTabBar}
-        ${subContent}
+        <div class="card-title">פרטיות ונתונים</div>
+        <p class="text-sm text-muted mb-3">לשאלות בנוגע לנתונים או לביטול — <button onclick="navigate('support')" class="btn btn-sm btn-secondary" style="display:inline;padding:0.2rem 0.5rem">פנה לתמיכה</button></p>
+        <div class="flex gap-2">
+          <button class="btn btn-secondary" onclick="exportData()">📥 ייצוא נתונים</button>
+          <button class="btn btn-danger"    onclick="deleteAccount()">🗑 מחיקת חשבון</button>
+        </div>
       </div>
-      ${sub === 'profile' ? dirtySaveBar : ''}`;
-  };
-
-  const buildTeamTab = () => {
-    const plan = state.subscription?.plan || 'free';
-    const paidPlans = ['early_bird','starter','pro','agency'];
-    const isPaid = paidPlans.includes(plan);
-    const limits = { early_bird: 2, starter: 3, pro: 10, agency: 50 };
-    const maxMembers = limits[plan] || 0;
-    if (!isPaid) return `
-      <div class="card" style="text-align:center;padding:2.5rem">
-        <div style="font-size:2rem;margin-bottom:1rem">👥</div>
-        <div style="font-weight:700;font-size:1.1rem;margin-bottom:0.5rem">הזמן חברי צוות</div>
-        <div style="color:#64748b;margin-bottom:1.5rem">שתף גישה לדוחות ולקמפיינים עם אנשי הצוות שלך</div>
-        <button class="btn btn-gradient" style="width:auto" onclick="switchSettingsTab('billing');renderSettings()">שדרג לצוות →</button>
-      </div>`;
-
-    return `
-      <div class="flex flex-col gap-4">
-        <div class="card">
-          <div class="card-title flex items-center justify-between">
-            <span>👥 חברי צוות</span>
-            <span style="font-size:0.75rem;color:#64748b">עד ${maxMembers} חברים בתוכנית ${plan}</span>
-          </div>
-          <div style="display:flex;gap:0.75rem;margin-bottom:1.25rem">
-            <input id="team-email-input" type="email" placeholder="כתובת אימייל של חבר הצוות" class="form-input" style="flex:1;margin:0" />
-            <select id="team-role-select" class="form-input" style="width:auto;margin:0">
-              <option value="viewer">צופה</option>
-              <option value="admin">מנהל</option>
-            </select>
-            <button class="btn btn-primary" style="width:auto;white-space:nowrap" onclick="teamInvite()">הזמן</button>
-          </div>
-          <div id="team-members-list"><div style="color:#94a3b8;font-size:0.875rem;text-align:center;padding:1rem">טוען...</div></div>
-        </div>
-        <div class="card">
-          <div class="card-title">הרשאות לפי תפקיד</div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;font-size:0.8rem;text-align:center">
-            <div style="font-weight:700;padding:0.5rem;background:#f8fafc;border-radius:8px">פעולה</div>
-            <div style="font-weight:700;padding:0.5rem;background:#f8fafc;border-radius:8px">מנהל</div>
-            <div style="font-weight:700;padding:0.5rem;background:#f8fafc;border-radius:8px">צופה</div>
-            ${[['צפייה בדוחות','✓','✓'],['עריכת הגדרות','✓','✗'],['יצירת קמפיינים','✓','✗'],['ניהול חיוב','✗','✗']].map(([a,ad,vi])=>`
-              <div style="padding:0.4rem;border-bottom:1px solid #f1f5f9">${a}</div>
-              <div style="padding:0.4rem;border-bottom:1px solid #f1f5f9;color:${ad==='✓'?'#22c55e':'#ef4444'};font-weight:700">${ad}</div>
-              <div style="padding:0.4rem;border-bottom:1px solid #f1f5f9;color:${vi==='✓'?'#22c55e':'#ef4444'};font-weight:700">${vi}</div>
-            `).join('')}
-          </div>
-        </div>
-      </div>`;
-  };
+    </div>`;
 
   const tabContent = settingsTab === 'business'     ? buildBusinessTab()
                    : settingsTab === 'integrations' ? buildIntegrationsTab()
-                   : settingsTab === 'team'          ? buildTeamTab()
                    : settingsTab === 'billing'       ? buildBillingTab()
                    : buildAccountTab();
 
@@ -3181,9 +2812,6 @@ async function renderSettings(tabOverride) {
     ${_settingsTabBar()}
     ${tabContent}
   `);
-
-  // Auto-load team members list when on team tab
-  if (settingsTab === 'team') setTimeout(() => teamLoadMembers(), 100);
 }
 
 // ── Landing Pages ─────────────────────────────────────────────────────────────
@@ -3225,17 +2853,12 @@ function renderLandingPages() {
 
 // ── Stub pages — not yet implemented ──────────────────────────────────────────
 function _insightsTabBar() {
-  const hasMetrics = (state.integrations || []).some(i => i.connection_status === 'active');
   const tabs = [
-    { id: 'performance',     icon: '📈', label: 'ביצועים',      always: true  },
-    { id: 'recommendations', icon: '💡', label: 'המלצות',       always: true  },
-    { id: 'economics',       icon: '💰', label: 'כלכלת יחידה',  always: false },
-    { id: 'abtests',         icon: '🧪', label: 'A/B Tests',     always: false },
-  ].filter(t => t.always || hasMetrics);
-
-  // if current tab became hidden, reset to performance
-  if (!tabs.find(t => t.id === insightsTab)) insightsTab = 'performance';
-
+    { id: 'performance',     icon: '📈', label: 'ביצועים' },
+    { id: 'economics',       icon: '💰', label: 'כלכלת יחידה' },
+    { id: 'abtests',         icon: '🧪', label: 'A/B Tests' },
+    { id: 'recommendations', icon: '💡', label: 'המלצות' },
+  ];
   return `<div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1.75rem;overflow-x:auto">
     ${tabs.map(t => `
       <button onclick="switchInsightsTab('${t.id}')"
@@ -3268,45 +2891,21 @@ function renderInsights(tabOverride) {
 
   const hasMetrics = (state.integrations || []).some(i => i.connection_status === 'active');
 
-  const connectBanner = !hasMetrics ? `
-    <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:0.625rem;font-size:0.85rem;color:#1e40af">
-        <span>🔌</span>
-        <span>חבר אינטגרציות כדי לראות נתונים אמיתיים — Google Ads, Meta, GA4</span>
-      </div>
-      <button class="btn btn-sm btn-primary" style="white-space:nowrap" onclick="switchSettingsTab('integrations');navigate('settings')">חבר עכשיו</button>
-    </div>` : '';
-
   const tabContent = {
-    performance: `
-      <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem">
-          <div class="card-title" style="margin:0">📈 ביצועי קמפיינים</div>
-          ${hasMetrics ? `<button id="refresh-stats-btn" class="btn btn-sm btn-secondary" onclick="refreshLiveStats()">רענן</button>` : ''}
-        </div>
-        <div id="live-stats-container">${renderLiveStatsContent()}</div>
-      </div>`,
-    recommendations: hasMetrics
-      ? comingSoon('המלצות AI', '💡', 'ה-AI מנתח את הנתונים שלך ויוציא המלצות בקרוב.')
-      : `<div class="card">
-           <div class="card-title">💡 המלצות AI</div>
-           <div style="display:flex;flex-direction:column;gap:0.75rem;opacity:0.5">
-             ${['שפר את ה-CTR על מודעה #1','הגדל תקציב לקמפיין עם ROAS גבוה','בדוק ירידה בחשיפות ב-Meta'].map(r =>
-               `<div style="background:#f8fafc;border-radius:0.5rem;padding:0.875rem 1rem;font-size:0.88rem;color:#374151;border:1px solid #e2e8f0">💡 ${r}</div>`
-             ).join('')}
-           </div>
-           <p style="font-size:0.8rem;color:#94a3b8;margin-top:1rem;text-align:center">חבר אינטגרציות לקבלת המלצות אמיתיות</p>
-         </div>`,
+    performance: hasMetrics
+      ? `<div class="card">
+           <div class="card-title">📈 ביצועי קמפיינים</div>
+           <div id="live-stats-container">${renderLiveStatsContent()}</div>
+           <button class="btn btn-sm btn-secondary mt-3" onclick="refreshLiveStats()">רענן נתונים</button>
+         </div>`
+      : comingSoon('ביצועים', '📈', 'חבר Google Ads, Meta Ads, או Google Analytics כדי לראות נתוני ביצועים.'),
     economics: comingSoon('כלכלת יחידה', '💰', 'ניתוח עלות לרכישה, ROI, ו-LTV — יהיה זמין בקרוב.'),
     abtests:   comingSoon('A/B Tests', '🧪', 'השוואת גרסאות מודעות ודפי נחיתה — יהיה זמין בקרוב.'),
+    recommendations: comingSoon('המלצות AI', '💡', 'המלצות אוטומטיות לשיפור קמפיינים — יהיה זמין בקרוב.'),
   }[insightsTab] || '';
 
   renderShell(`
-    <div class="page-header">
-      <h1 class="page-title">📈 תובנות</h1>
-      <p class="page-subtitle">נתוני ביצועים מכל הפלטפורמות</p>
-    </div>
-    ${connectBanner}
+    <div class="page-header"><h1 class="page-title">📈 תובנות</h1></div>
     ${_insightsTabBar()}
     ${tabContent}
   `);
@@ -3362,331 +2961,6 @@ async function renderUpdates() {
           </div>`).join('')}
       </div>`}
   `);
-}
-
-// ── Tutorials page ────────────────────────────────────────────────────────────
-const TUTORIAL_CATEGORIES = [
-  { id: 'all',        label: 'הכל' },
-  { id: 'general',    label: '🚀 התחלה מהירה' },
-  { id: 'ai',         label: '🤖 כלי AI' },
-  { id: 'campaigns',  label: '🎯 קמפיינים' },
-  { id: 'leads',      label: '📥 לידים' },
-  { id: 'insights',   label: '📈 תובנות' },
-  { id: 'billing',    label: '💳 חיוב ומנוי' },
-];
-
-let _tutorialsCache   = null;
-let _tutorialCategory = 'all';
-let _tutorialSearch   = '';
-
-async function renderTutorials() {
-  renderShell(`<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>`);
-
-  try {
-    let url = 'tutorials';
-    if (_tutorialCategory && _tutorialCategory !== 'all') url += `?category=${_tutorialCategory}`;
-    const data = await api('GET', url);
-    _tutorialsCache = Array.isArray(data) ? data : (data?.data || []);
-  } catch (err) {
-    renderShell(`<div class="card" style="text-align:center;padding:3rem;color:#ef4444">שגיאה בטעינת הדרכות: ${escHtml(err.message)}</div>`);
-    return;
-  }
-
-  _buildTutorialsUI();
-}
-
-function _buildTutorialsUI() {
-  const isAdmin = state.profile?.is_admin;
-  const all     = _tutorialsCache || [];
-
-  const filtered = all.filter(t => {
-    if (_tutorialSearch) {
-      const q = _tutorialSearch.toLowerCase();
-      return (t.title||'').toLowerCase().includes(q) || (t.description||'').toLowerCase().includes(q);
-    }
-    return true;
-  });
-
-  const catBar = TUTORIAL_CATEGORIES.map(c => `
-    <button onclick="_setTutorialCategory('${c.id}')"
-      style="padding:0.45rem 1rem;border-radius:9999px;border:1.5px solid ${_tutorialCategory===c.id?'#6366f1':'#e2e8f0'};
-             background:${_tutorialCategory===c.id?'#6366f1':'white'};
-             color:${_tutorialCategory===c.id?'white':'#374151'};
-             font-size:0.82rem;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit">
-      ${c.label}
-    </button>`).join('');
-
-  const cards = filtered.length === 0
-    ? `<div class="empty-state" style="grid-column:1/-1">
-         <div class="empty-state-icon">📚</div>
-         <h3 class="empty-state-title">אין הדרכות עדיין</h3>
-         <p class="empty-state-desc">${isAdmin ? 'לחץ על "+ הוסף הדרכה" כדי להוסיף את הסרטון הראשון' : 'הדרכות יתווספו בקרוב'}</p>
-       </div>`
-    : filtered.map(t => _tutorialCard(t, isAdmin)).join('');
-
-  renderShell(`
-    <div class="page-header" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:1rem">
-      <div>
-        <h1 class="page-title">📚 הדרכות</h1>
-        <p class="page-subtitle">סרטוני הדרכה ומדריכים לשימוש במערכת</p>
-      </div>
-      ${isAdmin ? `<button class="btn btn-primary" style="width:auto" onclick="openTutorialModal()">+ הוסף הדרכה</button>` : ''}
-    </div>
-
-    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;flex-wrap:wrap">
-      <div style="flex:1;min-width:200px;position:relative">
-        <input id="tutorial-search" class="form-input" placeholder="🔍 חפש הדרכות..." value="${escHtml(_tutorialSearch)}"
-          oninput="_tutorialSearch=this.value;_buildTutorialsUI()"
-          style="padding-right:0.875rem" />
-      </div>
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-        ${catBar}
-      </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1.25rem">
-      ${cards}
-    </div>
-
-    <div id="tutorial-modal-root"></div>
-  `);
-}
-
-function _ytId(url) {
-  if (!url) return null;
-  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
-  return m ? m[1] : null;
-}
-
-function _tutorialCard(t, isAdmin) {
-  const ytId    = _ytId(t.youtube_url);
-  const thumb   = t.thumbnail_url || (ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : null);
-  const catLabel = (TUTORIAL_CATEGORIES.find(c => c.id === t.category) || {}).label || t.category;
-  const watched  = _getWatched().has(t.id);
-
-  return `
-  <div style="background:white;border:1.5px solid #e2e8f0;border-radius:1rem;overflow:hidden;transition:box-shadow 0.2s;cursor:pointer"
-       onmouseover="this.style.boxShadow='0 4px 20px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'"
-       onclick="openTutorialViewer('${t.id}')">
-    <div style="position:relative;aspect-ratio:16/9;background:#0f172a;overflow:hidden">
-      ${thumb
-        ? `<img src="${escHtml(thumb)}" alt="${escHtml(t.title)}" style="width:100%;height:100%;object-fit:cover;opacity:0.85" loading="lazy" />`
-        : `<div style="height:100%;display:flex;align-items:center;justify-content:center;color:#475569;font-size:2.5rem">📹</div>`
-      }
-      ${ytId ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
-        <div style="width:3.5rem;height:3.5rem;background:rgba(99,102,241,0.9);border-radius:50%;display:flex;align-items:center;justify-content:center">
-          <span style="color:white;font-size:1.25rem;padding-right:3px">▶</span>
-        </div>
-      </div>` : ''}
-      <div style="position:absolute;top:0.6rem;right:0.6rem;background:rgba(0,0,0,0.6);color:white;font-size:0.68rem;font-weight:600;padding:0.2rem 0.6rem;border-radius:9999px">
-        ${escHtml(catLabel)}
-      </div>
-      <div id="tut-watched-${t.id}" style="position:absolute;bottom:0.6rem;right:0.6rem;background:rgba(34,197,94,0.92);color:white;font-size:0.68rem;font-weight:700;padding:0.2rem 0.6rem;border-radius:9999px;display:${watched?'flex':'none'};align-items:center;gap:0.3rem">
-        ✓ נצפה
-      </div>
-      ${isAdmin ? `<div onclick="event.stopPropagation()" style="position:absolute;top:0.6rem;left:0.6rem;display:flex;gap:0.35rem">
-        <button onclick="openTutorialModal('${t.id}')" style="background:rgba(255,255,255,0.9);border:none;border-radius:0.375rem;padding:0.25rem 0.5rem;font-size:0.75rem;cursor:pointer">✏️</button>
-        <button onclick="deleteTutorial('${t.id}')" style="background:rgba(239,68,68,0.9);color:white;border:none;border-radius:0.375rem;padding:0.25rem 0.5rem;font-size:0.75rem;cursor:pointer">🗑️</button>
-      </div>` : ''}
-    </div>
-    <div style="padding:1rem">
-      <div style="font-weight:700;font-size:0.95rem;color:#1e293b;margin-bottom:0.375rem;line-height:1.4">${escHtml(t.title)}</div>
-      ${t.description ? `<div style="font-size:0.82rem;color:#64748b;line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escHtml(t.description)}</div>` : ''}
-    </div>
-  </div>`;
-}
-
-function _setTutorialCategory(cat) {
-  _tutorialCategory = cat;
-  renderTutorials();
-}
-
-function _tutorialsWatchedKey() {
-  return 'tutorials_watched_' + (state.user?.id || 'anon');
-}
-function _getWatched() {
-  try { return new Set(JSON.parse(localStorage.getItem(_tutorialsWatchedKey()) || '[]')); } catch { return new Set(); }
-}
-function _markWatched(id) {
-  const watched = _getWatched();
-  if (watched.has(id)) return;
-  watched.add(id);
-  localStorage.setItem(_tutorialsWatchedKey(), JSON.stringify([...watched]));
-  // Update badge on card if visible
-  const badge = document.getElementById('tut-watched-' + id);
-  if (badge) badge.style.display = 'flex';
-}
-
-function openTutorialViewer(id) {
-  const t = (_tutorialsCache || []).find(x => x.id === id);
-  if (!t) return;
-  const ytId = _ytId(t.youtube_url);
-  _markWatched(id);
-
-  const overlay = document.createElement('div');
-  overlay.id = 'tutorial-viewer';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;direction:rtl';
-
-  const content = ytId
-    ? `<div style="position:relative;width:100%;aspect-ratio:16/9">
-         <iframe src="https://www.youtube.com/embed/${ytId}?autoplay=1&rel=0" frameborder="0"
-           allow="autoplay;encrypted-media;fullscreen" allowfullscreen
-           style="width:100%;height:100%;border-radius:0.75rem"></iframe>
-       </div>`
-    : (t.thumbnail_url
-        ? `<img src="${escHtml(t.thumbnail_url)}" style="max-width:100%;max-height:70vh;border-radius:0.75rem;object-fit:contain" />`
-        : `<div style="color:white;padding:2rem;text-align:center">אין תוכן וידאו זמין</div>`);
-
-  overlay.innerHTML = `
-    <div style="width:100%;max-width:860px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
-        <h2 style="color:white;font-size:1.1rem;font-weight:700;margin:0">${escHtml(t.title)}</h2>
-        <button onclick="document.getElementById('tutorial-viewer').remove()"
-          aria-label="סגור" style="background:rgba(255,255,255,0.15);border:none;color:white;font-size:1.25rem;width:2.25rem;height:2.25rem;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center">✕</button>
-      </div>
-      ${content}
-      ${t.description ? `<p style="color:rgba(255,255,255,0.75);font-size:0.88rem;margin-top:0.75rem;line-height:1.6">${escHtml(t.description)}</p>` : ''}
-    </div>`;
-
-  document.body.appendChild(overlay);
-  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-  document.addEventListener('keydown', function esc(e) {
-    if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); }
-  });
-}
-
-function openTutorialModal(editId) {
-  const existing = editId ? (_tutorialsCache || []).find(x => x.id === editId) : null;
-  const isEdit   = !!existing;
-
-  const root = document.getElementById('tutorial-modal-root');
-  if (!root) return;
-
-  root.innerHTML = `
-    <div id="tut-modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9998;display:flex;align-items:center;justify-content:center;padding:1rem;direction:rtl">
-      <div style="background:white;border-radius:1rem;padding:1.75rem;width:100%;max-width:560px;max-height:90vh;overflow-y:auto">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
-          <h2 style="font-size:1.1rem;font-weight:700;margin:0">${isEdit ? '✏️ עריכת הדרכה' : '+ הוספת הדרכה'}</h2>
-          <button onclick="document.getElementById('tut-modal-overlay').remove()" style="background:none;border:none;font-size:1.25rem;cursor:pointer;color:#64748b">✕</button>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">כותרת <span style="color:#ef4444">*</span></label>
-          <input class="form-input" id="tut-title" value="${escHtml(existing?.title||'')}" placeholder="לדוגמה: איך ליצור מודעה ב-AI" />
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">קישור יוטיוב</label>
-          <input class="form-input" id="tut-youtube" value="${escHtml(existing?.youtube_url||'')}"
-            placeholder="https://www.youtube.com/watch?v=..." dir="ltr"
-            oninput="_previewYtThumb(this.value)" />
-        </div>
-
-        <div id="tut-thumb-preview" style="margin-bottom:0.75rem;display:${existing?.youtube_url||existing?.thumbnail_url?'block':'none'}">
-          ${existing?.youtube_url ? `<img id="tut-yt-thumb" src="https://img.youtube.com/vi/${_ytId(existing.youtube_url)||''}/hqdefault.jpg" style="width:100%;max-height:160px;object-fit:cover;border-radius:0.5rem" />` : ''}
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">תמונה מותאמת (URL — אופציונלי)</label>
-          <input class="form-input" id="tut-thumbnail" value="${escHtml(existing?.thumbnail_url||'')}"
-            placeholder="https://..." dir="ltr" />
-          <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.3rem">אם לא תמולא, יוצג thumbnail מיוטיוב</div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label">תיאור</label>
-          <textarea class="form-input" id="tut-desc" rows="3"
-            placeholder="תיאור קצר של ההדרכה...">${escHtml(existing?.description||'')}</textarea>
-        </div>
-
-        <div class="form-grid-2">
-          <div class="form-group">
-            <label class="form-label">קטגוריה</label>
-            <select class="form-input" id="tut-category">
-              ${TUTORIAL_CATEGORIES.filter(c=>c.id!=='all').map(c =>
-                `<option value="${c.id}" ${(existing?.category||'general')===c.id?'selected':''}>${c.label}</option>`
-              ).join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">סדר תצוגה</label>
-            <input class="form-input" type="number" id="tut-order" value="${existing?.order_index??0}" min="0" />
-          </div>
-        </div>
-
-        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem">
-          <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.88rem">
-            <input type="checkbox" id="tut-published" ${(existing?.published!==false)?'checked':''} style="accent-color:#6366f1" />
-            <span>פורסם (גלוי למשתמשים)</span>
-          </label>
-        </div>
-
-        <div id="tut-modal-error" class="form-error" style="display:none;margin-bottom:1rem"></div>
-
-        <div style="display:flex;gap:0.75rem;justify-content:flex-end">
-          <button class="btn btn-secondary" onclick="document.getElementById('tut-modal-overlay').remove()">ביטול</button>
-          <button class="btn btn-primary" onclick="saveTutorial(${isEdit ? `'${editId}'` : 'null'})">
-            ${isEdit ? 'שמור שינויים' : 'הוסף הדרכה'}
-          </button>
-        </div>
-      </div>
-    </div>`;
-}
-
-function _previewYtThumb(url) {
-  const id = _ytId(url);
-  const preview = document.getElementById('tut-thumb-preview');
-  const img     = document.getElementById('tut-yt-thumb');
-  if (!preview) return;
-  if (id) {
-    const src = `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
-    if (img) { img.src = src; }
-    else {
-      preview.innerHTML = `<img id="tut-yt-thumb" src="${src}" style="width:100%;max-height:160px;object-fit:cover;border-radius:0.5rem" />`;
-    }
-    preview.style.display = 'block';
-  } else {
-    preview.style.display = 'none';
-  }
-}
-
-async function saveTutorial(editId) {
-  const title      = document.getElementById('tut-title')?.value.trim();
-  const youtube_url= document.getElementById('tut-youtube')?.value.trim();
-  const thumbnail_url = document.getElementById('tut-thumbnail')?.value.trim();
-  const description= document.getElementById('tut-desc')?.value.trim();
-  const category   = document.getElementById('tut-category')?.value;
-  const order_index= parseInt(document.getElementById('tut-order')?.value||'0',10);
-  const published  = document.getElementById('tut-published')?.checked !== false;
-  const errEl      = document.getElementById('tut-modal-error');
-
-  if (!title) {
-    if (errEl) { errEl.textContent='כותרת היא שדה חובה'; errEl.style.display=''; }
-    return;
-  }
-
-  try {
-    const payload = { title, description, youtube_url, thumbnail_url, category, order_index, published };
-    if (editId) payload.id = editId;
-
-    const result = await api(editId ? 'PUT' : 'POST', 'tutorials', payload);
-    document.getElementById('tut-modal-overlay')?.remove();
-    toast(editId ? 'ההדרכה עודכנה ✓' : 'ההדרכה נוספה ✓', 'success');
-    await renderTutorials();
-  } catch (err) {
-    if (errEl) { errEl.textContent = err.message || 'שגיאה בשמירה'; errEl.style.display=''; }
-  }
-}
-
-async function deleteTutorial(id) {
-  if (!confirm('למחוק הדרכה זו?')) return;
-  try {
-    await api('DELETE', 'tutorials', { id });
-    toast('ההדרכה נמחקה', 'info');
-    await renderTutorials();
-  } catch (err) {
-    toast(err.message || 'שגיאה במחיקה', 'error');
-  }
 }
 
 // ── Support page ──────────────────────────────────────────────────────────────
@@ -3774,37 +3048,17 @@ async function sendSupportMessage() {
 
 
 async function saveProfile(e) {
-  if (e) e.preventDefault();
+  e.preventDefault();
   try {
-    const nameEl = document.getElementById('profile-fullname');
-    if (!nameEl) return;
-    const updates = { name: nameEl.value.trim(), full_name: nameEl.value.trim() };
+    const updates = {
+      name:  document.getElementById('profile-name').value.trim(),
+      email: document.getElementById('profile-email').value.trim(),
+    };
     const profile = await api('PUT', 'account-profile', updates);
-    state.profile = { ...state.profile, ...profile };
+    state.profile = profile;
     toast('הפרופיל עודכן!', 'success');
-    _acctCancelChanges();
   } catch (err) {
     toast(err.message || 'שגיאה', 'error');
-  }
-}
-
-async function updateMarketingConsent(value) {
-  try {
-    const update = {
-      marketing_consent: value,
-      marketing_consent_at: value ? new Date().toISOString() : null
-    };
-    const { error } = await sb.from('profiles').update(update).eq('id', state.user.id);
-    if (error) throw error;
-    if (state.profile) {
-      state.profile.marketing_consent = value;
-      state.profile.marketing_consent_at = update.marketing_consent_at;
-    }
-    toast(value ? 'הסכמה לדיוור שיווקי עודכנה ✓' : 'בוטלה ההסכמה לדיוור שיווקי', 'success');
-  } catch (err) {
-    toast(err.message || 'שגיאה בעדכון', 'error');
-    const toggle = document.getElementById('marketing-consent-toggle');
-    if (toggle) toggle.checked = !value;
   }
 }
 
@@ -3824,91 +3078,14 @@ async function exportData() {
 }
 
 async function deleteAccount() {
-  const emailEl = document.getElementById('delete-confirm-email');
-  const userEmail = state.profile?.email || state.user?.email || '';
-  if (!emailEl || emailEl.value.trim().toLowerCase() !== userEmail.toLowerCase()) {
-    toast('האימייל שהזנת אינו תואם — נסה שוב', 'error');
-    return;
-  }
+  const confirmed = prompt('כדי למחוק את החשבון, הקלד DELETE:');
+  if (confirmed !== 'DELETE') return;
   try {
     await api('POST', 'account-delete', { confirmation: 'DELETE' });
     toast('החשבון נמחק.', 'info');
     await sb.auth.signOut();
     state = { user: null, profile: null, subscription: null, campaigns: [], integrations: [], liveStats: {}, liveStatsLoading: false, currentPage: 'dashboard', currentCampaignId: null, accessToken: null };
     renderAuth();
-  } catch (err) {
-    toast(err.message || 'שגיאה', 'error');
-  }
-}
-
-function switchAcctSubTab(sub) {
-  window._acctSubTab = sub;
-  window._acctDirty  = false;
-  renderSettings();
-}
-
-function _acctMarkDirty() {
-  if (window._acctDirty) return;
-  window._acctDirty = true;
-  const bar = document.getElementById('acct-save-bar');
-  if (bar) bar.style.display = 'flex';
-}
-
-function _acctCancelChanges() {
-  window._acctDirty = false;
-  const bar = document.getElementById('acct-save-bar');
-  if (bar) bar.style.display = 'none';
-  renderSettings();
-}
-
-async function saveAcctChanges() {
-  await saveProfile();
-}
-
-async function uploadAvatar(input) {
-  const file = input.files?.[0];
-  if (!file) return;
-  if (file.size > 2 * 1024 * 1024) { toast('הקובץ גדול מדי — מקסימום 2MB', 'error'); return; }
-  try {
-    toast('מעלה תמונה...', 'info');
-    const ext  = file.name.split('.').pop().toLowerCase();
-    const path = `${state.user.id}/avatar.${ext}`;
-    const { data, error } = await sb.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type });
-    if (error) throw error;
-    const { data: { publicUrl } } = sb.storage.from('avatars').getPublicUrl(path);
-    const profile = await api('PUT', 'account-profile', { avatarUrl: publicUrl });
-    state.profile = { ...state.profile, ...profile, avatar_url: publicUrl };
-    toast('התמונה עודכנה!', 'success');
-    renderSettings();
-  } catch (err) {
-    toast(err.message || 'שגיאה בהעלאת תמונה', 'error');
-  }
-}
-
-async function savePassword() {
-  const newPw  = document.getElementById('new-password')?.value || '';
-  const confPw = document.getElementById('confirm-password')?.value || '';
-  if (!newPw || newPw.length < 8) { toast('הסיסמה חייבת להכיל לפחות 8 תווים', 'error'); return; }
-  if (newPw !== confPw) { toast('הסיסמאות אינן תואמות', 'error'); return; }
-  try {
-    const { error } = await sb.auth.updateUser({ password: newPw });
-    if (error) throw error;
-    toast('הסיסמה עודכנה בהצלחה!', 'success');
-    document.getElementById('new-password').value     = '';
-    document.getElementById('confirm-password').value = '';
-  } catch (err) {
-    toast(err.message || 'שגיאה בעדכון סיסמה', 'error');
-  }
-}
-
-async function signOutAllDevices() {
-  if (!confirm('להתנתק מכל המכשירים?')) return;
-  try {
-    const { error } = await sb.auth.signOut({ scope: 'global' });
-    if (error) throw error;
-    state = { user: null, profile: null, subscription: null, campaigns: [], integrations: [], liveStats: {}, liveStatsLoading: false, currentPage: 'dashboard', currentCampaignId: null, accessToken: null };
-    renderAuth();
-    toast('התנתקת מכל המכשירים', 'info');
   } catch (err) {
     toast(err.message || 'שגיאה', 'error');
   }
@@ -3989,866 +3166,201 @@ function buildSupportSection(supportData) {
   </div>`;
 }
 
-// ── Admin Control Center ──────────────────────────────────────────────────────
-let adminUserFilter  = 'all';
-var adminSupportTab  = 'open';
-var adminTab         = 'overview';
-var adminUsersSearch = '';
-var adminUsersPage   = 1;
-var adminAuditPage   = 1;
-var adminJobsFilter  = '';
-var adminJobsPage    = 1;
-var _adminCache      = {}; // short-lived cache: { tab: { data, ts } }
-
-function _adminCacheGet(key) {
-  const c = _adminCache[key];
-  return c && (Date.now() - c.ts < 30000) ? c.data : null;
-}
-function _adminCacheSet(key, data) { _adminCache[key] = { data, ts: Date.now() }; }
-
-async function switchAdminTab(tab) {
-  adminTab = tab;
-  _adminCache = {};
-  renderAdmin();
-}
-
-function _adminTabBar() {
-  const tabs = [
-    { id:'overview',      icon:'📊', label:'סקירה'      },
-    { id:'users',         icon:'👤', label:'משתמשים'    },
-    { id:'billing',       icon:'💳', label:'חיוב'       },
-    { id:'system',        icon:'⚙️', label:'מערכת'      },
-    { id:'ai-costs',      icon:'🤖', label:'עלויות AI'  },
-    { id:'audit',         icon:'📋', label:'לוג פעולות' },
-    { id:'support',       icon:'🎫', label:'תמיכה'      },
-    { id:'announcements', icon:'📣', label:'הודעות'     },
-    { id:'ai-models',     icon:'🧠', label:'מודלי AI'   },
-  ];
-  return `<div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:1.5rem;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none">
-    ${tabs.map(t => `
-      <button onclick="switchAdminTab('${t.id}')"
-        style="padding:0.55rem 0.85rem;border:none;border-bottom:2px solid ${adminTab===t.id?'#6366f1':'transparent'};
-               margin-bottom:-2px;background:none;cursor:pointer;font-size:0.78rem;white-space:nowrap;
-               font-weight:${adminTab===t.id?'700':'500'};color:${adminTab===t.id?'#6366f1':'#64748b'};transition:color .15s">
-        ${t.icon} ${t.label}
-      </button>`).join('')}
-  </div>`;
-}
+// ── Admin Dashboard ───────────────────────────────────────────────────────────
+let adminUserFilter = 'all';
+var adminSupportTab = 'open';
 
 async function renderAdmin(opts = {}) {
   if (!state.profile?.is_admin) { navigate('dashboard'); return; }
+  const savedScroll = opts.keepScroll
+    ? (document.getElementById('page-content')?.scrollTop || 0)
+    : 0;
+  renderShell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
 
-  const savedScroll = opts.keepScroll ? (document.getElementById('page-content')?.scrollTop || 0) : 0;
+  let overview = null, usersData = null, updatesData = [], supportData = { tickets: [], total: 0 };
+  [overview, usersData, updatesData, supportData] = await Promise.all([
+    api('GET', 'admin-overview').catch(e => { console.error('[admin] overview failed:', e.message); return null; }),
+    api('GET', 'admin-users?limit=100&page=1').catch(e => { console.error('[admin] users failed:', e.message); return null; }),
+    api('GET', 'admin-updates').catch(() => []),
+    api('GET', 'admin-support?limit=50').catch(() => ({ tickets: [], total: 0 })),
+  ]);
+  // Update support badge count
+  const openCount = (supportData.tickets || []).filter(t => t.status === 'open').length;
+  if (state.supportCount !== openCount) { state.supportCount = openCount; }
 
-  renderShell(`
-    <div class="page-header" style="margin-bottom:0">
-      <h1 class="page-title">🛡️ Control Center</h1>
-      <p class="page-subtitle">לוח פיקוד ושליטה</p>
-    </div>
-    ${_adminTabBar()}
-    <div id="admin-tab-content" style="min-height:200px">
-      <div class="loading-screen" style="height:50vh"><div class="spinner"></div></div>
-    </div>
-  `);
+  const fmt    = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
+  const pct    = n => n == null ? '—' : (n * 100).toFixed(1) + '%';
+  const curr   = n => n == null ? '—' : '₪' + (n / 100).toFixed(0);
+  const pBadge = { free: 'badge-gray', early_bird: 'badge-blue', starter: 'badge-blue', pro: 'badge-green', agency: 'badge-green' };
 
-  const html = await _adminLoadTab(adminTab, opts).catch(e =>
-    `<div class="card"><p class="text-muted">שגיאה בטעינה: ${e.message}</p></div>`
-  );
-  const el = document.getElementById('admin-tab-content');
-  if (el) el.innerHTML = html;
-
-  if (adminTab === 'ai-models') setTimeout(() => adminLoadAIModels(), 100);
-  if (savedScroll > 0) requestAnimationFrame(() => {
-    const pc = document.getElementById('page-content');
-    if (pc) pc.scrollTop = savedScroll;
-  });
-}
-
-// ── Tab loader ────────────────────────────────────────────────────────────────
-async function _adminLoadTab(tab) {
-  const fmt  = n => n == null ? '—' : Number(n).toLocaleString('he-IL');
-  const pct  = n => n == null ? '—' : (Number(n) * 100).toFixed(1) + '%';
-  const curr = n => n == null ? '—' : '$' + (Number(n)).toFixed(2);
-  const currILS = n => n == null ? '—' : '₪' + (Number(n) / 100).toFixed(0);
-  const pBadge  = { free:'badge-gray', early_bird:'badge-blue', starter:'badge-blue', pro:'badge-green', agency:'badge-green' };
-
-  if (tab === 'overview') {
-    let ov = _adminCacheGet('overview');
-    if (!ov) { ov = await api('GET', 'admin-overview').catch(() => null); _adminCacheSet('overview', ov); }
-    return _adminBuildOverview(ov, fmt, pct, currILS);
+  if (!overview && !usersData) {
+    renderShell(`<div class="page-header"><h1 class="page-title">🛡️ לוח ניהול</h1></div>
+      <div class="card"><div class="text-sm text-muted">לא ניתן לטעון נתוני ניהול כרגע. בדוק שהחשבון מוגדר כאדמין בסופאבייס ושה-env vars של האדמין מוגדרים.</div></div>`);
+    return;
   }
 
-  if (tab === 'users') {
-    const q = `admin-users?limit=50&page=${adminUsersPage}${adminUsersSearch ? '&search=' + encodeURIComponent(adminUsersSearch) : ''}${adminUserFilter !== 'all' ? '&plan=' + adminUserFilter : ''}`;
-    const usersData = await api('GET', q).catch(() => ({ users: [], total: 0 }));
-    return _adminBuildUsers(usersData, pBadge);
-  }
+  const allUsers    = usersData?.users || [];
+  const pending     = allUsers.filter(u => u.paymentStatus === 'pending');
+  const freeUsers   = allUsers.filter(u => u.plan === 'free' && u.paymentStatus !== 'pending');
+  const paidUsers   = allUsers.filter(u => u.plan !== 'free');
+  const earlyBirds  = allUsers.filter(u => u.plan === 'early_bird');
+  const proUsers    = allUsers.filter(u => u.plan === 'pro' || u.plan === 'agency');
 
-  if (tab === 'billing') {
-    let billing = _adminCacheGet('billing');
-    if (!billing) { billing = await api('GET', 'admin-billing?days=30').catch(() => null); _adminCacheSet('billing', billing); }
-    return _adminBuildBilling(billing, fmt, curr, currILS);
-  }
+  const filterMap = {
+    all:        allUsers,
+    pending:    pending,
+    free:       freeUsers,
+    early_bird: earlyBirds,
+    pro:        proUsers,
+  };
+  const filtered = filterMap[adminUserFilter] || allUsers;
 
-  if (tab === 'system') {
-    const [system, jobs] = await Promise.all([
-      api('GET', 'admin-system').catch(() => null),
-      api('GET', `admin-jobs?limit=30&page=${adminJobsPage}${adminJobsFilter ? '&status=' + adminJobsFilter : ''}`).catch(() => ({ jobs: [], total: 0, summary24h: {} })),
-    ]);
-    return _adminBuildSystem(system, jobs, fmt);
-  }
-
-  if (tab === 'ai-costs') {
-    let aiData = _adminCacheGet('ai-costs');
-    if (!aiData) { aiData = await api('GET', 'admin-ai-models').catch(() => null); _adminCacheSet('ai-costs', aiData); }
-    return _adminBuildAICosts(aiData, curr);
-  }
-
-  if (tab === 'audit') {
-    const audit = await api('GET', `admin-audit?limit=50&page=${adminAuditPage}`).catch(() => ({ entries: [], total: 0 }));
-    return _adminBuildAudit(audit);
-  }
-
-  if (tab === 'support') {
-    const supportData = await api('GET', 'admin-support?limit=50').catch(() => ({ tickets: [], total: 0 }));
-    const openCount = (supportData.tickets || []).filter(t => t.status === 'open').length;
-    state.supportCount = openCount;
-    return buildSupportSection(supportData);
-  }
-
-  if (tab === 'announcements') {
-    const updatesData = await api('GET', 'admin-updates').catch(() => []);
-    return _adminBuildAnnouncements(updatesData);
-  }
-
-  if (tab === 'ai-models') {
-    return `<div class="card" id="admin-ai-models-section">
-      <div class="flex items-center justify-between mb-3">
-        <div style="font-weight:700;font-size:1rem">🧠 ניהול מודלי AI</div>
-        <button class="btn btn-sm btn-secondary" onclick="adminLoadAIModels()">🔄 רענן</button>
-      </div>
-      <div id="admin-ai-models-content">
-        <div style="color:#94a3b8;text-align:center;padding:1.5rem"><div class="spinner" style="width:20px;height:20px;margin:0 auto .5rem"></div>טוען...</div>
-      </div>
+  function usersTable(users) {
+    if (!users.length) return '<p class="text-muted text-sm" style="padding:1rem">אין משתמשים בקטגוריה זו</p>';
+    return `<div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
+        <thead>
+          <tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">אימייל</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">שם</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">תוכנית</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">נכסים</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">הצטרף</th>
+            <th style="text-align:right;padding:0.5rem 0.75rem;font-weight:500">פעולה</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${users.map(u => `
+            <tr style="border-bottom:1px solid #f1f5f9${u.paymentStatus === 'pending' ? ';background:#fffbeb' : ''}">
+              <td style="padding:0.5rem 0.75rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:0.65rem">admin</span>' : ''}${u.paymentStatus === 'pending' ? ' <span class="badge badge-yellow" style="font-size:0.65rem">⏳ pending</span>' : ''}</td>
+              <td style="padding:0.5rem 0.75rem">${u.name || '—'}</td>
+              <td style="padding:0.5rem 0.75rem"><span class="badge ${pBadge[u.plan] || 'badge-gray'}">${getPlanLabel(u.plan)}</span></td>
+              <td style="padding:0.5rem 0.75rem">${u.campaignCount ?? '—'}</td>
+              <td style="padding:0.5rem 0.75rem">${u.createdAt ? new Date(u.createdAt).toLocaleDateString('he-IL') : '—'}</td>
+              <td style="padding:0.5rem 0.75rem">${u.paymentStatus === 'pending'
+                ? `<button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>`
+                : ''}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
     </div>`;
   }
 
-  return '<div class="card"><p class="text-muted">טאב לא ידוע</p></div>';
-}
+  renderShell(`
+    <div class="page-header flex items-center justify-between">
+      <div>
+        <h1 class="page-title">🛡️ לוח ניהול</h1>
+        <p class="page-subtitle">סטטיסטיקות מערכת וניהול משתמשים</p>
+      </div>
+    </div>
 
-// ── Overview Tab ──────────────────────────────────────────────────────────────
-function _adminBuildOverview(ov, fmt, pct, currILS) {
-  const health  = ov?.systemHealth || {};
-  const failedJ = health.failedJobs24h || 0;
-  const failedP = ov?.failedPayments24h || 0;
-  const hasAlert = failedJ > 0 || failedP > 0;
-
-  return `
-    ${(ov?.alerts||[]).length > 0 ? `<div class="card mb-4" style="border:2px solid #fca5a5;background:#fff5f5;padding:1rem">
-      <div style="font-weight:700;color:#b91c1c;margin-bottom:.75rem">⚠️ ${(ov.alerts||[]).length} התראות פעילות</div>
-      ${(ov.alerts||[]).map(a => `<div style="display:flex;align-items:center;gap:.75rem;padding:.4rem 0;border-bottom:1px solid #fecaca">
-        <span style="font-size:.75rem;padding:.15rem .4rem;border-radius:9999px;background:${a.severity==='high'?'#fee2e2':'#fef3c7'};color:${a.severity==='high'?'#b91c1c':'#92400e'};font-weight:600">${a.severity==='high'?'חמור':'אזהרה'}</span>
-        <span style="font-size:.83rem;color:#374151">${a.message}</span>
-        <button class="btn btn-sm btn-secondary" style="margin-right:auto;padding:.15rem .4rem;font-size:.7rem" onclick="switchAdminTab('${a.type==='billing'?'billing':'system'}')">בדוק →</button>
-      </div>`).join('')}
+    ${pending.length > 0 ? `
+    <div class="analysis-card mb-4" style="border:2px solid #f59e0b;background:#fffbeb">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold" style="color:#92400e">⏳ תשלומים ממתינים לאישור (${pending.length})</h3>
+      </div>
+      ${pending.map(u => `
+        <div class="flex items-center justify-between gap-2 py-2" style="border-bottom:1px solid #fde68a">
+          <div>
+            <div class="font-semibold text-sm">${u.email}</div>
+            <div class="text-xs text-muted">תוכנית מבוקשת: ${getPlanLabel(u.plan)}</div>
+          </div>
+          <button class="btn btn-sm btn-primary" onclick="activateUserPayment('${u.id}','${u.plan}')">
+            הפעל חשבון
+          </button>
+        </div>`).join('')}
     </div>` : ''}
 
     <div class="stats-grid" style="margin-bottom:1.5rem">
-      <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value">${currILS(ov?.mrr)}</div></div>
-      <div class="stat-card"><div class="stat-label">סה"כ משתמשים</div><div class="stat-value">${fmt(ov?.totalUsers)}</div></div>
-      <div class="stat-card"><div class="stat-label">מנויים פעילים</div><div class="stat-value">${fmt(ov?.activeSubscriptions)}</div></div>
-      <div class="stat-card"><div class="stat-label">בניסיון (Trial)</div><div class="stat-value">${fmt(ov?.trialSubscriptions)}</div></div>
-      <div class="stat-card"><div class="stat-label">הרשמות 24ש'</div><div class="stat-value">${fmt(ov?.newSignups24h)}</div></div>
-      <div class="stat-card"><div class="stat-label">Churn Rate</div><div class="stat-value">${pct(ov?.churnRate)}</div></div>
-      <div class="stat-card"><div class="stat-label">המרה לתשלום</div><div class="stat-value">${pct(ov?.conversionRate)}</div></div>
-      <div class="stat-card" style="${failedP > 0 ? 'border-color:#fca5a5;background:#fff5f5' : ''}">
-        <div class="stat-label">תשלומים כושלים 24ש'</div>
-        <div class="stat-value" style="${failedP > 0 ? 'color:#ef4444' : ''}">${fmt(failedP)}</div>
+      <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value">${curr(overview?.mrr)}</div></div>
+      <div class="stat-card"><div class="stat-label">סה"כ משתמשים</div><div class="stat-value">${fmt(overview?.totalUsers)}</div></div>
+      <div class="stat-card"><div class="stat-label">הרשמות 24ש'</div><div class="stat-value">${fmt(overview?.newSignups24h)}</div></div>
+      <div class="stat-card"><div class="stat-label">Churn</div><div class="stat-value">${pct(overview?.churnRate)}</div></div>
+      <div class="stat-card"><div class="stat-label">המרה לתשלום</div><div class="stat-value">${pct(overview?.conversionRate)}</div></div>
+      <div class="stat-card"><div class="stat-label">תשלומים כושלים 24ש'</div>
+        <div class="stat-value" style="${(overview?.failedPayments24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.failedPayments24h)}</div>
       </div>
     </div>
 
-    <div class="card mb-4">
-      <div style="font-weight:700;margin-bottom:1rem">⚙️ בריאות מערכת</div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1rem">
-        <div style="text-align:center;padding:.75rem;background:#f8fafc;border-radius:.5rem">
-          <div style="font-size:1.5rem;font-weight:700">${fmt(health.pendingJobs)}</div>
-          <div style="font-size:.75rem;color:#64748b">ממתינים</div>
-        </div>
-        <div style="text-align:center;padding:.75rem;background:#f8fafc;border-radius:.5rem">
-          <div style="font-size:1.5rem;font-weight:700;color:#2563eb">${fmt(health.runningJobs)}</div>
-          <div style="font-size:.75rem;color:#64748b">פועלים</div>
-        </div>
-        <div style="text-align:center;padding:.75rem;background:${failedJ > 0 ? '#fff5f5' : '#f8fafc'};border-radius:.5rem">
-          <div style="font-size:1.5rem;font-weight:700;color:${failedJ > 0 ? '#ef4444' : '#111'}">${fmt(failedJ)}</div>
-          <div style="font-size:.75rem;color:#64748b">כשלו 24ש'</div>
+    <div class="analysis-card" style="margin-bottom:1.5rem">
+      <div class="flex items-center justify-between mb-3"><h3 class="font-semibold">בריאות מערכת</h3></div>
+      <div style="display:flex;gap:2rem;flex-wrap:wrap">
+        <div><span class="text-muted text-sm">עבודות ממתינות</span><br><strong>${fmt(overview?.systemHealth?.pendingJobs)}</strong></div>
+        <div><span class="text-muted text-sm">עבודות פועלות</span><br><strong>${fmt(overview?.systemHealth?.runningJobs)}</strong></div>
+        <div><span class="text-muted text-sm">עבודות נכשלות 24ש'</span><br>
+          <strong style="${(overview?.systemHealth?.failedJobs24h || 0) > 0 ? 'color:#ef4444' : ''}">${fmt(overview?.systemHealth?.failedJobs24h)}</strong>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <div style="font-weight:700;margin-bottom:1rem">⚡ פעולות מהירות</div>
-      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
-        <button class="btn btn-secondary" style="width:auto" onclick="switchAdminTab('users')">👤 חפש משתמש</button>
-        <button class="btn btn-secondary" style="width:auto" onclick="switchAdminTab('system')">⚙️ צפה בתהליכים</button>
-        <button class="btn btn-secondary" style="width:auto" onclick="switchAdminTab('billing')">💳 מצב חיוב</button>
-        <button class="btn btn-secondary" style="width:auto" onclick="switchAdminTab('audit')">📋 לוג פעולות</button>
-        ${failedJ > 0 ? `<button class="btn btn-primary" style="width:auto" onclick="adminJobsFilter='failed';switchAdminTab('system')">🔁 Retry Jobs כושלים</button>` : ''}
-      </div>
-    </div>`;
-}
+    ${buildAdminUserSections(usersData, pBadge)}
 
-// ── Users Tab ─────────────────────────────────────────────────────────────────
-function _adminBuildUsers(usersData, pBadge) {
-  const users  = usersData?.users || [];
-  const total  = usersData?.total || 0;
-  const plans  = ['all','free','early_bird','starter','pro','agency'];
+    ${buildSupportSection(supportData)}
 
-  function buildRow(u) {
-    const planOpts = ['free','early_bird','starter','pro','agency'].map(p =>
-      `<option value="${p}"${u.plan===p?' selected':''}>${p}</option>`).join('');
-    const lastActive = u.lastActiveAt ? new Date(u.lastActiveAt).toLocaleDateString('he-IL') : '—';
-    const joined     = u.createdAt    ? new Date(u.createdAt).toLocaleDateString('he-IL')    : '—';
-    return `<tr style="border-bottom:1px solid #f1f5f9;cursor:pointer" onclick="adminLoadUserDetail('${u.id}')">
-      <td style="padding:.45rem .6rem">
-        <div style="font-size:.85rem">${u.email}${u.isAdmin ? ' <span class="badge badge-blue" style="font-size:.6rem">admin</span>' : ''}</div>
-        <div style="font-size:.72rem;color:#94a3b8">${u.name || ''}</div>
-      </td>
-      <td style="padding:.45rem .6rem"><span class="badge ${pBadge[u.plan]||'badge-gray'}" style="font-size:.72rem">${getPlanLabel(u.plan)}</span></td>
-      <td style="padding:.45rem .6rem;font-size:.8rem">${u.campaignCount||0}</td>
-      <td style="padding:.45rem .6rem;font-size:.78rem;color:#64748b">${lastActive}</td>
-      <td style="padding:.45rem .6rem;font-size:.78rem;color:#64748b">${joined}</td>
-      <td style="padding:.45rem .6rem" onclick="event.stopPropagation()">
-        <div style="display:flex;gap:.25rem;align-items:center">
-          <select id="ipl-${u.id}" style="padding:.15rem .3rem;border:1px solid #d1d5db;border-radius:.35rem;font-size:.72rem;max-width:85px">${planOpts}</select>
-          <button class="btn btn-sm btn-primary" onclick="adminChangePlanInline('${u.id}')" style="padding:.2rem .4rem;font-size:.7rem">שנה</button>
-          ${u.paymentStatus === 'pending' ? `<button class="btn btn-sm" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;padding:.2rem .4rem;font-size:.7rem" onclick="activateUserPayment('${u.id}','${u.plan}')">הפעל</button>` : ''}
-        </div>
-      </td>
-    </tr>`;
-  }
-
-  return `
-    <div class="card mb-4">
-      <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem">
-        <input id="admin-users-search" class="form-input" placeholder="חפש לפי אימייל..."
-          value="${adminUsersSearch}"
-          style="flex:1;min-width:180px;padding:.4rem .75rem;font-size:.875rem"
-          onkeydown="if(event.key==='Enter'){adminUsersSearch=this.value;adminUsersPage=1;renderAdmin()}" />
-        <button class="btn btn-primary" style="width:auto" onclick="adminUsersSearch=document.getElementById('admin-users-search').value;adminUsersPage=1;renderAdmin()">חפש</button>
-        <select onchange="adminUserFilter=this.value;adminUsersPage=1;renderAdmin()" style="padding:.4rem .6rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.8rem;background:#fff">
-          ${plans.map(p => `<option value="${p}"${adminUserFilter===p?' selected':''}>${p==='all'?'כל התוכניות':p}</option>`).join('')}
-        </select>
-        <button class="btn btn-secondary" style="width:auto;font-size:.8rem" onclick="adminExportUsersCSV()">📥 ייצוא CSV</button>
-        <button class="btn btn-secondary" style="width:auto;font-size:.8rem" onclick="adminQuickPlanChange()">✏️ שנה תוכנית לפי אימייל</button>
-      </div>
-      <div style="font-size:.78rem;color:#94a3b8;margin-bottom:.75rem">סה"כ ${total} משתמשים · לחץ על שורה לפרטים מלאים</div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:.83rem">
-          <thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">אימייל / שם</th>
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">תוכנית</th>
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">קמפיינים</th>
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">פעיל אחרון</th>
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">הצטרף</th>
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">תוכנית</th>
-          </tr></thead>
-          <tbody>${users.length ? users.map(buildRow).join('') : '<tr><td colspan="6" style="padding:1rem;color:#94a3b8;text-align:center">אין תוצאות</td></tr>'}</tbody>
-        </table>
-      </div>
-      ${total > 50 ? `<div style="display:flex;justify-content:center;gap:.5rem;margin-top:1rem">
-        ${adminUsersPage > 1 ? `<button class="btn btn-sm btn-secondary" onclick="adminUsersPage--;renderAdmin()">← הקודם</button>` : ''}
-        <span style="font-size:.8rem;color:#64748b;line-height:2">עמוד ${adminUsersPage}</span>
-        ${users.length === 50 ? `<button class="btn btn-sm btn-secondary" onclick="adminUsersPage++;renderAdmin()">הבא →</button>` : ''}
-      </div>` : ''}
-    </div>
-    <!-- User detail modal target -->
-    <div id="admin-user-detail-modal"></div>`;
-}
-
-// ── Billing Tab ───────────────────────────────────────────────────────────────
-function _adminBuildBilling(billing, fmt, curr, currILS) {
-  if (!billing) return `<div class="card"><p class="text-muted">לא ניתן לטעון נתוני חיוב</p></div>`;
-  const planLabel = { free:'חינמי', early_bird:'Early Bird', starter:'Starter', pro:'Pro', agency:'Agency' };
-  const planColor = { free:'#94a3b8', early_bird:'#3b82f6', starter:'#3b82f6', pro:'#22c55e', agency:'#8b5cf6' };
-
-  const revByPlan = billing.revenueByPlan || {};
-  const failedPays = (billing.failedPayments || []).slice(0, 15);
-  const churned    = (billing.churnedSubscriptions || []).slice(0, 10);
-
-  return `
-    <div class="stats-grid mb-4">
-      <div class="stat-card"><div class="stat-label">MRR</div><div class="stat-value">${currILS(billing.mrr)}</div></div>
-      <div class="stat-card"><div class="stat-label">ARR</div><div class="stat-value">${currILS(billing.arr)}</div></div>
-      <div class="stat-card"><div class="stat-label">מנויים פעילים</div><div class="stat-value">${fmt(billing.activeSubscriptions)}</div></div>
-      <div class="stat-card"><div class="stat-label">בניסיון</div><div class="stat-value">${fmt(billing.trialSubscriptions)}</div></div>
-    </div>
-
-    <div class="card mb-4">
-      <div style="font-weight:700;margin-bottom:1rem">💰 הכנסות לפי תוכנית (30 יום)</div>
-      ${Object.keys(revByPlan).length ? Object.entries(revByPlan).map(([plan, cents]) => `
-        <div style="display:flex;align-items:center;gap:1rem;padding:.5rem 0;border-bottom:1px solid #f1f5f9">
-          <span style="font-weight:600;color:${planColor[plan]||'#64748b'};width:90px">${planLabel[plan]||plan}</span>
-          <div style="flex:1;height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden">
-            <div style="width:${Math.min(100, (cents / Math.max(...Object.values(revByPlan))) * 100)}%;height:100%;background:${planColor[plan]||'#6366f1'};border-radius:4px"></div>
-          </div>
-          <span style="font-size:.85rem;font-weight:700;width:70px;text-align:left">${currILS(cents)}</span>
-        </div>`).join('') : '<p class="text-muted text-sm">אין נתוני הכנסה לתקופה זו</p>'}
-    </div>
-
-    ${failedPays.length ? `<div class="card mb-4" style="border-color:#fca5a5">
-      <div style="font-weight:700;color:#b91c1c;margin-bottom:.75rem">⚠️ תשלומים כושלים (30 יום) — ${failedPays.length}</div>
-      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:.82rem">
-        <thead><tr style="border-bottom:1px solid #fca5a5;color:#64748b">
-          <th style="text-align:right;padding:.4rem .6rem;font-weight:500">אימייל</th>
-          <th style="text-align:right;padding:.4rem .6rem;font-weight:500">סכום</th>
-          <th style="text-align:right;padding:.4rem .6rem;font-weight:500">תאריך</th>
-        </tr></thead>
-        <tbody>${failedPays.map(p => `<tr style="border-bottom:1px solid #fff5f5">
-          <td style="padding:.4rem .6rem">${p.profiles?.email || p.user_id || '—'}</td>
-          <td style="padding:.4rem .6rem">${currILS(p.amount_cents)}</td>
-          <td style="padding:.4rem .6rem;color:#94a3b8">${p.created_at ? new Date(p.created_at).toLocaleDateString('he-IL') : '—'}</td>
-        </tr>`).join('')}</tbody>
-      </table></div>
-    </div>` : ''}
-
-    ${churned.length ? `<div class="card">
-      <div style="font-weight:700;margin-bottom:.75rem">👋 ביטולים (30 יום) — ${churned.length}</div>
-      ${churned.map(s => `<div style="display:flex;align-items:center;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid #f1f5f9;font-size:.83rem">
-        <div>${s.profiles?.email || s.user_id || '—'}</div>
-        <div style="display:flex;gap:.5rem;align-items:center">
-          <span class="badge badge-gray" style="font-size:.7rem">${s.plan||'—'}</span>
-          <span style="color:#94a3b8;font-size:.75rem">${s.updated_at ? new Date(s.updated_at).toLocaleDateString('he-IL') : '—'}</span>
-          <button class="btn btn-sm btn-secondary" style="padding:.15rem .4rem;font-size:.7rem" onclick="adminChangePlanInlineById('${s.user_id}')">שחזר</button>
-        </div>
-      </div>`).join('')}
-    </div>` : ''}`;
-}
-
-// ── System Tab ────────────────────────────────────────────────────────────────
-function _adminBuildSystem(system, jobsData, fmt) {
-  const jobs     = jobsData?.jobs || [];
-  const jobTotal = jobsData?.total || 0;
-  const summary  = jobsData?.summary24h || {};
-  const errors   = (system?.requestMetrics?.recentErrors || []).slice(0, 20);
-  const metrics  = system?.requestMetrics || {};
-  const cron     = system?.cronHistory || [];
-
-  const statusColor = { queued:'#f59e0b', pending:'#f59e0b', processing:'#3b82f6', running:'#3b82f6', completed:'#22c55e', failed:'#ef4444', canceled:'#94a3b8', timed_out:'#ef4444', retrying:'#8b5cf6' };
-  const statusLabel = { queued:'ממתין', pending:'ממתין', processing:'מעבד', running:'פועל', completed:'הושלם', failed:'כשל', canceled:'בוטל', timed_out:'פג זמן', retrying:'מנסה שנית' };
-
-  const filters = ['','queued','running','failed','completed','canceled'];
-
-  return `
-    <div class="stats-grid mb-4">
-      <div class="stat-card"><div class="stat-label">Jobs ממתינים</div><div class="stat-value">${fmt(summary.queued||0)}</div></div>
-      <div class="stat-card"><div class="stat-label">Jobs פועלים</div><div class="stat-value" style="color:#3b82f6">${fmt(summary.running||0)}</div></div>
-      <div class="stat-card" style="${(summary.failed||0) > 0 ? 'border-color:#fca5a5;background:#fff5f5' : ''}">
-        <div class="stat-label">Jobs כשלו 24ש'</div>
-        <div class="stat-value" style="${(summary.failed||0) > 0 ? 'color:#ef4444' : ''}">${fmt(summary.failed||0)}</div>
-      </div>
-      <div class="stat-card"><div class="stat-label">שגיאות 1ש'</div><div class="stat-value">${((metrics.errorRate1h||0) * 100).toFixed(1)}%</div></div>
-      <div class="stat-card"><div class="stat-label">זמן תגובה ממוצע</div><div class="stat-value">${metrics.avgDurationMs ? metrics.avgDurationMs+'ms' : '—'}</div></div>
-      <div class="stat-card"><div class="stat-label">סה"כ בקשות 1ש'</div><div class="stat-value">${fmt(metrics.totalRequests1h)}</div></div>
-    </div>
-
-    <div class="card mb-4">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-        <div style="font-weight:700">⚙️ תהליכים (Jobs)</div>
-        <div style="display:flex;gap:.4rem;flex-wrap:wrap">
-          ${filters.map(f => `<button class="btn btn-sm ${adminJobsFilter===f?'btn-primary':'btn-secondary'}" style="padding:.2rem .5rem;font-size:.75rem"
-            onclick="adminJobsFilter='${f}';switchAdminTab('system')">${f===''?'הכל':statusLabel[f]||f}</button>`).join('')}
-        </div>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
-        <div style="font-size:.75rem;color:#94a3b8">סה"כ ${jobTotal} תהליכים</div>
-        <div style="display:flex;gap:.4rem">
-          ${adminJobsPage > 1 ? `<button class="btn btn-sm btn-secondary" style="padding:.2rem .5rem;font-size:.72rem" onclick="adminJobsPage--;switchAdminTab('system')">← הקודם</button>` : ''}
-          <span style="font-size:.75rem;color:#64748b;line-height:2">עמוד ${adminJobsPage}</span>
-          ${jobs.length === 30 ? `<button class="btn btn-sm btn-secondary" style="padding:.2rem .5rem;font-size:.72rem" onclick="adminJobsPage++;switchAdminTab('system')">הבא →</button>` : ''}
-        </div>
-      </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:.8rem">
-          <thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
-            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">משתמש</th>
-            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">סטטוס</th>
-            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">שגיאה</th>
-            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">משך</th>
-            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">נוצר</th>
-            <th style="text-align:right;padding:.4rem .5rem;font-weight:500">פעולה</th>
-          </tr></thead>
-          <tbody>${jobs.length ? jobs.map(j => `<tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:.4rem .5rem;font-size:.78rem">${j.userEmail || j.user_id?.slice(0,8) || '—'}</td>
-            <td style="padding:.4rem .5rem"><span style="font-size:.7rem;padding:.15rem .4rem;border-radius:9999px;background:${statusColor[j.status]||'#94a3b8'}20;color:${statusColor[j.status]||'#94a3b8'};font-weight:600">${statusLabel[j.status]||j.status}</span></td>
-            <td style="padding:.4rem .5rem;font-size:.72rem;color:#ef4444;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(j.error_message||'').replace(/"/g,'&quot;')}">${j.error_message ? j.error_message.slice(0,40)+'…' : '—'}</td>
-            <td style="padding:.4rem .5rem;font-size:.75rem;color:#64748b">${j.durationMs ? (j.durationMs/1000).toFixed(1)+'s' : '—'}</td>
-            <td style="padding:.4rem .5rem;font-size:.72rem;color:#94a3b8">${j.created_at ? new Date(j.created_at).toLocaleString('he-IL',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'}</td>
-            <td style="padding:.4rem .5rem">
-              ${['failed','canceled','timed_out'].includes(j.status) ? `<button class="btn btn-sm btn-primary" style="padding:.2rem .4rem;font-size:.7rem" onclick="adminRetryJob('${j.id}')">Retry</button>` : ''}
-              ${!['completed','canceled'].includes(j.status) ? ` <button class="btn btn-sm btn-secondary" style="padding:.2rem .4rem;font-size:.7rem" onclick="adminCancelJob('${j.id}')">בטל</button>` : ''}
-            </td>
-          </tr>`).join('') : '<tr><td colspan="6" style="padding:1rem;color:#94a3b8;text-align:center">אין תהליכים</td></tr>'}</tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card mb-4">
-      <div style="font-weight:700;margin-bottom:.75rem">🕐 היסטוריית Cron Jobs</div>
-      ${cron.length ? cron.map(c => {
-        const ok = c.lastStatus !== 'error';
-        const label = { 'retention-trigger': 'Retention (כל שעה)', 'trigger-pending-jobs': 'Job Trigger (כל 5 דקות)' };
-        const lastRunStr = c.lastRun ? new Date(c.lastRun).toLocaleString('he-IL', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }) : 'לא רץ';
-        return `<div style="display:flex;align-items:center;justify-content:space-between;padding:.6rem 0;border-bottom:1px solid #f1f5f9;gap:.5rem;flex-wrap:wrap">
-          <div>
-            <div style="font-size:.83rem;font-weight:600">${label[c.function]||c.function}</div>
-            <div style="font-size:.72rem;color:#94a3b8">ריצה אחרונה: ${lastRunStr}</div>
-          </div>
-          <div style="display:flex;gap:.5rem;align-items:center">
-            <span style="font-size:.72rem;padding:.15rem .4rem;border-radius:9999px;background:${ok?'#dcfce7':'#fee2e2'};color:${ok?'#166534':'#b91c1c'};font-weight:600">${ok?'✓ תקין':'✗ שגיאה'}</span>
-            <span style="font-size:.72rem;color:#64748b">${c.runs24h} ריצות 24ש'</span>
-            ${c.errors24h > 0 ? `<span style="font-size:.72rem;color:#ef4444">${c.errors24h} שגיאות</span>` : ''}
-          </div>
-        </div>`;
-      }).join('') : '<p class="text-muted text-sm">אין היסטוריה (מחכה לריצה ראשונה)</p>'}
-    </div>
-
-    ${errors.length ? `<div class="card">
-      <div style="font-weight:700;margin-bottom:.75rem;color:#b91c1c">🔴 שגיאות אחרונות (24ש')</div>
-      ${errors.map(e => `<div style="border-bottom:1px solid #f1f5f9;padding:.5rem 0">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem">
-          <div style="font-size:.8rem;font-weight:600;color:#374151">${e.function_name||'—'}</div>
-          <div style="font-size:.72rem;color:#94a3b8;white-space:nowrap">${e.created_at ? new Date(e.created_at).toLocaleTimeString('he-IL') : ''}</div>
-        </div>
-        <div style="font-size:.78rem;color:#ef4444;margin-top:.15rem">${e.message||''}</div>
-      </div>`).join('')}
-    </div>` : ''}`;
-}
-
-// ── AI Costs Tab ──────────────────────────────────────────────────────────────
-function _adminBuildAICosts(aiData, curr) {
-  if (!aiData) return `<div class="card"><p class="text-muted">לא ניתן לטעון נתוני עלות AI</p></div>`;
-  const summary   = aiData.costSummary || {};
-  const byTask    = summary.byTask || {};
-  const total30d  = summary.totalCost30d || 0;
-  const calls30d  = summary.totalCalls30d || 0;
-
-  const taskRows = Object.entries(byTask).sort((a,b) => b[1].cost - a[1].cost);
-  const maxCost  = taskRows.length ? Math.max(...taskRows.map(([,v]) => v.cost)) : 1;
-
-  return `
-    <div class="stats-grid mb-4">
-      <div class="stat-card"><div class="stat-label">עלות 30 יום</div><div class="stat-value">$${total30d.toFixed(4)}</div></div>
-      <div class="stat-card"><div class="stat-label">קריאות 30 יום</div><div class="stat-value">${calls30d.toLocaleString()}</div></div>
-      <div class="stat-card"><div class="stat-label">עלות ממוצע לקריאה</div><div class="stat-value">${calls30d ? '$'+(total30d/calls30d).toFixed(5) : '—'}</div></div>
-    </div>
-
-    <div class="card mb-4">
-      <div style="font-weight:700;margin-bottom:1rem">💸 עלות לפי Task Type (30 יום)</div>
-      ${taskRows.length ? taskRows.map(([task, v]) => `
-        <div style="display:grid;grid-template-columns:120px 1fr 70px 60px;gap:.5rem;align-items:center;padding:.4rem 0;border-bottom:1px solid #f1f5f9">
-          <span style="font-size:.82rem;font-weight:600;color:#374151">${task}</span>
-          <div style="height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden">
-            <div style="width:${maxCost > 0 ? (v.cost/maxCost*100).toFixed(1) : 0}%;height:100%;background:linear-gradient(to left,#8b5cf6,#6366f1);border-radius:4px"></div>
-          </div>
-          <span style="font-size:.78rem;text-align:right;color:#374151">$${v.cost.toFixed(4)}</span>
-          <span style="font-size:.72rem;color:#94a3b8;text-align:right">${v.calls} קריאות</span>
-        </div>`).join('') : '<p class="text-muted text-sm">אין נתוני עלות עדיין</p>'}
-    </div>
-
-    <div class="card">
-      <div style="font-weight:700;margin-bottom:1rem">🧠 מודלים מוגדרים</div>
-      ${(aiData.configs || []).map(c => `
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:.5rem 0;border-bottom:1px solid #f1f5f9;font-size:.83rem">
-          <div>
-            <span style="font-weight:600">${c.task_type}</span>
-            <span style="color:#64748b;font-size:.75rem;margin-right:.5rem">${c.primary_model}</span>
-          </div>
-          <span style="font-size:.72rem;padding:.15rem .4rem;border-radius:9999px;background:${c.enabled?'#dcfce7':'#f1f5f9'};color:${c.enabled?'#166534':'#94a3b8'}">${c.enabled?'פעיל':'כבוי'}</span>
-        </div>`).join('')}
-      <div style="margin-top:.75rem;text-align:left">
-        <button class="btn btn-secondary" style="width:auto;font-size:.8rem" onclick="switchAdminTab('ai-models')">ניהול מלא →</button>
-      </div>
-    </div>`;
-}
-
-// ── Audit Tab ─────────────────────────────────────────────────────────────────
-function _adminBuildAudit(audit) {
-  const entries = audit?.entries || [];
-  const total   = audit?.total   || 0;
-
-  const actionColor = {
-    'admin.change_plan':'#3b82f6','admin.cancel_subscription':'#ef4444',
-    'admin.grant_admin':'#8b5cf6','admin.revoke_admin':'#f59e0b',
-    'admin.retry_job':'#22c55e','admin.cancel_job':'#94a3b8',
-    'admin.suspend_user':'#ef4444','admin.toggle_admin':'#8b5cf6',
-  };
-
-  return `
-    <div class="card">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.5rem">
-        <div style="font-weight:700">📋 יומן פעולות אדמין</div>
-        <div style="font-size:.78rem;color:#94a3b8">סה"כ ${total} רשומות</div>
-      </div>
-      ${entries.length ? `<div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:.8rem">
-          <thead><tr style="border-bottom:1px solid #e2e8f0;color:#64748b">
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">זמן</th>
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">פעולה</th>
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">על משתמש</th>
-            <th style="text-align:right;padding:.4rem .6rem;font-weight:500">פרטים</th>
-          </tr></thead>
-          <tbody>${entries.map(e => `<tr style="border-bottom:1px solid #f1f5f9">
-            <td style="padding:.4rem .6rem;color:#94a3b8;font-size:.72rem;white-space:nowrap">${e.created_at ? new Date(e.created_at).toLocaleString('he-IL',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'}</td>
-            <td style="padding:.4rem .6rem"><span style="font-size:.72rem;padding:.15rem .4rem;border-radius:9999px;background:${actionColor[e.action]||'#6366f1'}20;color:${actionColor[e.action]||'#6366f1'};font-weight:600">${e.action||'—'}</span></td>
-            <td style="padding:.4rem .6rem;font-size:.78rem">${e.userEmail || e.user_id?.slice(0,8) || '—'}</td>
-            <td style="padding:.4rem .6rem;font-size:.72rem;color:#64748b;max-width:200px;overflow:hidden;text-overflow:ellipsis">${e.metadata ? JSON.stringify(e.metadata).slice(0,60) : '—'}</td>
-          </tr>`).join('')}</tbody>
-        </table>
-      </div>
-      <div style="display:flex;justify-content:center;gap:.5rem;margin-top:1rem">
-        ${adminAuditPage > 1 ? `<button class="btn btn-sm btn-secondary" onclick="adminAuditPage--;renderAdmin()">← הקודם</button>` : ''}
-        <span style="font-size:.8rem;color:#64748b;line-height:2">עמוד ${adminAuditPage}</span>
-        ${entries.length === 50 ? `<button class="btn btn-sm btn-secondary" onclick="adminAuditPage++;renderAdmin()">הבא →</button>` : ''}
-      </div>` : '<p class="text-muted text-sm">אין רשומות עדיין</p>'}
-    </div>`;
-}
-
-// ── Announcements Tab ─────────────────────────────────────────────────────────
-function _adminBuildAnnouncements(updatesData) {
-  return `<div class="card">
-    <div style="font-weight:700;margin-bottom:1rem">📣 הודעות מערכת</div>
-    <form onsubmit="adminSaveUpdate(event)" style="display:grid;gap:.6rem;margin-bottom:1.25rem">
-      <input class="form-input" id="adm-upd-title" placeholder="כותרת ההודעה *" required style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem"/>
-      <textarea class="form-input" id="adm-upd-content" placeholder="תוכן ההודעה *" rows="3" required style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;resize:vertical"></textarea>
+    <div class="analysis-card" style="margin-bottom:1.5rem">
+      <h3 class="font-semibold mb-3">💳 שינוי תוכנית משתמש</h3>
       <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
-        <select id="adm-upd-type" style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;background:#fff">
-          <option value="new">חדש</option><option value="improved">שיפור</option><option value="fixed">תיקון</option>
+        <input id="admin-plan-email" class="form-input" placeholder="אימייל משתמש..." style="flex:1;min-width:200px;padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem"/>
+        <select id="admin-plan-select" style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;background:#fff">
+          <option value="free">Free</option>
+          <option value="early_bird">Early Bird</option>
+          <option value="starter">Starter</option>
+          <option value="pro">Pro</option>
+          <option value="agency">Agency</option>
         </select>
-        <label style="display:flex;align-items:center;gap:.35rem;font-size:.875rem;cursor:pointer">
-          <input type="checkbox" id="adm-upd-published" checked> פרסם מיד
-        </label>
-        <button type="submit" class="btn btn-primary">פרסם הודעה</button>
+        <button class="btn btn-primary" onclick="adminChangePlanByEmail()">החל שינוי</button>
       </div>
-    </form>
-    <div id="admin-updates-list">
-      ${(updatesData || []).length === 0 ? '<p class="text-muted text-sm">אין הודעות עדיין</p>'
-        : (updatesData || []).slice(0,10).map(u => `
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;padding:.6rem 0;border-bottom:1px solid #f1f5f9">
-            <div style="flex:1">
-              <div style="font-weight:600;font-size:.875rem">${u.title}</div>
-              <div class="text-muted" style="font-size:.78rem;margin-top:.15rem">${u.content.slice(0,80)}${u.content.length>80?'…':''}</div>
-              <div style="margin-top:.25rem;display:flex;gap:.4rem;flex-wrap:wrap">
-                <span class="badge ${u.type==='new'?'badge-green':u.type==='improved'?'badge-blue':'badge-yellow'}">${u.type}</span>
-                <span class="badge ${u.is_published?'badge-green':'badge-gray'}">${u.is_published?'פורסם':'טיוטה'}</span>
-              </div>
-            </div>
-            <div style="display:flex;gap:.35rem;flex-shrink:0">
-              <button class="btn btn-sm btn-secondary" onclick="adminTogglePublish('${u.id}',${!u.is_published})">${u.is_published?'הסתר':'פרסם'}</button>
-              <button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5" onclick="adminDeleteUpdate('${u.id}')">מחק</button>
-            </div>
-          </div>`).join('')}
+      <p class="text-muted" style="font-size:.78rem;margin-top:.5rem">ניתן גם ללחוץ "שנה" ישירות בטבלת המשתמשים למטה</p>
     </div>
-  </div>`;
-}
 
-// ── Admin Action Helpers ──────────────────────────────────────────────────────
-
-async function adminLoadUserDetail(userId) {
-  const modal = document.getElementById('admin-user-detail-modal');
-  if (!modal) return;
-  modal.innerHTML = `<div style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)this.innerHTML=''">
-    <div style="background:#fff;border-radius:1rem;padding:1.5rem;max-width:600px;width:100%;max-height:85vh;overflow-y:auto;position:relative">
-      <div style="text-align:center;padding:2rem"><div class="spinner"></div></div>
-    </div>
-  </div>`;
-
-  try {
-    const d = await api('GET', `admin-user?userId=${userId}`);
-    const p = d.profile || {};
-    const s = d.subscription || {};
-    const pBadge = { free:'badge-gray', early_bird:'badge-blue', starter:'badge-blue', pro:'badge-green', agency:'badge-green' };
-    const planLabel = { free:'חינמי', early_bird:'Early Bird', starter:'Starter', pro:'Pro', agency:'Agency' };
-
-    modal.innerHTML = `<div style="position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem" onclick="if(event.target===this)this.innerHTML=''">
-      <div style="background:#fff;border-radius:1rem;padding:1.5rem;max-width:620px;width:100%;max-height:85vh;overflow-y:auto;position:relative">
-        <button onclick="document.getElementById('admin-user-detail-modal').innerHTML=''"
-          style="position:absolute;top:1rem;left:1rem;background:none;border:none;font-size:1.25rem;cursor:pointer;color:#94a3b8">✕</button>
-
-        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
-          <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#8b5cf6);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem">
-            ${(p.name||p.email||'?')[0].toUpperCase()}
-          </div>
-          <div>
-            <div style="font-weight:700;font-size:1rem">${p.name||p.email||'—'}</div>
-            <div style="font-size:.83rem;color:#64748b">${p.email||'—'}</div>
-            <div style="margin-top:.25rem"><span class="badge ${pBadge[s.plan]||'badge-gray'}">${planLabel[s.plan]||s.plan||'—'}</span></div>
-          </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:1rem;font-size:.83rem">
-          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">מנוי</div><strong>${s.status||'—'}</strong></div>
-          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">תשלום</div><strong>${s.payment_status||'—'}</strong></div>
-          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">קמפיינים</div><strong>${(d.campaigns||[]).length}</strong></div>
-          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">פעילות 30 יום</div><strong>${d.usageStats?.eventsLast30d||0} אירועים</strong></div>
-          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">הצטרף</div><strong>${p.created_at ? new Date(p.created_at).toLocaleDateString('he-IL') : '—'}</strong></div>
-          <div style="background:#f8fafc;padding:.75rem;border-radius:.5rem"><div style="color:#94a3b8;font-size:.72rem">ניתוחים 30 יום</div><strong>${d.usageStats?.analysisRuns30d||0}</strong></div>
-        </div>
-
-        <div style="font-weight:700;margin-bottom:.75rem">⚡ פעולות מהירות</div>
-        <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem">
-          <select id="modal-plan-${p.id}" style="padding:.35rem .6rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.82rem;background:#fff">
-            ${['free','early_bird','starter','pro','agency'].map(pl => `<option value="${pl}"${(s.plan||'free')===pl?' selected':''}>${pl}</option>`).join('')}
+    <div class="analysis-card" style="margin-bottom:1.5rem">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold">📣 הודעות מערכת (פעמון)</h3>
+      </div>
+      <form onsubmit="adminSaveUpdate(event)" style="display:grid;gap:.6rem;margin-bottom:1rem">
+        <input class="form-input" id="adm-upd-title" placeholder="כותרת ההודעה *" required
+          style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem"/>
+        <textarea class="form-input" id="adm-upd-content" placeholder="תוכן ההודעה *" rows="3" required
+          style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;resize:vertical"></textarea>
+        <div style="display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+          <select id="adm-upd-type" style="padding:.45rem .75rem;border:1.5px solid #d1d5db;border-radius:.5rem;font-size:.875rem;background:#fff">
+            <option value="new">חדש</option>
+            <option value="improved">שיפור</option>
+            <option value="fixed">תיקון</option>
           </select>
-          <button class="btn btn-sm btn-primary" onclick="adminChangePlanModal('${p.id}')">שנה תוכנית</button>
-          ${p.is_admin ? '' : `<button class="btn btn-sm btn-secondary" onclick="adminToggleAdminStatus('${p.id}',true)">הענק Admin</button>`}
-          ${p.is_admin ? `<button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;padding:.2rem .5rem;font-size:.75rem" onclick="adminToggleAdminStatus('${p.id}',false)">הסר Admin</button>` : ''}
+          <label style="display:flex;align-items:center;gap:.35rem;font-size:.875rem;cursor:pointer">
+            <input type="checkbox" id="adm-upd-published" checked> פרסם מיד
+          </label>
+          <button type="submit" class="btn btn-primary">פרסם הודעה</button>
         </div>
-
-        ${(d.recentAuditLog||[]).length ? `<div style="font-weight:700;margin-bottom:.5rem;font-size:.85rem">📋 פעולות אחרונות</div>
-          ${d.recentAuditLog.slice(0,5).map(e => `<div style="font-size:.75rem;color:#64748b;padding:.25rem 0;border-bottom:1px solid #f1f5f9">${e.action} — ${e.created_at ? new Date(e.created_at).toLocaleString('he-IL') : ''}</div>`).join('')}` : ''}
-      </div>
-    </div>`;
-  } catch (e) {
-    modal.innerHTML = '';
-    toast(e.message || 'שגיאה בטעינת פרטי משתמש', 'error');
-  }
-}
-
-async function adminChangePlanModal(userId) {
-  const sel = document.getElementById('modal-plan-' + userId);
-  if (!sel) return;
-  if (!confirm(`שינוי תוכנית ל-${sel.value}?`)) return;
-  try {
-    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: userId, plan: sel.value });
-    toast(`✓ תוכנית שונתה ל-${sel.value}`, 'success');
-    document.getElementById('admin-user-detail-modal').innerHTML = '';
-    _adminCache = {};
-    renderAdmin({ keepScroll: true });
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function adminToggleAdminStatus(userId, makeAdmin) {
-  if (!confirm(makeAdmin ? `להעניק הרשאת Admin?` : `להסיר הרשאת Admin?`)) return;
-  try {
-    await api('POST', 'admin-user', { action: 'toggle_admin', targetUserId: userId });
-    toast(`✓ הרשאות עודכנו`, 'success');
-    document.getElementById('admin-user-detail-modal').innerHTML = '';
-    _adminCache = {};
-    renderAdmin({ keepScroll: true });
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function adminRetryJob(jobId) {
-  try {
-    await api('POST', 'admin-jobs', { action: 'retry', jobId });
-    toast('✓ Job הוחזר לתור', 'success');
-    _adminCache = {};
-    renderAdmin({ keepScroll: true });
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function adminCancelJob(jobId) {
-  if (!confirm('לבטל את התהליך?')) return;
-  try {
-    await api('POST', 'admin-jobs', { action: 'cancel', jobId });
-    toast('✓ Job בוטל', 'success');
-    _adminCache = {};
-    renderAdmin({ keepScroll: true });
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function adminQuickPlanChange() {
-  const email   = prompt('אימייל המשתמש:');
-  if (!email) return;
-  const newPlan = prompt('תוכנית חדשה (free / early_bird / starter / pro / agency):');
-  if (!newPlan) return;
-  if (!confirm(`שינוי תוכנית עבור ${email} ל-${newPlan}?`)) return;
-  try {
-    const usersRes = await api('GET', `admin-users?search=${encodeURIComponent(email)}&limit=1`);
-    const user = usersRes?.users?.[0];
-    if (!user) { toast('משתמש לא נמצא', 'error'); return; }
-    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: user.id, plan: newPlan });
-    toast(`✓ תוכנית של ${email} שונתה ל-${newPlan}`, 'success');
-    _adminCache = {};
-    renderAdmin({ keepScroll: true });
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-async function adminChangePlanInlineById(userId) {
-  const newPlan = prompt('תוכנית חדשה (free/early_bird/starter/pro/agency):');
-  if (!newPlan) return;
-  try {
-    await api('POST', 'admin-user', { action: 'change_plan', targetUserId: userId, plan: newPlan });
-    toast(`✓ תוכנית שונתה ל-${newPlan}`, 'success');
-    _adminCache = {};
-    renderAdmin({ keepScroll: true });
-  } catch (e) { toast(e.message, 'error'); }
-}
-
-function adminExportUsersCSV() {
-  const content = document.querySelector('#admin-tab-content table');
-  if (!content) { toast('אין נתונים לייצוא', 'error'); return; }
-  const rows = Array.from(content.querySelectorAll('tr')).map(tr =>
-    Array.from(tr.querySelectorAll('th,td')).map(td => '"' + td.innerText.replace(/"/g,'""').trim() + '"').join(',')
-  );
-  const csv  = rows.join('\n');
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = `users-${new Date().toISOString().slice(0,10)}.csv`; a.click();
-  URL.revokeObjectURL(url);
-  toast('✓ CSV יורד', 'success');
-}
-
-// ── Admin AI Models ───────────────────────────────────────────────────────────
-var _adminAIData = null;
-
-async function adminLoadAIModels() {
-  const el = document.getElementById('admin-ai-models-content');
-  if (!el) return;
-
-  try {
-    const data = await api('GET', 'admin-ai-models');
-    _adminAIData = data;
-    el.innerHTML = _renderAIModelsPanel(data);
-  } catch (e) {
-    el.innerHTML = `<div style="color:#ef4444;font-size:0.875rem">שגיאה בטעינת הגדרות: ${e.message}</div>`;
-  }
-}
-
-function _renderAIModelsPanel(data) {
-  if (!data?.configs) return '<div style="color:#94a3b8">אין נתונים</div>';
-
-  const { configs, availableModels, costSummary } = data;
-  const modelOptions = (availableModels || []).map(m =>
-    `<option value="${m.id}">${m.label} (${m.provider})</option>`
-  ).join('');
-
-  const taskLabels = {
-    chat: 'שיחה עם AI', quick: 'תגובה מהירה', creative: 'יצירת תוכן',
-    research: 'מחקר שוק', strategy: 'אסטרטגיה', execution: 'ביצוע',
-    qa: 'בקרת איכות', analysis: 'ניתוח נתונים', router: 'סוכן ממיין',
-  };
-
-  const costRows = configs.map(c => {
-    const taskCost  = costSummary?.byTask?.[c.task_type];
-    const costStr   = taskCost ? `$${taskCost.cost.toFixed(4)}` : '—';
-    const callsStr  = taskCost ? taskCost.calls : '—';
-    const via       = c.use_openrouter ? '🌐 OpenRouter' : '🔗 Direct API';
-    const badgeColor = c.use_openrouter ? '#6366f1' : '#0ea5e9';
-
-    return `
-    <tr style="border-bottom:1px solid #f1f5f9">
-      <td style="padding:0.75rem;font-weight:600;white-space:nowrap">${taskLabels[c.task_type] || c.task_type}</td>
-      <td style="padding:0.75rem">
-        <select onchange="adminUpdateModel('${c.task_type}','primary_model',this.value)"
-          style="width:100%;padding:0.35rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.8rem;background:#fff">
-          ${(availableModels || []).map(m =>
-            `<option value="${m.id}" ${m.id === c.primary_model ? 'selected' : ''}>${m.label}</option>`
-          ).join('')}
-        </select>
-      </td>
-      <td style="padding:0.75rem">
-        <select onchange="adminUpdateModel('${c.task_type}','fallback_model',this.value)"
-          style="width:100%;padding:0.35rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.8rem;background:#fff">
-          <option value="">ללא fallback</option>
-          ${(availableModels || []).map(m =>
-            `<option value="${m.id}" ${m.id === c.fallback_model ? 'selected' : ''}>${m.label}</option>`
-          ).join('')}
-        </select>
-      </td>
-      <td style="padding:0.75rem;text-align:center">
-        <span style="font-size:0.72rem;padding:2px 8px;border-radius:99px;background:${badgeColor}20;color:${badgeColor};white-space:nowrap">${via}</span>
-        <br>
-        <label style="display:inline-flex;align-items:center;gap:4px;font-size:0.72rem;margin-top:4px;cursor:pointer">
-          <input type="checkbox" ${c.use_openrouter ? 'checked' : ''}
-            onchange="adminUpdateModel('${c.task_type}','use_openrouter',this.checked)">
-          <span>OpenRouter</span>
-        </label>
-      </td>
-      <td style="padding:0.75rem;text-align:center">
-        <input type="number" value="${c.temperature}" min="0" max="2" step="0.1"
-          style="width:60px;padding:0.3rem;border:1px solid #e2e8f0;border-radius:6px;font-size:0.8rem;text-align:center"
-          onchange="adminUpdateModel('${c.task_type}','temperature',parseFloat(this.value))">
-      </td>
-      <td style="padding:0.75rem;text-align:center">
-        <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer">
-          <input type="checkbox" ${c.enabled ? 'checked' : ''}
-            onchange="adminUpdateModel('${c.task_type}','enabled',this.checked)">
-        </label>
-      </td>
-      <td style="padding:0.75rem;text-align:center;font-size:0.8rem;color:#64748b">${costStr}<br><span style="font-size:0.7rem">${callsStr} קריאות</span></td>
-      <td style="padding:0.75rem;text-align:center">
-        <button onclick="adminTestModel('${c.task_type}','${c.primary_model}')"
-          style="padding:0.3rem 0.6rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:0.72rem;cursor:pointer">
-          בדוק
-        </button>
-      </td>
-    </tr>`;
-  }).join('');
-
-  return `
-    <div style="margin-bottom:1rem;padding:0.875rem;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;display:flex;align-items:center;justify-between;gap:1rem;flex-wrap:wrap">
-      <div>
-        <span style="font-weight:700;color:#16a34a">💰 עלות חודשית: $${(costSummary?.totalCost30d || 0).toFixed(3)}</span>
-        <span style="color:#64748b;font-size:0.8rem;margin-right:1rem">${costSummary?.totalCalls30d || 0} קריאות ב-30 יום האחרונים</span>
-      </div>
-      <div style="font-size:0.75rem;color:#64748b">
-        שינויים נכנסים לתוקף מיידית — אין צורך ב-deploy
+      </form>
+      <div id="admin-updates-list">
+        ${(updatesData || []).length === 0
+          ? '<p class="text-muted text-sm">אין הודעות עדיין</p>'
+          : (updatesData || []).slice(0, 10).map(u => `
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;padding:.6rem 0;border-bottom:1px solid #f1f5f9">
+              <div style="flex:1">
+                <div style="font-weight:600;font-size:.875rem">${u.title}</div>
+                <div class="text-muted" style="font-size:.78rem;margin-top:.15rem">${u.content.slice(0,80)}${u.content.length>80?'…':''}</div>
+                <div style="margin-top:.25rem;display:flex;gap:.4rem;flex-wrap:wrap">
+                  <span class="badge ${u.type==='new'?'badge-green':u.type==='improved'?'badge-blue':'badge-yellow'}">${u.type}</span>
+                  <span class="badge ${u.is_published?'badge-green':'badge-gray'}">${u.is_published?'פורסם':'טיוטה'}</span>
+                  ${u.is_pinned?'<span class="badge badge-purple">📌</span>':''}
+                </div>
+              </div>
+              <div style="display:flex;gap:.35rem;flex-shrink:0">
+                <button class="btn btn-sm btn-secondary" onclick="adminTogglePublish('${u.id}',${!u.is_published})">${u.is_published?'הסתר':'פרסם'}</button>
+                <button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5" onclick="adminDeleteUpdate('${u.id}')">מחק</button>
+              </div>
+            </div>`).join('')}
       </div>
     </div>
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:0.875rem">
-        <thead>
-          <tr style="background:#f8fafc;text-align:right">
-            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600">משימה</th>
-            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600">מודל ראשי</th>
-            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600">Fallback</th>
-            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">ערוץ</th>
-            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">Temp</th>
-            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">פעיל</th>
-            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">עלות 30י'</th>
-            <th style="padding:0.6rem 0.75rem;color:#64748b;font-weight:600;text-align:center">בדיקה</th>
-          </tr>
-        </thead>
-        <tbody>${costRows}</tbody>
-      </table>
-    </div>
-    <div id="admin-model-test-result" style="margin-top:1rem;display:none"></div>`;
-}
-
-async function adminUpdateModel(taskType, field, value) {
-  try {
-    await api('PUT', 'admin-ai-models', { task_type: taskType, [field]: value });
-    showToast(`✓ ${taskType} עודכן`);
-  } catch (e) { showToast('שגיאה: ' + e.message); }
-}
-
-async function adminTestModel(taskType, model) {
-  const resultEl = document.getElementById('admin-model-test-result');
-  if (!resultEl) return;
-  resultEl.style.display = '';
-  resultEl.innerHTML = `<div style="padding:0.75rem;background:#f8fafc;border-radius:8px;color:#64748b;font-size:0.875rem">
-    <div class="spinner" style="width:16px;height:16px;display:inline-block;vertical-align:middle;margin-left:0.5rem"></div>
-    בודק מודל ${model}...
-  </div>`;
-
-  try {
-    const res = await api('POST', 'admin-ai-models/test', { model, prompt: 'אמור שלום בעברית במשפט אחד.' });
-    const ok  = res?.ok;
-    resultEl.innerHTML = `
-      <div style="padding:0.875rem;background:${ok?'#f0fdf4':'#fef2f2'};border:1px solid ${ok?'#bbf7d0':'#fecaca'};border-radius:8px">
-        <div style="font-weight:600;color:${ok?'#16a34a':'#dc2626'};margin-bottom:0.35rem">
-          ${ok ? '✓ המודל עובד' : '✗ המודל נכשל'}
-          <span style="font-weight:400;font-size:0.8rem;color:#64748b;margin-right:0.5rem">
-            ${res?.latency_ms || 0}ms | $${(res?.cost_usd || 0).toFixed(5)} | via ${res?.via || '?'}
-          </span>
-        </div>
-        ${res?.reply ? `<div style="font-size:0.875rem;color:#1e293b">"${res.reply}"</div>` : ''}
-        ${res?.error ? `<div style="font-size:0.8rem;color:#dc2626">${res.error}</div>` : ''}
-      </div>`;
-  } catch (e) {
-    resultEl.innerHTML = `<div style="padding:0.75rem;background:#fef2f2;border-radius:8px;color:#dc2626;font-size:0.875rem">שגיאה: ${e.message}</div>`;
+  `);
+  if (savedScroll > 0) {
+    requestAnimationFrame(() => {
+      const pc = document.getElementById('page-content');
+      if (pc) pc.scrollTop = savedScroll;
+    });
   }
 }
 
@@ -5566,18 +4078,19 @@ async function boot() {
         }).catch(() => {});
       }
 
-      // New user flow: no onboarding done → forced wizard
+      // Init human agent (Co-CEO chat widget + Realtime) after fresh data loads
+      initHumanAgent(session.user.id).catch(() => {});
+
+      // New user flow: no business profile + no prior session → ai-creation
       const isNewUser = !bpRes && !cached && initialPage === 'dashboard';
-      const wizardDone = (onboardingRes?.steps || {}).onboarding_wizard_done;
-      const forceWizard = isNewUser && !wizardDone;
+      if (isNewUser) state.currentPage = 'ai-creation';
 
       // Re-render only if we didn't show cached version (first-ever load)
       if (!cached || cached.userId !== session.user.id) {
-        if (!forceWizard && state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
+        if (!isNewUser && state.currentPage === 'dashboard' && initialPage !== 'dashboard') {
           state.currentPage = initialPage;
         }
         render();
-        if (forceWizard) setTimeout(() => showOnboardingWizard(), 300);
       } else {
         // Redirect to settings with right tab for OAuth callbacks
         const _qp = new URLSearchParams(window.location.search);
@@ -5618,17 +4131,15 @@ var bfsAgentTab = 'research'; // active agent tab
 var bfsResearchJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 var bfsStrategyJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 var bfsExecutionJob  = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
-var bfsAnalysisJob       = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
-var bfsOrchestrationJob  = null;  // { jobId, status, pollTimer, result }
+var bfsAnalysisJob   = null;  // { jobId, status, steps, lastStepIndex, pollTimer, reportId }
 
 function renderBusinessFromScratch() {
   const agents = [
-    { id: 'research',      icon: '🔍', label: 'מחקר',       step: 1, status: 'active', desc: 'שוק, מתחרים, קהל יעד' },
-    { id: 'strategy',      icon: '🎯', label: 'אסטרטגיה',   step: 2, status: 'active', desc: 'כיוון, זווית, הצעת ערך' },
-    { id: 'execution',     icon: '🧱', label: 'ביצוע',      step: 3, status: 'active', desc: 'מודעות, דפים, טקסטים' },
-    { id: 'qa',            icon: '🧪', label: 'בקרת איכות', step: 4, status: 'active', desc: 'בדיקה ודירוג תוצרים' },
-    { id: 'analysis',      icon: '📊', label: 'ניתוח',      step: 5, status: 'active', desc: 'דאטה אמיתי מהקמפיינים' },
-    { id: 'orchestration', icon: '🎭', label: 'אורקסטרציה', step: null, status: 'active', desc: 'ניהול כל הסוכנים ביחד' },
+    { id: 'research',   icon: '🔍', label: 'סוכן מחקר',     status: 'active',    desc: 'מחקר שוק, מתחרים ואווטר קהל יעד' },
+    { id: 'strategy',   icon: '🎯', label: 'סוכן אסטרטגיה', status: 'active',    desc: 'קובע כיוון, קהל, זווית והצעה' },
+    { id: 'execution',  icon: '🧱', label: 'סוכן ביצוע',    status: 'active',    desc: 'מייצר מודעות, דפי נחיתה וטקסטים' },
+    { id: 'qa',         icon: '🧪', label: 'סוכן QA',        status: 'active',    desc: 'בודק ומדרג את התוצרים' },
+    { id: 'analysis',   icon: '📊', label: 'סוכן ניתוח',    status: 'active',    desc: 'מנתח דאטה אמיתי מהקמפיינים' },
   ];
 
   const bp = state.businessProfile || {};
@@ -5639,11 +4150,11 @@ function renderBusinessFromScratch() {
                 border:2px solid ${bfsAgentTab === a.id ? '#6366f1' : a.status === 'soon' ? '#e2e8f0' : '#e2e8f0'};
                 border-radius:1rem;padding:1.25rem 1rem;cursor:${a.status === 'active' ? 'pointer' : 'default'};
                 opacity:${a.status === 'soon' ? '0.65' : '1'};transition:all 0.2s;text-align:center;position:relative">
-      ${a.step ? `<div style="position:absolute;top:0.6rem;right:0.6rem;width:1.3rem;height:1.3rem;border-radius:50%;background:${bfsAgentTab === a.id ? 'rgba(255,255,255,0.3)' : '#e0e7ff'};color:${bfsAgentTab === a.id ? '#fff' : '#6366f1'};font-size:0.65rem;font-weight:800;display:flex;align-items:center;justify-content:center">${a.step}</div>` : ''}
       <div style="font-size:1.8rem;margin-bottom:0.4rem">${a.icon}</div>
       <div style="font-weight:700;font-size:0.88rem;color:${bfsAgentTab === a.id ? '#fff' : '#1e293b'}">${a.label}</div>
       <div style="font-size:0.72rem;color:${bfsAgentTab === a.id ? 'rgba(255,255,255,0.8)' : '#64748b'};margin-top:0.25rem">${a.desc}</div>
       ${a.status === 'soon' ? `<div style="position:absolute;top:0.5rem;left:0.5rem;background:#e2e8f0;color:#64748b;font-size:0.6rem;font-weight:700;padding:2px 6px;border-radius:9999px">בקרוב</div>` : ''}
+      ${a.status === 'active' && bfsAgentTab !== a.id ? `<div style="position:absolute;top:0.5rem;left:0.5rem;background:#dcfce7;color:#16a34a;font-size:0.6rem;font-weight:700;padding:2px 6px;border-radius:9999px">פעיל</div>` : ''}
     </div>`).join('');
 
   const researchPanel = `
@@ -5877,23 +4388,16 @@ function renderBusinessFromScratch() {
       <p class="page-subtitle">מערכת סוכנים חכמה שבונה את כל אסטרטגיית השיווק שלך — מחקר, אסטרטגיה, ביצוע ובקרת איכות</p>
     </div>
 
-    ${localStorage.getItem('ai_disclaimer_dismissed') ? '' : `
-    <div role="note" id="ai-disclaimer-bar" style="background:#fefce8;border:1.5px solid #fde68a;border-radius:0.625rem;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.82rem;color:#713f12;display:flex;align-items:flex-start;gap:0.5rem">
-      <span style="flex-shrink:0">⚠️</span>
-      <span style="flex:1">תוצרי AI עשויים להכיל שגיאות או אי-דיוקים. יש לבדוק ולאשר כל תוכן לפני שימוש בפרסום בפועל. השימוש הוא באחריות המשתמש בלבד. <a href="/legal/terms.html#ai-disclaimer" target="_blank" rel="noopener" style="color:#92400e;text-decoration:underline">קרא עוד</a></span>
-      <button onclick="localStorage.setItem('ai_disclaimer_dismissed','1');document.getElementById('ai-disclaimer-bar')?.remove()" aria-label="סגור הודעה" style="background:none;border:none;cursor:pointer;font-size:1rem;color:#92400e;flex-shrink:0;padding:0;line-height:1">✕</button>
-    </div>`}
-
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1rem">
+    <div style="display:none">
       ${agentCards}
     </div>
 
-    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 1rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:0.75rem;margin-bottom:0.5rem">
+    <div style="display:none">
       <span style="font-size:1rem">💡</span>
       <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. כל 5 הסוכנים פעילים.</span>
     </div>
 
-    ${bfsAgentTab === 'strategy' ? strategyPanel : bfsAgentTab === 'execution' ? executionPanel : bfsAgentTab === 'qa' ? qaPanel : bfsAgentTab === 'analysis' ? _buildAnalysisPanel() : bfsAgentTab === 'orchestration' ? renderOrchestrationPanel() : researchPanel}
+    ${bfsAgentTab === 'strategy' ? strategyPanel : bfsAgentTab === 'execution' ? executionPanel : bfsAgentTab === 'qa' ? qaPanel : bfsAgentTab === 'analysis' ? _buildAnalysisPanel() : researchPanel}
   `);
 
   // Restore active job if exists
@@ -5907,8 +4411,6 @@ function renderBusinessFromScratch() {
     setTimeout(() => restoreQaJob(), 50);
   } else if (bfsAgentTab === 'analysis') {
     setTimeout(() => restoreAnalysisJob(), 50);
-  } else if (bfsAgentTab === 'orchestration') {
-    if (bfsOrchestrationJob) setTimeout(() => _orchStartPolling(bfsOrchestrationJob), 100);
   }
 }
 
@@ -7624,710 +6126,336 @@ async function restoreAnalysisJob() {
   } catch {}
 }
 
-// ── Orchestration Panel ───────────────────────────────────────────────────────
-function renderOrchestrationPanel() {
-  const campaigns = state.campaigns || [];
-  const campaignOptions = campaigns.length
-    ? campaigns.map(c => `<option value="${c.id}">${c.name || c.id}</option>`).join('')
-    : '<option value="">אין קמפיינים — הוסף קמפיין תחילה</option>';
+// ══════════════════════════════════════════════════════════════════════════════
+//  HUMAN AGENT — Co-CEO Chat Widget
+//  Uses the existing #chat-trigger / #chat-panel CSS from chat.css
+//  Replaces campaigner-chat with the full human-agent-chat endpoint
+// ══════════════════════════════════════════════════════════════════════════════
 
-  return `
-    <div class="card" style="margin-top:1.5rem">
-      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem">
-        <span style="font-size:2rem">🎭</span>
-        <div>
-          <div style="font-weight:800;font-size:1.15rem;color:#1e293b">שכבת אורקסטרציה</div>
-          <div style="font-size:0.82rem;color:#64748b">ניהול סשן מרובה-סוכנים: מחקר → אסטרטגיה → ביצוע → QA → ניתוח בתיאום מלא</div>
-        </div>
+const HA_THINKING = [
+  'מעבד את הבקשה...',
+  'בודק את הנתונים...',
+  'מנתח ומחשב...',
+  'מתייעץ עם הצוות...',
+  'כמעט מוכן...',
+];
+
+const HA_AGENT_LABELS = {
+  research:  '🔍 סוכן המחקר',
+  strategy:  '🎯 סוכן האסטרטגיה',
+  execution: '🧱 סוכן הביצוע',
+  qa:        '🧪 סוכן ה-QA',
+  analysis:  '📊 סוכן הניתוח',
+};
+
+// Avatar paths — replace the SVG files with real photos whenever ready.
+// Supported formats: .svg / .png / .jpg  (120×120px recommended)
+const HA_AVATARS = {
+  male:   '/assets/avatar-male.svg',
+  female: '/assets/avatar-female.svg',
+};
+
+// Stuck-user hints per page — shown after 3 min of inactivity on that page
+const HA_STUCK_HINTS = {
+  campaigns:             'נמצאים בקמפיינים כבר כמה דקות — אם אתה מתלבט על משהו, תגיד לי ואני עוזר.',
+  'ai-creation':         'בונה משהו? אם נתקעת בשלב כלשהו — שאל אותי ואני מדריך אותך צעד-צעד.',
+  'business-from-scratch': 'עובדים על הבסיס? אם לא ברור מאיפה להתחיל — בוא נחליט יחד.',
+  settings:              'מחפש הגדרה מסוימת? פשוט שאל — אני אראה לך בדיוק איפה זה.',
+  leads:                 'מסתכל על הלידים? אם תרצה ניתוח מהיר — אגיד לך מה שווה לשים לב.',
+  insights:              'מסתכל על הנתונים? אם הגרפים לא מספרים סיפור ברור — תן לי לפרש.',
+  integrations:          'מחבר אינטגרציה? אם יש בעיה טכנית — אני יכול לפתוח פנייה ליעקב.',
+  billing:               'מסתכל על החיוב? אם יש שאלה על החבילות — שאל אותי.',
+};
+
+let haState = {
+  open: false, messages: [], loading: false,
+  welcomed: false, genderPref: 'male',
+  realtimeChannel: null, thinkingMsg: '',
+};
+
+let haPageTimer    = null;
+let haPageCurrent  = null;
+
+function haAgentIcon() { return haState.genderPref === 'female' ? '👩‍💼' : '🤵'; }
+function haAgentName() { return haState.genderPref === 'female' ? 'השותפה שלך' : 'השותף שלך'; }
+
+function haAvatarHtml(size = '100%') {
+  const src      = HA_AVATARS[haState.genderPref] || HA_AVATARS.male;
+  const fallback = haAgentIcon();
+  return `<img src="${src}" alt="agent"
+    style="width:${size};height:${size};object-fit:cover;border-radius:50%;display:block"
+    onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${fallback}',style:'font-size:1.1rem'}))">`;
+}
+
+function haInjectWidget() {
+  document.getElementById('chat-trigger')?.remove();
+  document.getElementById('chat-panel')?.remove();
+
+  const icon = haAgentIcon();
+  const name = haAgentName();
+
+  const btn = document.createElement('button');
+  btn.id = 'chat-trigger';
+  btn.setAttribute('aria-label', 'פתח שיחה עם השותף שלך');
+  btn.style.overflow = 'hidden';
+  btn.innerHTML = `${haAvatarHtml('100%')}<span class="chat-badge" id="ha-badge"></span>`;
+  btn.onclick = haToggle;
+  document.body.appendChild(btn);
+
+  const panel = document.createElement('div');
+  panel.id = 'chat-panel';
+  panel.innerHTML = `
+    <div class="chat-header">
+      <div class="chat-avatar" style="overflow:hidden;padding:0">${haAvatarHtml('100%')}</div>
+      <div class="chat-header-info">
+        <div class="chat-header-name">${name}</div>
+        <div class="chat-header-sub">Co-CEO • מחובר</div>
       </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
-        <div>
-          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">קמפיין</label>
-          <select id="orch-campaign-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
-            ${campaignOptions}
-          </select>
-        </div>
-        <div>
-          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">פעולה</label>
-          <select id="orch-action-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
-            <option value="analysis">ניתוח ביצועים</option>
-            <option value="research">מחקר שוק</option>
-            <option value="strategy">בניית אסטרטגיה</option>
-            <option value="execution">ביצוע נכסים</option>
-            <option value="qa">בדיקת QA</option>
-          </select>
-        </div>
+      <div class="chat-status-dot"></div>
+      <div class="chat-header-actions">
+        <button class="chat-header-btn" onclick="haToggle()" title="סגור">✕</button>
       </div>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
-        <div>
-          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">מטרת קמפיין</label>
-          <select id="orch-goal-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
-            <option value="leads">לידים</option>
-            <option value="sales">מכירות</option>
-            <option value="followers">עוקבים</option>
-            <option value="conversion_improvement">שיפור המרה</option>
-          </select>
-        </div>
-        <div>
-          <label style="font-size:0.8rem;font-weight:600;color:#374151;display:block;margin-bottom:0.4rem">רמת אוטומציה</label>
-          <select id="orch-auto-select" style="width:100%;padding:0.5rem 0.75rem;border:1.5px solid #e2e8f0;border-radius:0.5rem;font-size:0.85rem">
-            <option value="semi" selected>חצי-אוטומטי (מומלץ)</option>
-            <option value="auto">אוטומטי מלא</option>
-            <option value="manual">ידני</option>
-          </select>
-        </div>
-      </div>
-
-      <button class="btn btn-gradient w-full" onclick="startOrchestration()"
-              style="background:linear-gradient(135deg,#7c3aed,#4f46e5)">
-        🎭 הפעל אורקסטרציה
-      </button>
-
-      <div id="orch-panel-area" style="display:none;margin-top:1.5rem"></div>
+    </div>
+    <div class="chat-messages" id="ha-messages"></div>
+    <div class="chat-input-bar">
+      <textarea class="chat-input" id="ha-input" placeholder="כתוב הודעה..." rows="1"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();haSubmit()}"
+        oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"></textarea>
+      <button class="chat-send-btn" id="ha-send-btn" onclick="haSubmit()" title="שלח">↑</button>
     </div>`;
+  document.body.appendChild(panel);
 }
 
-async function startOrchestration() {
-  const campaignId      = document.getElementById('orch-campaign-select')?.value;
-  const action          = document.getElementById('orch-action-select')?.value || 'analysis';
-  const goalType        = document.getElementById('orch-goal-select')?.value || 'leads';
-  const automationLevel = document.getElementById('orch-auto-select')?.value || 'semi';
+function haRenderMessages() {
+  const container = document.getElementById('ha-messages');
+  if (!container) return;
+  const icon = haAgentIcon();
 
-  if (!campaignId) { toast('בחר קמפיין', 'error'); return; }
-
-  const area = document.getElementById('orch-panel-area');
-  if (!area) return;
-  area.style.display = 'block';
-  area.innerHTML = `<div style="text-align:center;padding:1.5rem;color:#7c3aed;font-size:0.9rem;animation:pulse 1.5s infinite">🎭 מפעיל אורקסטרציה...</div>`;
-
-  try {
-    const token = state.accessToken;
-    const res = await fetch(`${CONFIG.apiBase}/orchestrate-start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        campaignId,
-        action,
-        automationLevel,
-        goal: { type: goalType, target: 100, timeframe: '30d', metric: goalType },
-        analysisData: action === 'analysis' ? {
-          source: 'meta',
-          campaign: { name: campaignId, objective: goalType, currency: 'ILS' }
-        } : null,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) { toast(data.error || 'שגיאה בהפעלת אורקסטרציה', 'error'); return; }
-
-    bfsOrchestrationJob = { jobId: data.jobId, status: 'pending', pollTimer: null, result: null };
-    _orchLog('⚙️ אורקסטרציה התחילה — jobId: ' + data.jobId, 'info');
-    _orchStartPolling(data.jobId);
-  } catch (e) {
-    toast('שגיאה: ' + e.message, 'error');
+  if (!haState.messages.length && !haState.loading) {
+    container.innerHTML = `
+      <div class="chat-welcome">
+        <div class="chat-welcome-icon">${icon}</div>
+        <h3>היי! אני כאן 👋</h3>
+        <p>השותף העסקי שלך. שאל אותי כל דבר — אני מנהל הכל מאחורי הקלעים.</p>
+      </div>`;
+    return;
   }
-}
 
-function _orchLog(message, type = 'info') {
-  const area = document.getElementById('orch-panel-area');
-  if (!area) return;
-  const colors = { info: '#7c3aed', success: '#10b981', error: '#ef4444', warn: '#f59e0b' };
-  let box = area.querySelector('.orch-log-box');
-  if (!box) {
-    area.innerHTML = `<div class="orch-log-box" style="background:#faf5ff;border:1.5px solid #e9d5ff;border-radius:0.75rem;padding:1rem;max-height:320px;overflow-y:auto;font-family:monospace;font-size:0.78rem"></div>`;
-    box = area.querySelector('.orch-log-box');
-  }
-  const ts = new Date().toLocaleTimeString('he-IL');
-  box.innerHTML += `<div style="color:${colors[type]};padding:2px 0">[${ts}] ${message}</div>`;
-  box.scrollTop = box.scrollHeight;
-}
+  const agentAvatar = `<div class="chat-msg-icon" style="overflow:hidden;padding:0;background:none">${haAvatarHtml('100%')}</div>`;
 
-function _orchStartPolling(jobId) {
-  if (bfsOrchestrationJob?.pollTimer) clearInterval(bfsOrchestrationJob.pollTimer);
-  bfsOrchestrationJob.pollTimer = setInterval(() => _orchPoll(jobId), 3000);
-}
-
-async function _orchPoll(jobId) {
-  try {
-    const token = state.accessToken;
-    const res = await fetch(`${CONFIG.apiBase}/orchestrate-status?jobId=${jobId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
-    if (!res.ok) return;
-
-    if (data.status === 'running' && bfsOrchestrationJob?.status !== 'running') {
-      if (bfsOrchestrationJob) bfsOrchestrationJob.status = 'running';
-      _orchLog('🔄 אורקסטרציה רצה...', 'info');
+  container.innerHTML = haState.messages.map(m => {
+    if (m.role === 'system') {
+      return `<div style="text-align:center;font-size:0.7rem;color:#94a3b8;padding:0.2rem 0.75rem;background:#f1f5f9;border-radius:9999px;align-self:center;margin:0.1rem auto;max-width:90%">${m.content}</div>`;
     }
+    return `
+      <div class="chat-msg ${m.role}">
+        ${m.role === 'user' ? '<div class="chat-msg-icon">👤</div>' : agentAvatar}
+        <div class="chat-msg-bubble">${haFmt(m.content)}</div>
+      </div>`;
+  }).join('');
 
-    if (data.status === 'completed') {
-      clearInterval(bfsOrchestrationJob?.pollTimer);
-      if (bfsOrchestrationJob) { bfsOrchestrationJob.status = 'completed'; bfsOrchestrationJob.result = data.result; }
-      _orchLog('✅ האורקסטרציה הושלמה', 'success');
-      _orchRenderResult(data);
-    } else if (data.status === 'failed') {
-      clearInterval(bfsOrchestrationJob?.pollTimer);
-      if (bfsOrchestrationJob) bfsOrchestrationJob.status = 'failed';
-      _orchLog('❌ שגיאה: ' + (data.error || 'כשל לא ידוע'), 'error');
+  if (haState.loading) {
+    container.innerHTML += `
+      <div class="chat-typing" id="ha-typing">
+        <div class="chat-typing-icon" style="overflow:hidden;padding:0;background:none">${haAvatarHtml('100%')}</div>
+        <div class="chat-typing-bubble">
+          <span id="ha-thinking-text" style="font-size:0.78rem;color:#64748b">${haState.thinkingMsg || 'חושב...'}</span>
+          <div class="chat-typing-dots"><span></span><span></span><span></span></div>
+        </div>
+      </div>`;
+  }
+
+  container.scrollTop = container.scrollHeight;
+}
+
+function haFmt(text) {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+}
+
+function haToggle() {
+  const panel = document.getElementById('chat-panel');
+  if (!panel) return;
+  haState.open = !haState.open;
+  panel.classList.toggle('open', haState.open);
+  if (haState.open) {
+    document.getElementById('ha-badge')?.classList.remove('visible');
+    // Load any proactive messages that arrived while chat was closed
+    if (!haState.welcomed) {
+      haState.welcomed = true;
+      haFetchWelcome();
+    } else {
+      haLoadProactiveMessages();
+    }
+    haRenderMessages();
+    setTimeout(() => document.getElementById('ha-input')?.focus(), 300);
+  }
+}
+
+// Pull proactive messages stored by the scheduler into local state
+async function haLoadProactiveMessages() {
+  try {
+    const res = await api('GET', 'human-agent-chat?load_proactive=1').catch(() => null);
+    if (res?.proactiveMessages?.length) {
+      res.proactiveMessages.forEach(m => {
+        if (!haState.messages.find(x => x.ts === m.ts)) {
+          haState.messages.push({ role: 'assistant', content: m.content, ts: m.ts });
+        }
+      });
+      haRenderMessages();
     }
   } catch {}
 }
 
-function _orchRenderResult(data) {
-  const area = document.getElementById('orch-panel-area');
-  if (!area) return;
-  const result = data.result || {};
-  const state_val = result.state || 'unknown';
-  const summary   = result.summary || 'הושלם';
-  const nextAction = result.nextAction || {};
-  const pending = (result.pendingApprovals || []).length;
+async function haFetchWelcome() {
+  haState.loading = true;
+  haState.thinkingMsg = 'מתחבר...';
+  haRenderMessages();
 
-  const approvalSection = pending > 0 ? `
-    <div style="margin-top:1rem;padding:1rem;background:#fef3c7;border:1.5px solid #f59e0b;border-radius:0.75rem">
-      <div style="font-weight:700;color:#92400e;margin-bottom:0.5rem">⚠️ ${pending} בקשת אישור ממתינה</div>
-      ${(result.pendingApprovals || []).map(card => `
-        <div style="background:#fff;border-radius:0.5rem;padding:0.75rem;margin-top:0.5rem">
-          <div style="font-weight:600;color:#1e293b">${card.solution || ''}</div>
-          <div style="font-size:0.78rem;color:#64748b;margin-top:0.25rem">${card.why || ''}</div>
-          <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.25rem">סיכון: ${card.riskLevel || ''} | סוכן: ${card.agent || ''}</div>
-        </div>
-      `).join('')}
-    </div>` : '';
+  const userId    = state.user?.id;
+  const visitKey  = userId ? `ha_visits_${userId}` : null;
+  const visitNum  = visitKey ? parseInt(localStorage.getItem(visitKey) || '1') : 1;
 
-  const box = area.querySelector('.orch-log-box');
-  if (box) {
-    box.insertAdjacentHTML('afterend', `
-      <div style="margin-top:1rem;padding:1.25rem;background:linear-gradient(135deg,#f5f3ff,#ede9fe);border:1.5px solid #c4b5fd;border-radius:0.75rem">
-        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem">
-          <span style="font-size:1.5rem">🎭</span>
-          <div style="font-weight:700;font-size:1rem;color:#4c1d95">תוצאת האורקסטרציה</div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem">
-          <div style="background:#fff;border-radius:0.5rem;padding:0.75rem;text-align:center">
-            <div style="font-size:0.72rem;color:#64748b;margin-bottom:0.2rem">מצב</div>
-            <div style="font-weight:700;color:#7c3aed;font-size:0.9rem">${state_val}</div>
-          </div>
-          <div style="background:#fff;border-radius:0.5rem;padding:0.75rem;text-align:center">
-            <div style="font-size:0.72rem;color:#64748b;margin-bottom:0.2rem">הפעולה הבאה</div>
-            <div style="font-weight:700;color:#4f46e5;font-size:0.85rem">${nextAction.type || '—'}</div>
-          </div>
-        </div>
-        <div style="margin-top:0.75rem;font-size:0.82rem;color:#374151;background:#fff;border-radius:0.5rem;padding:0.75rem">${summary}</div>
-        ${approvalSection}
-      </div>
-    `);
+  try {
+    const res = await api('POST', 'human-agent-chat', { trigger: 'welcome', visit_number: visitNum });
+    if (res.reply) haState.messages.push({ role: 'assistant', content: res.reply });
+    if (res.meta?.genderPreference) { haState.genderPref = res.meta.genderPreference; haInjectWidget(); }
+  } catch {
+    haState.messages.push({ role: 'assistant', content: 'היי! אני השותף שלך. שמח שהגעת 😊' });
+  } finally {
+    haState.loading = false;
+    haRenderMessages();
+    if (!haState.open) document.getElementById('ha-badge')?.classList.add('visible');
   }
 }
 
-// ── Barrel Effect + Campaign Score ───────────────────────────────────────────
-async function loadBarrelAndScore() {
-  if (!state.currentCampaignId && !state.campaigns?.[0]?.id) return;
-  const campaignId = state.currentCampaignId || state.campaigns[0]?.id;
+async function haSubmit() {
+  const input = document.getElementById('ha-input');
+  const text  = (input?.value || '').trim();
+  if (!text || haState.loading) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+
+  haState.messages.push({ role: 'user', content: text });
+  haState.loading     = true;
+  haState.thinkingMsg = HA_THINKING[0];
+  haRenderMessages();
+
+  let ti = 0;
+  const thinkTimer = setInterval(() => {
+    ti = Math.min(ti + 1, HA_THINKING.length - 1);
+    haState.thinkingMsg = HA_THINKING[ti];
+    const el = document.getElementById('ha-thinking-text');
+    if (el) el.textContent = haState.thinkingMsg;
+  }, 3000);
+
   try {
-    const res = await api('GET', `campaign-score?campaignId=${campaignId}`);
-    if (!res || res.empty) return;
+    const res = await api('POST', 'human-agent-chat', { message: text });
+    clearInterval(thinkTimer);
 
-    // Score card
-    const scoreCard = document.getElementById('score-card');
-    if (scoreCard) {
-      const s = res.score;
-      const color = s >= 70 ? '#22c55e' : s >= 40 ? '#f59e0b' : '#ef4444';
-      scoreCard.style.display = '';
-      scoreCard.innerHTML = `
-        <div class="card-title flex items-center justify-between">
-          <span>ציון קמפיין</span>
-          <span style="font-size:1.4rem;font-weight:800;color:${color}">${s}/100</span>
-        </div>
-        <div style="background:#f1f5f9;border-radius:999px;height:8px;margin-bottom:0.75rem">
-          <div style="width:${s}%;height:8px;border-radius:999px;background:${color};transition:width 0.6s"></div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;text-align:center;font-size:0.75rem">
-          ${[['CTR', res.ctr_score],['גלילה', res.scroll_score],['טופס', res.form_score],['המרה', res.conversion_score]].map(([l,v])=>`
-            <div style="padding:0.4rem;background:${v>=70?'#dcfce7':v>=40?'#fef3c7':'#fee2e2'};border-radius:8px">
-              <div style="font-weight:700;color:${v>=70?'#16a34a':v>=40?'#d97706':'#dc2626'}">${v}</div>
-              <div style="color:#64748b">${l}</div>
-            </div>`).join('')}
-        </div>
-        ${res.benchmark ? `<div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid #e2e8f0">
-          <div style="font-size:0.7rem;color:#94a3b8;margin-bottom:0.4rem">השוואה לממוצע בתעשייה:</div>
-          <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-            ${Object.entries(res.benchmark).map(([k,b])=>{
-              const labels={ctr:'CTR',scroll:'גלילה',conversion:'המרה'};
-              const better = b.yours >= b.good;
-              const same   = b.yours >= b.avg;
-              return `<span style="font-size:0.7rem;padding:2px 8px;border-radius:99px;background:${better?'#dcfce7':same?'#fef3c7':'#fee2e2'};color:${better?'#16a34a':same?'#d97706':'#dc2626'}">
-                ${labels[k]||k}: ${better?'↑ מעל ממוצע':same?'≈ ממוצע':'↓ מתחת ממוצע'}
-              </span>`;
-            }).join('')}
-          </div>
-        </div>` : ''}
-        <button onclick="shareResult('score','${campaignId}','ציון הקמפיין שלי',{score:${res.score}})" style="margin-top:0.75rem;padding:0.4rem 0.875rem;background:none;border:1px solid #e2e8f0;border-radius:8px;font-size:0.75rem;cursor:pointer;color:#64748b">
-          📤 שתף תוצאות
-        </button>`;
+    if (res.reply) haState.messages.push({ role: 'assistant', content: res.reply });
+
+    if (res.toolsUsed?.length) {
+      const used = res.toolsUsed
+        .map(t => HA_AGENT_LABELS[t] || null)
+        .filter(Boolean);
+      if (used.length) haState.messages.push({ role: 'system', content: '⚙️ ' + used.join(' → ') + ' פעלו מאחורי הקלעים' });
     }
 
-    // Barrel card
-    const barrelCard = document.getElementById('barrel-card');
-    if (barrelCard && res.barrel) {
-      const b = res.barrel;
-      barrelCard.style.display = '';
-      barrelCard.innerHTML = `
-        <div class="card-title" style="color:#dc2626">החוליה החלשה שלך</div>
-        <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-          <div style="flex:1;min-width:200px">
-            <div style="font-weight:600;margin-bottom:0.25rem">${b.label}</div>
-            <div style="font-size:0.8rem;color:#64748b">ציון: ${b.score}/100 — זה מה שמגביל את הקמפיין כולו</div>
-          </div>
-          <button class="btn btn-primary" style="width:auto;white-space:nowrap"
-            onclick="fixBarrelWithAI('${campaignId}','${b.action}')">
-            ${b.cta} →
-          </button>
-        </div>`;
+    if (res.meta?.genderPreference && res.meta.genderPreference !== haState.genderPref) {
+      haState.genderPref = res.meta.genderPreference;
+      haInjectWidget();
     }
-  } catch (e) { console.warn('[barrelScore]', e.message); }
-}
-
-async function fixBarrelWithAI(campaignId, action) {
-  state.currentCampaignId = campaignId;
-  if (action === 'rewrite_ad' || action === 'optimize_cta') {
-    navigate('business-from-scratch');
-    setTimeout(() => { bfsAgentTab = 'execution'; renderBusinessFromScratch(); }, 300);
-  } else if (action === 'rewrite_landing') {
-    navigate('ai-creation');
-  } else if (action === 'optimize_form') {
-    navigate('business-from-scratch');
-    setTimeout(() => { bfsAgentTab = 'qa'; renderBusinessFromScratch(); }, 300);
+  } catch (err) {
+    clearInterval(thinkTimer);
+    haState.messages.push({ role: 'assistant', content: 'מצטער, הייתה שגיאה. ננסה שוב?' });
+  } finally {
+    haState.loading = false;
+    haRenderMessages();
   }
 }
 
-// ── Share (WhatsApp / link) ───────────────────────────────────────────────────
-async function shareResult(shareType, resourceId, title, previewData) {
-  // Show loading modal immediately
-  const modalId = 'share-modal-' + Date.now();
-  const overlay = document.createElement('div');
-  overlay.id = modalId;
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9997;display:flex;align-items:center;justify-content:center;padding:1rem';
-  overlay.innerHTML = `
-    <div style="background:#fff;border-radius:1.25rem;padding:2rem;max-width:380px;width:100%;text-align:center;direction:rtl;position:relative">
-      <button onclick="document.getElementById('${modalId}').remove()" style="position:absolute;top:1rem;left:1rem;background:none;border:none;font-size:1.25rem;cursor:pointer;color:#94a3b8">✕</button>
-      <div style="font-weight:700;font-size:1.1rem;margin-bottom:1.5rem">📤 שיתוף תוצאות</div>
-      <div id="${modalId}-body" style="display:flex;align-items:center;justify-content:center;gap:0.5rem;color:#64748b;min-height:80px">
-        <div class="spinner" style="width:20px;height:20px;border-width:2px;border-color:#e2e8f0;border-top-color:#6366f1"></div>
-        יוצר קישור...
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  try {
-    const res = await api('POST', 'share-create', { shareType, resourceId, title, previewData });
-    if (!res?.ok) {
-      document.getElementById(modalId)?.remove();
-      showToast('שגיאה ביצירת קישור שיתוף');
-      return;
+function haHandleEvent(eventType, payload) {
+  if (eventType === 'highlight') {
+    const el = document.querySelector(payload.selector);
+    if (el) {
+      el.style.transition = 'box-shadow 0.3s, outline 0.3s';
+      el.style.boxShadow  = '0 0 0 3px #6366f1, 0 0 24px rgba(99,102,241,0.5)';
+      el.style.outline    = '2px solid #6366f1';
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => { el.style.boxShadow = ''; el.style.outline = ''; }, payload.duration_ms || 4000);
     }
-
-    const bodyEl = document.getElementById(`${modalId}-body`);
-    if (bodyEl) bodyEl.innerHTML = `
-      <div style="display:flex;flex-direction:column;gap:0.75rem;width:100%">
-        <a href="${res.whatsappUrl}" target="_blank" rel="noopener"
-           style="display:flex;align-items:center;justify-content:center;gap:0.5rem;padding:0.875rem;background:#25d366;color:#fff;border-radius:12px;text-decoration:none;font-weight:600">
-          💬 שלח בוואטסאפ
-        </a>
-        <button onclick="navigator.clipboard.writeText('${res.url}').then(()=>{showToast('הקישור הועתק!');document.getElementById('${modalId}').remove()})"
-          style="padding:0.875rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;cursor:pointer;font-weight:600;color:#1e293b">
-          📋 העתק קישור
-        </button>
-        <div style="font-size:0.72rem;color:#94a3b8;padding:0.5rem;background:#f8fafc;border-radius:8px;word-break:break-all">${res.url}</div>
-      </div>`;
-  } catch (e) {
-    document.getElementById(modalId)?.remove();
-    showToast('שגיאה: ' + e.message);
+    if (payload.label) {
+      haState.messages.push({ role: 'system', content: `🎯 מסמן: ${payload.label}` });
+      haRenderMessages();
+    }
+  } else if (eventType === 'navigate') {
+    if (payload.page) {
+      navigate(payload.page);
+      if (payload.message) {
+        haState.messages.push({ role: 'system', content: `📍 עוברים ל-${payload.page}` });
+        haRenderMessages();
+      }
+    }
   }
 }
 
-function showToast(msg) {
-  var t = document.createElement('div');
-  t.textContent = msg;
-  t.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#1e293b;color:#fff;padding:0.75rem 1.25rem;border-radius:12px;font-size:0.875rem;z-index:9999;animation:fadeIn 0.2s';
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 3000);
+function haInitRealtime(userId) {
+  if (haState.realtimeChannel) return;
+  haState.realtimeChannel = sb
+    .channel(`agent_events:${userId}`)
+    .on('broadcast', { event: '*' }, ({ event: t, payload: p }) => haHandleEvent(t, p))
+    .subscribe();
 }
 
-// ── Team management ───────────────────────────────────────────────────────────
-async function teamInvite() {
-  const emailEl = document.getElementById('team-email-input');
-  const roleEl  = document.getElementById('team-role-select');
-  if (!emailEl || !emailEl.value.trim()) { showToast('הכנס כתובת אימייל'); return; }
-
-  const email = emailEl.value.trim();
-  const role  = roleEl?.value || 'viewer';
-
-  try {
-    const res = await api('POST', 'team-invite', { email, role });
-    if (res?.ok) {
-      emailEl.value = '';
-      showToast(`הזמנה נשלחה ל-${email} ✓`);
-      teamLoadMembers();
+function haStartPageTimer(page) {
+  clearTimeout(haPageTimer);
+  haPageCurrent = page;
+  const hint = HA_STUCK_HINTS[page];
+  if (!hint) return;
+  haPageTimer = setTimeout(() => {
+    if (haState.loading) return;
+    haState.messages.push({ role: 'assistant', content: hint });
+    if (!haState.open) {
+      document.getElementById('ha-badge')?.classList.add('visible');
     } else {
-      showToast(res?.error || 'שגיאה בשליחת הזמנה');
+      haRenderMessages();
     }
-  } catch (e) { showToast('שגיאה: ' + e.message); }
+  }, 3 * 60 * 1000);
 }
 
-async function teamLoadMembers() {
-  const listEl = document.getElementById('team-members-list');
-  if (!listEl) return;
+async function initHumanAgent(userId) {
+  haState = { open: false, messages: [], loading: false, welcomed: false, genderPref: 'male', realtimeChannel: null, thinkingMsg: '' };
+  haInjectWidget();
+  haInitRealtime(userId);
 
-  try {
-    const res = await api('GET', 'team-invite');
-    if (!res?.members?.length) {
-      listEl.innerHTML = '<div style="color:#94a3b8;font-size:0.875rem;text-align:center;padding:1rem">אין חברי צוות עדיין</div>';
-      return;
+  // Track visits per user — auto-open chat for first 2 visits
+  const visitKey   = `ha_visits_${userId}`;
+  const visitCount = parseInt(localStorage.getItem(visitKey) || '0') + 1;
+  localStorage.setItem(visitKey, String(visitCount));
+  const isEarlyVisit = visitCount <= 2;
+
+  setTimeout(async () => {
+    if (!haState.welcomed) {
+      haState.welcomed = true;
+
+      // First 2 visits: open the panel immediately so user sees the welcome
+      if (isEarlyVisit) {
+        haState.open = true;
+        document.getElementById('chat-panel')?.classList.add('open');
+      }
+
+      await haFetchWelcome();
     }
-    const roleLabel = { admin: 'מנהל', viewer: 'צופה', owner: 'בעלים' };
-    const statusColor = { pending: '#f59e0b', active: '#22c55e', removed: '#94a3b8' };
-    const statusLabel = { pending: 'ממתין', active: 'פעיל', removed: 'הוסר' };
-    listEl.innerHTML = res.members.map(m => `
-      <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 0;border-bottom:1px solid #f1f5f9">
-        <div style="width:36px;height:36px;background:#6366f120;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#6366f1;font-size:0.875rem">
-          ${m.invited_email[0].toUpperCase()}
-        </div>
-        <div style="flex:1">
-          <div style="font-size:0.875rem;font-weight:600">${m.invited_email}</div>
-          <div style="font-size:0.75rem;color:#64748b">${roleLabel[m.role] || m.role}</div>
-        </div>
-        <span style="font-size:0.7rem;padding:2px 8px;border-radius:99px;background:${statusColor[m.status] || '#94a3b8'}20;color:${statusColor[m.status] || '#94a3b8'}">
-          ${statusLabel[m.status] || m.status}
-        </span>
-        <button onclick="teamRemoveMember('${m.id}')"
-          style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1rem;padding:0.25rem" title="הסר">✕</button>
-      </div>`).join('');
-  } catch { listEl.innerHTML = '<div style="color:#ef4444;font-size:0.875rem;text-align:center;padding:1rem">שגיאה בטעינת הרשימה</div>'; }
-}
-
-async function teamRemoveMember(memberId) {
-  if (!confirm('להסיר חבר צוות זה?')) return;
-  try {
-    await api('DELETE', `team-invite?memberId=${memberId}`);
-    showToast('חבר הצוות הוסר');
-    teamLoadMembers();
-  } catch (e) { showToast('שגיאה: ' + e.message); }
-}
-
-// ── Achievements popup ────────────────────────────────────────────────────────
-const ACHIEVEMENT_META = {
-  campaign_pro:   { icon: '🏆', title: 'קמפיין מקצועי', desc: 'הגעת לציון 80+ בקמפיין שלך!' },
-  first_lead:     { icon: '🎯', title: 'ליד ראשון', desc: 'ההמרה הראשונה שלך עלתה!' },
-  scroll_master:  { icon: '📜', title: 'Scroll Master', desc: '70% מהגולשים גוללים לעומק הדף!' },
-  onboarding_done:{ icon: '🚀', title: 'התחלה!', desc: 'השלמת את ההגדרה הראשונית של החשבון' },
-};
-
-var _shownAchievements = new Set(JSON.parse(localStorage.getItem('_shown_ach') || '[]'));
-
-function showAchievementPopup(achievementId) {
-  if (_shownAchievements.has(achievementId)) return;
-  _shownAchievements.add(achievementId);
-  localStorage.setItem('_shown_ach', JSON.stringify([..._shownAchievements]));
-
-  const meta = ACHIEVEMENT_META[achievementId] || { icon: '⭐', title: 'הישג חדש!', desc: achievementId };
-  const popup = document.createElement('div');
-  popup.style.cssText = 'position:fixed;bottom:80px;right:24px;background:linear-gradient(135deg,#1e293b,#0f172a);border:1px solid #6366f1;color:#fff;padding:1rem 1.25rem;border-radius:16px;z-index:9998;max-width:280px;box-shadow:0 8px 32px rgba(99,102,241,0.3);animation:slideIn 0.4s cubic-bezier(0.34,1.56,0.64,1)';
-  popup.innerHTML = `
-    <div style="display:flex;align-items:center;gap:0.75rem">
-      <div style="font-size:2rem">${meta.icon}</div>
-      <div>
-        <div style="font-size:0.7rem;color:#6366f1;font-weight:700;text-transform:uppercase;letter-spacing:0.05em">הישג חדש!</div>
-        <div style="font-weight:700;font-size:0.95rem">${meta.title}</div>
-        <div style="font-size:0.8rem;color:#94a3b8;margin-top:2px">${meta.desc}</div>
-      </div>
-    </div>`;
-  document.body.appendChild(popup);
-  setTimeout(() => { popup.style.animation = 'fadeIn 0.3s reverse'; setTimeout(() => popup.remove(), 300); }, 4000);
-}
-
-async function checkNewAchievements() {
-  if (!state.user?.id) return;
-  try {
-    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // last hour
-    const { data } = await sb.from('user_achievements')
-      .select('achievement_id')
-      .eq('user_id', state.user.id)
-      .gte('created_at', since);
-    (data || []).forEach(a => showAchievementPopup(a.achievement_id));
-  } catch { /* non-critical */ }
-}
-
-// ── Onboarding Wizard (forced — cannot skip) ──────────────────────────────────
-var _obState = { step: 1, url: '', score: null, topFix: null, issues: [], businessName: '' };
-
-function showOnboardingWizard() {
-  _obState = { step: 1, url: '', score: null, topFix: null, issues: [], businessName: '' };
-  _renderOB();
-}
-
-function _renderOB() {
-  let existing = document.getElementById('ob-overlay');
-  if (existing) existing.remove();
-
-  const overlay = document.createElement('div');
-  overlay.id = 'ob-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;padding:1rem;backdrop-filter:blur(4px)';
-  overlay.innerHTML = _obStepHtml(_obState.step);
-  document.body.appendChild(overlay);
-}
-
-function _obStepHtml(step) {
-  const steps = [
-    { n: 1, label: 'שם העסק' },
-    { n: 2, label: 'ניתוח דף' },
-    { n: 3, label: 'תוצאות' },
-    { n: 4, label: 'תיקון ראשון' },
-  ];
-  const bar = steps.map(s => `
-    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
-      <div style="width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:700;
-        ${s.n < step ? 'background:#22c55e;color:#fff' : s.n === step ? 'background:#6366f1;color:#fff' : 'background:#1e293b;color:#64748b'}">
-        ${s.n < step ? '✓' : s.n}
-      </div>
-      <span style="font-size:0.65rem;color:${s.n === step ? '#e2e8f0' : '#475569'}">${s.label}</span>
-    </div>
-    ${s.n < 4 ? `<div style="flex:1;height:2px;margin-top:14px;background:${s.n < step ? '#22c55e' : '#1e293b'};max-width:40px;align-self:flex-start;margin-top:16px"></div>` : ''}
-  `).join('');
-
-  const card = `<div style="background:#0f172a;border-radius:1.5rem;padding:2.5rem;max-width:520px;width:100%;border:1px solid #1e293b;box-shadow:0 25px 60px rgba(0,0,0,0.5);direction:rtl">
-    <div style="text-align:center;margin-bottom:2rem">
-      <div style="font-size:1.5rem;font-weight:800;color:#e2e8f0;margin-bottom:0.25rem">🚀 ברוך הבא ל-CampaignAI</div>
-      <div style="color:#64748b;font-size:0.875rem">60 שניות לקבל את הניתוח הראשון שלך</div>
-    </div>
-    <div style="display:flex;align-items:center;gap:0;margin-bottom:2rem">${bar}</div>
-    ${_obStepContent(step)}
-  </div>`;
-  return card;
-}
-
-function _obStepContent(step) {
-  if (step === 1) return `
-    <div>
-      <label style="display:block;color:#94a3b8;font-size:0.875rem;margin-bottom:0.5rem">מה שם העסק שלך?</label>
-      <input id="ob-name" type="text" placeholder="למשל: שיפוצי כהן" value="${_obState.businessName}"
-        style="width:100%;padding:0.875rem 1rem;background:#1e293b;border:1px solid #334155;border-radius:0.75rem;color:#e2e8f0;font-size:1rem;box-sizing:border-box;outline:none"
-        oninput="_obState.businessName=this.value" onkeydown="if(event.key==='Enter')obStep1Next()">
-      <div style="margin-top:0.75rem">
-        <label style="display:block;color:#94a3b8;font-size:0.875rem;margin-bottom:0.5rem">יש לך דף נחיתה? הכנס קישור:</label>
-        <input id="ob-url" type="url" placeholder="https://yoursite.com" value="${_obState.url}"
-          style="width:100%;padding:0.875rem 1rem;background:#1e293b;border:1px solid #334155;border-radius:0.75rem;color:#e2e8f0;font-size:1rem;box-sizing:border-box;outline:none"
-          oninput="_obState.url=this.value" onkeydown="if(event.key==='Enter')obStep1Next()">
-        <p style="color:#475569;font-size:0.75rem;margin-top:0.5rem">אין עדיין דף? השאר ריק — נבנה אחד עכשיו ✨</p>
-      </div>
-      <button onclick="obStep1Next()" style="width:100%;margin-top:1.5rem;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer">
-        המשך ←
-      </button>
-    </div>`;
-
-  if (step === 2) return `
-    <div style="text-align:center">
-      <div style="width:64px;height:64px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:50%;margin:0 auto 1.5rem;display:flex;align-items:center;justify-content:center">
-        <div class="spinner" style="width:28px;height:28px;border-width:3px;border-color:rgba(255,255,255,0.2);border-top-color:#fff"></div>
-      </div>
-      <div style="color:#e2e8f0;font-size:1.1rem;font-weight:600;margin-bottom:0.5rem">מנתח את הדף שלך...</div>
-      <div id="ob-analyze-msg" style="color:#64748b;font-size:0.875rem">בודק מהירות טעינה, CTA, מובייל ועוד</div>
-    </div>`;
-
-  if (step === 3) {
-    const s = _obState.score || 0;
-    const color = s >= 70 ? '#22c55e' : s >= 45 ? '#f59e0b' : '#ef4444';
-    const label = s >= 70 ? 'מצוין! הדף שלך טוב' : s >= 45 ? 'יש מה לשפר' : 'יש כמה בעיות קריטיות';
-    const issuesHtml = (_obState.issues || []).slice(0, 3).map(i =>
-      `<div style="display:flex;align-items:center;gap:0.75rem;padding:0.625rem 0.75rem;background:#1e293b;border-radius:0.5rem">
-        <span style="color:#ef4444;font-size:0.875rem">✗</span>
-        <span style="color:#cbd5e1;font-size:0.85rem">${i.label}</span>
-        <span style="margin-right:auto;background:#ef444420;color:#ef4444;padding:2px 8px;border-radius:99px;font-size:0.7rem">−${i.points} נק׳</span>
-      </div>`
-    ).join('');
-    const passedHtml = (_obState.passed || []).slice(0, 2).map(p =>
-      `<div style="display:flex;align-items:center;gap:0.75rem;padding:0.625rem 0.75rem;background:#1e293b;border-radius:0.5rem">
-        <span style="color:#22c55e;font-size:0.875rem">✓</span>
-        <span style="color:#cbd5e1;font-size:0.85rem">${p}</span>
-      </div>`
-    ).join('');
-    return `
-      <div>
-        <div style="text-align:center;margin-bottom:1.5rem">
-          <div style="font-size:3rem;font-weight:800;color:${color}">${s}</div>
-          <div style="font-size:0.75rem;color:#64748b">מתוך 100</div>
-          <div style="color:${color};font-weight:600;margin-top:0.25rem">${label}</div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:1.5rem">
-          ${issuesHtml}${passedHtml}
-        </div>
-        ${_obState.topFix ? `
-          <button onclick="obStep4Fix()" style="width:100%;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer">
-            ✨ תקן עכשיו עם AI — ${_obState.topFix.label}
-          </button>` : `
-          <button onclick="obComplete()" style="width:100%;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer">
-            🚀 כנס לדאשבורד
-          </button>`}
-        <button onclick="obComplete()" style="width:100%;margin-top:0.75rem;padding:0.75rem;background:transparent;border:1px solid #334155;border-radius:0.75rem;color:#64748b;font-size:0.875rem;cursor:pointer">
-          דלג — כנס לדאשבורד
-        </button>
-      </div>`;
-  }
-
-  if (step === 4) {
-    const fix = _obState.topFix;
-    return `
-      <div style="text-align:center">
-        <div style="font-size:2.5rem;margin-bottom:1rem">🎯</div>
-        <div style="color:#e2e8f0;font-size:1.1rem;font-weight:700;margin-bottom:0.5rem">ה-AI מתקן: ${fix?.label || 'הדף שלך'}</div>
-        <div style="color:#64748b;font-size:0.875rem;margin-bottom:1.5rem">${fix?.tip || 'יוצר המלצה מותאמת אישית'}</div>
-        <div style="background:#1e293b;border-radius:0.75rem;padding:1rem;margin-bottom:1.5rem;text-align:right">
-          <div style="color:#94a3b8;font-size:0.8rem;margin-bottom:0.5rem">המלצת ה-AI:</div>
-          <div id="ob-fix-content" style="color:#e2e8f0;font-size:0.875rem;line-height:1.6">
-            <div style="display:flex;align-items:center;gap:0.5rem;color:#64748b"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div> מייצר המלצה...</div>
-          </div>
-        </div>
-        <button id="ob-done-btn" onclick="obComplete()" disabled style="width:100%;padding:1rem;background:#1e293b;border:none;border-radius:0.75rem;color:#64748b;font-size:1rem;font-weight:700;cursor:not-allowed">
-          🚀 כנס לדאשבורד
-        </button>
-      </div>`;
-  }
-  return '';
-}
-
-async function obStep1Next() {
-  const nameEl = document.getElementById('ob-name');
-  const urlEl  = document.getElementById('ob-url');
-  if (nameEl) _obState.businessName = nameEl.value.trim();
-  if (urlEl)  _obState.url = urlEl.value.trim();
-
-  if (!_obState.businessName) {
-    const inp = document.getElementById('ob-name');
-    if (inp) { inp.style.borderColor = '#ef4444'; inp.focus(); }
-    return;
-  }
-
-  // Save business name early
-  try {
-    const { data: { session } } = await sb.auth.getSession();
-    if (session) {
-      await sb.from('business_profiles').upsert(
-        { user_id: session.user.id, business_name: _obState.businessName },
-        { onConflict: 'user_id', ignoreDuplicates: false }
-      );
-    }
-  } catch { /* non-critical */ }
-
-  if (!_obState.url) {
-    // No URL — skip analysis, go straight to dashboard with AI creation
-    await obComplete(true);
-    return;
-  }
-
-  _obState.step = 2;
-  _renderOB();
-  await _runQuickAnalysis();
-}
-
-async function _runQuickAnalysis() {
-  const msgs = [
-    'בודק מהירות טעינה...',
-    'מנתח כפתורי CTA...',
-    'בודק התאמה למובייל...',
-    'סורק טפסי לידים...',
-    'מסכם תוצאות...',
-  ];
-  let mi = 0;
-  const msgEl = document.getElementById('ob-analyze-msg');
-  const interval = setInterval(() => {
-    if (msgEl && mi < msgs.length) msgEl.textContent = msgs[mi++];
-  }, 900);
-
-  try {
-    const res = await fetch(`${CONFIG.apiBase}/quick-analyze`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: _obState.url }),
-    });
-    const data = await res.json();
-    clearInterval(interval);
-    _obState.score  = data.score || 0;
-    _obState.issues = data.issues || [];
-    _obState.passed = data.passed || [];
-    _obState.topFix = data.topFix || null;
-    _obState.step   = 3;
-    _renderOB();
-  } catch {
-    clearInterval(interval);
-    _obState.score  = 0;
-    _obState.issues = [];
-    _obState.step   = 3;
-    _renderOB();
-  }
-}
-
-async function obStep4Fix() {
-  _obState.step = 4;
-  _renderOB();
-
-  // Ask AI for specific fix
-  try {
-    const fix = _obState.topFix;
-    const prompt = `אני עם עסק "${_obState.businessName}". יש לדף הנחיתה שלי בעיה: "${fix?.label}". טיפ מהמערכת: "${fix?.tip}". תן לי המלצה קצרה וספציפית (2-3 משפטים) איך לתקן את זה.`;
-    const res = await fetch(`${CONFIG.apiBase}/campaigner-chat`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'authorization': `Bearer ${state.accessToken}` },
-      body: JSON.stringify({ message: prompt }),
-    });
-    const data = await res.json();
-    const el = document.getElementById('ob-fix-content');
-    if (el) el.innerHTML = `<p style="margin:0">${(data.reply || 'נסה לשפר את האלמנטים שצוינו').replace(/\n/g, '<br>')}</p>`;
-    const btn = document.getElementById('ob-done-btn');
-    if (btn) { btn.disabled = false; btn.style.cssText = 'width:100%;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer'; }
-  } catch {
-    const el = document.getElementById('ob-fix-content');
-    if (el) el.innerHTML = `<p style="margin:0">${_obState.topFix?.tip || 'שפר את הדף לפי ההמלצות'}</p>`;
-    const btn = document.getElementById('ob-done-btn');
-    if (btn) { btn.disabled = false; btn.style.cssText = 'width:100%;padding:1rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:0.75rem;color:#fff;font-size:1rem;font-weight:700;cursor:pointer'; }
-  }
-}
-
-async function obComplete(buildNew = false) {
-  // Mark onboarding as started
-  try {
-    const { data: { session } } = await sb.auth.getSession();
-    if (session) {
-      const steps = {
-        ...(state.onboardingSteps || {}),
-        profile_started: true,
-        onboarding_wizard_done: true,
-      };
-      await sb.from('onboarding_progress').upsert(
-        { user_id: session.user.id, steps, current_step: 'first_asset' },
-        { onConflict: 'user_id', ignoreDuplicates: false }
-      );
-      state.onboardingSteps = steps;
-      state.unlockedScreens = computeUnlockedScreens(steps);
-    }
-  } catch { /* non-critical */ }
-
-  // Remove overlay
-  const overlay = document.getElementById('ob-overlay');
-  if (overlay) overlay.remove();
-
-  // Route: if no URL provided → build landing page
-  if (buildNew) {
-    navigate('ai-creation');
-    showToast('בוא נבנה לך דף נחיתה עם AI ✨');
-  } else {
-    navigate('dashboard');
-  }
+  }, 1200);
 }
 
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
-window.trackEvent            = trackEvent;
 window.handleLogout          = handleLogout;
 window.startResearch         = startResearch;
 window.startStrategy         = startStrategy;
@@ -8344,16 +6472,7 @@ window.clearAdCreative       = clearAdCreative;
 window.downloadAdCreative    = downloadAdCreative;
 window.copyAIResult          = copyAIResult;
 window.expandSavedWork       = expandSavedWork;
-window.filterAdminUsers        = filterAdminUsers;
-window.switchAdminTab          = switchAdminTab;
-window.adminRetryJob           = adminRetryJob;
-window.adminCancelJob          = adminCancelJob;
-window.adminLoadUserDetail     = adminLoadUserDetail;
-window.adminChangePlanModal    = adminChangePlanModal;
-window.adminToggleAdminStatus  = adminToggleAdminStatus;
-window.adminExportUsersCSV     = adminExportUsersCSV;
-window.adminChangePlanInlineById = adminChangePlanInlineById;
-window.adminQuickPlanChange      = adminQuickPlanChange;
+window.filterAdminUsers      = filterAdminUsers;
 window.pollPaymentActivation = pollPaymentActivation;
 window.showAddCampaignModal  = showAddCampaignModal;
 window.addCampaign           = addCampaign;
@@ -8381,15 +6500,7 @@ window.adminSetTicketStatus  = adminSetTicketStatus;
 window.adminSupportTab       = adminSupportTab;
 window.saveProfile           = saveProfile;
 window.exportData            = exportData;
-window.updateMarketingConsent = updateMarketingConsent;
 window.deleteAccount         = deleteAccount;
-window.switchAcctSubTab      = switchAcctSubTab;
-window._acctMarkDirty        = _acctMarkDirty;
-window._acctCancelChanges    = _acctCancelChanges;
-window.saveAcctChanges       = saveAcctChanges;
-window.uploadAvatar          = uploadAvatar;
-window.savePassword          = savePassword;
-window.signOutAllDevices     = signOutAllDevices;
 window.refreshLiveStats      = refreshLiveStats;
 window.leadsSetFilter        = leadsSetFilter;
 window.leadsResetFilters     = leadsResetFilters;
@@ -8403,188 +6514,12 @@ window.leadsCopy             = leadsCopy;
 window.leadsLoadAll          = leadsLoadAll;
 window.sendSupportMessage    = sendSupportMessage;
 window.renderSupport         = renderSupport;
-window.renderTutorials       = renderTutorials;
-window.openTutorialViewer    = openTutorialViewer;
-window.openTutorialModal     = openTutorialModal;
-window.saveTutorial          = saveTutorial;
-window.deleteTutorial        = deleteTutorial;
-window._setTutorialCategory  = _setTutorialCategory;
-window._previewYtThumb       = _previewYtThumb;
+window.haToggle              = haToggle;
+window.haSubmit              = haSubmit;
 window.switchSettingsTab      = switchSettingsTab;
 window.switchInsightsTab      = switchInsightsTab;
 window.renderInsights         = renderInsights;
 window._renderAICreationShell = _renderAICreationShell;
 window.showQuickConnectModal  = showQuickConnectModal;
-window.startOrchestration      = startOrchestration;
-window.renderOrchestrationPanel = renderOrchestrationPanel;
-window.loadBarrelAndScore      = loadBarrelAndScore;
-window.fixBarrelWithAI         = fixBarrelWithAI;
-window.shareResult             = shareResult;
-window.showToast               = showToast;
-window.showOnboardingWizard    = showOnboardingWizard;
-window.obStep1Next             = obStep1Next;
-window.obStep4Fix              = obStep4Fix;
-window.obComplete              = obComplete;
-window.adminLoadAIModels       = adminLoadAIModels;
-window.adminUpdateModel        = adminUpdateModel;
-window.adminTestModel          = adminTestModel;
-window.teamInvite              = teamInvite;
-window.teamLoadMembers         = teamLoadMembers;
-window.teamRemoveMember        = teamRemoveMember;
-window.showAchievementPopup    = showAchievementPopup;
-window.checkNewAchievements    = checkNewAchievements;
 
-// ── Accessibility Widget ──────────────────────────────────────────────────────
-function initA11yWidget() {
-  const PREFS_KEY = 'a11y_prefs_v1';
-  let prefs = {};
-  try { prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'); } catch {}
-
-  // Apply saved preferences immediately on load
-  Object.entries(prefs).forEach(([k, v]) => { if (v) document.body.classList.add(k); });
-
-  const options = [
-    { key: 'a11y-large-text', icon: 'Aa',  label: 'טקסט גדול' },
-    { key: 'a11y-contrast',   icon: '◑',   label: 'ניגודיות גבוהה' },
-    { key: 'a11y-spacing',    icon: '↔',   label: 'ריווח מוגבר' },
-    { key: 'a11y-links',      icon: '🔗',  label: 'הדגש קישורים' },
-    { key: 'a11y-dyslexia',   icon: 'Dy',  label: 'פונט נגיש' },
-    { key: 'a11y-no-anim',    icon: '⏸',  label: 'עצור אנימציות' },
-  ];
-
-  const container = document.createElement('div');
-  container.id = 'a11y-container';
-  container.setAttribute('role', 'region');
-  container.setAttribute('aria-label', 'אפשרויות נגישות');
-
-  container.innerHTML = `
-    <button id="a11y-btn"
-      aria-expanded="false" aria-haspopup="true"
-      aria-label="פתח תפריט נגישות"
-      title="נגישות">
-      ♿
-    </button>
-    <div id="a11y-panel" role="dialog" aria-modal="false" aria-label="תפריט נגישות" hidden>
-      <div class="a11y-panel-head">
-        <div class="a11y-panel-title">
-          <span aria-hidden="true">♿</span> נגישות
-        </div>
-        <button id="a11y-close" aria-label="סגור תפריט נגישות">✕</button>
-      </div>
-      <div class="a11y-options" role="group" aria-label="אפשרויות נגישות">
-        ${options.map(o => `
-          <button class="a11y-option ${prefs[o.key] ? 'active' : ''}"
-            role="switch" aria-checked="${!!prefs[o.key]}"
-            data-key="${o.key}">
-            <span class="a11y-opt-icon" aria-hidden="true">${o.icon}</span>
-            <span class="a11y-opt-label">${o.label}</span>
-            <span class="a11y-opt-check" aria-hidden="true">${prefs[o.key] ? '✓' : ''}</span>
-          </button>`).join('')}
-      </div>
-      <button id="a11y-reset" aria-label="איפוס כל הגדרות הנגישות">איפוס הכל</button>
-    </div>`;
-
-  document.body.appendChild(container);
-
-  const btn   = document.getElementById('a11y-btn');
-  const panel = document.getElementById('a11y-panel');
-
-  // Toggle panel open/close
-  btn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const opening = panel.hidden;
-    panel.hidden = !opening;
-    btn.setAttribute('aria-expanded', String(opening));
-    if (opening) { panel.querySelector('.a11y-option')?.focus(); }
-  });
-
-  document.getElementById('a11y-close').addEventListener('click', () => {
-    panel.hidden = true;
-    btn.setAttribute('aria-expanded', 'false');
-    btn.focus();
-  });
-
-  // Toggle each option
-  panel.querySelectorAll('.a11y-option').forEach(optBtn => {
-    optBtn.addEventListener('click', () => {
-      const key = optBtn.dataset.key;
-      prefs[key] = !prefs[key];
-      document.body.classList.toggle(key, prefs[key]);
-      optBtn.setAttribute('aria-checked', String(prefs[key]));
-      optBtn.classList.toggle('active', prefs[key]);
-      optBtn.querySelector('.a11y-opt-check').textContent = prefs[key] ? '✓' : '';
-      try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
-    });
-  });
-
-  // Reset all
-  document.getElementById('a11y-reset').addEventListener('click', () => {
-    options.forEach(o => {
-      prefs[o.key] = false;
-      document.body.classList.remove(o.key);
-    });
-    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {}
-    panel.querySelectorAll('.a11y-option').forEach(optBtn => {
-      optBtn.setAttribute('aria-checked', 'false');
-      optBtn.classList.remove('active');
-      optBtn.querySelector('.a11y-opt-check').textContent = '';
-    });
-    toast('הגדרות הנגישות אופסו', 'info');
-  });
-
-  // Close on outside click
-  document.addEventListener('click', (e) => {
-    if (!container.contains(e.target) && !panel.hidden) {
-      panel.hidden = true;
-      btn.setAttribute('aria-expanded', 'false');
-    }
-  });
-
-  // Escape closes panel
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !panel.hidden) {
-      panel.hidden = true;
-      btn.setAttribute('aria-expanded', 'false');
-      btn.focus();
-    }
-  });
-}
-
-function initCookieConsent() {
-  const KEY = 'cookie_consent_v1';
-  if (localStorage.getItem(KEY)) return;
-
-  const bar = document.createElement('div');
-  bar.id = 'cookie-bar';
-  bar.setAttribute('role', 'region');
-  bar.setAttribute('aria-label', 'הסכמה לעוגיות');
-  bar.innerHTML = `
-    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-      <span style="flex:1;min-width:200px;font-size:0.82rem;color:#e2e8f0;line-height:1.5">
-        🍪 אנחנו משתמשים בעוגיות הכרחיות לצורך הפעלת השירות.
-        <a href="/legal/privacy.html#cookies" target="_blank" rel="noopener" style="color:#a5b4fc;text-decoration:underline">מדיניות פרטיות</a>
-      </span>
-      <div style="display:flex;gap:0.5rem;flex-shrink:0">
-        <button id="cookie-accept" style="background:#6366f1;color:white;border:none;border-radius:0.5rem;padding:0.4rem 1.1rem;font-size:0.82rem;font-weight:600;cursor:pointer;font-family:inherit">הבנתי ✓</button>
-      </div>
-    </div>`;
-
-  Object.assign(bar.style, {
-    position: 'fixed', bottom: '0', left: '0', right: '0', zIndex: '9998',
-    background: '#1e293b', borderTop: '1px solid #334155',
-    padding: '0.875rem 1.5rem', direction: 'rtl'
-  });
-
-  document.body.appendChild(bar);
-
-  document.getElementById('cookie-accept').addEventListener('click', () => {
-    localStorage.setItem(KEY, '1');
-    bar.style.transition = 'opacity 0.3s';
-    bar.style.opacity = '0';
-    setTimeout(() => bar.remove(), 300);
-  });
-}
-
-initCookieConsent();
-initA11yWidget();
 boot();
