@@ -18,7 +18,6 @@ const Research      = lazy(() => import('./pages/Research').then(m => ({ default
 const Analytics     = lazy(() => import('./pages/Analytics').then(m => ({ default: m.Analytics })))
 const Leads         = lazy(() => import('./pages/Leads').then(m => ({ default: m.Leads })))
 const Assets        = lazy(() => import('./pages/Assets').then(m => ({ default: m.Assets })))
-const LandingPages  = lazy(() => import('./pages/LandingPages').then(m => ({ default: m.LandingPages })))
 const Integrations  = lazy(() => import('./pages/Integrations').then(m => ({ default: m.Integrations })))
 const Settings      = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
 const Support       = lazy(() => import('./pages/Support').then(m => ({ default: m.Support })))
@@ -85,7 +84,6 @@ function AppShell() {
               {page === 'analytics'     && <Analytics />}
               {page === 'leads'         && <Leads />}
               {page === 'assets'        && <Assets />}
-              {page === 'landing-pages' && <LandingPages />}
               {page === 'integrations'  && <Integrations />}
               {page === 'settings'      && <Settings />}
               {page === 'support'       && <Support />}

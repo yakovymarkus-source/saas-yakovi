@@ -2,7 +2,7 @@ import { motion } from 'motion/react'
 import {
   Home, Sparkles, MessageSquare, BarChart3,
   Users, Image, BookOpen, Settings, Shield, Plug,
-  Megaphone, LayoutTemplate, HeadphonesIcon, UserCircle,
+  Megaphone, HeadphonesIcon, UserCircle,
 } from 'lucide-react'
 import { useAppState, setState } from '../../state/store'
 import { useAuth } from '../../hooks/useAuth'
@@ -23,7 +23,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'analytics',     icon: BarChart3,      label: 'תובנות'       },
   { id: 'leads',         icon: Users,          label: 'לידים'        },
   { id: 'assets',        icon: Image,          label: 'נכסים'        },
-  { id: 'landing-pages', icon: LayoutTemplate, label: 'דפי נחיתה'   },
   { id: 'integrations',  icon: Plug,           label: 'אינטגרציות'   },
   { id: 'tutorials',     icon: BookOpen,       label: 'הדרכות'       },
   { id: 'support',       icon: HeadphonesIcon, label: 'תמיכה'        },
