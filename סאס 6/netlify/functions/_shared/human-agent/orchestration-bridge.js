@@ -66,6 +66,31 @@ const TOOLS = [
       },
     },
   },
+  {
+    name: 'highlight_element',
+    description: 'הדגש אלמנט בממשק המשתמש בנצנוץ כדי להכוון אותו. השתמש כשמסביר איפה ללחוץ או מה לעשות.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        selector:    { type: 'string', description: 'CSS selector של האלמנט (למשל: #btn-new-campaign, .nav-strategy)' },
+        label:       { type: 'string', description: 'תיאור קצר של מה האלמנט עושה' },
+        duration_ms: { type: 'number', description: 'כמה זמן להדגיש במילישניות (ברירת מחדל: 4000)' },
+      },
+      required: ['selector', 'label'],
+    },
+  },
+  {
+    name: 'navigate_to',
+    description: 'נווט את המשתמש לדף מסוים במערכת. השתמש כשהמשתמש צריך לעבור לאזור אחר.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        page:    { type: 'string', enum: ['dashboard', 'campaigns', 'research', 'strategy', 'execution', 'qa', 'analysis', 'leads', 'account', 'integrations', 'billing'], description: 'הדף שיש לנווט אליו' },
+        message: { type: 'string', description: 'הסבר קצר למה אנחנו עוברים לשם' },
+      },
+      required: ['page'],
+    },
+  },
 ];
 
 async function executeTool(name, input, { sb, userId, appUrl, internalSecret }) {
@@ -78,6 +103,10 @@ async function executeTool(name, input, { sb, userId, appUrl, internalSecret }) 
       return createTicket(input, { sb, userId });
     case 'get_performance_data':
       return fetchPerformance(input, { sb, userId });
+    case 'highlight_element':
+      return broadcastFrontendEvent(userId, { type: 'highlight', selector: input.selector, label: input.label, duration_ms: input.duration_ms || 4000 }, { sb });
+    case 'navigate_to':
+      return broadcastFrontendEvent(userId, { type: 'navigate', page: input.page, message: input.message || '' }, { sb });
     default:
       return { ok: false, error: `כלי לא מוכר: ${name}` };
   }
@@ -132,6 +161,20 @@ async function createTicket({ description, urgency, error_info }, { sb, userId }
     .select('id')
     .single();
   return { ok: true, ticketId: data?.id, message: 'הפנייה נשלחה ליעקב המפתח בהצלחה' };
+}
+
+async function broadcastFrontendEvent(userId, payload, { sb }) {
+  // Publishes to Supabase Realtime channel — frontend subscribes to agent_events:{userId}
+  try {
+    await sb.channel(`agent_events:${userId}`).send({
+      type:    'broadcast',
+      event:   payload.type,
+      payload: { ...payload, userId, ts: new Date().toISOString() },
+    });
+    return { ok: true, event: payload.type };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 }
 
 async function fetchPerformance({ period = 'week' }, { sb, userId }) {

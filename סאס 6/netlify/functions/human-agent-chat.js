@@ -34,7 +34,7 @@ const { getEnv }                         = require('./_shared/env');
 
 const CLAUDE_API   = 'https://api.anthropic.com/v1/messages';
 const MODEL        = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
-const MAX_TOKENS   = 1024;
+const MAX_TOKENS   = 2048;
 const TIMEOUT_MS   = parseInt(process.env.CLAUDE_TIMEOUT || '22000', 10);
 const MAX_ROUNDS   = 4; // tool-use loop safety cap
 
@@ -131,12 +131,15 @@ exports.handler = async (event, context) => {
     const user = await requireAuth(event, 'human-agent-chat', reqCtx);
     const body = parseJsonBody(event);
 
+    // Support trigger:'welcome' from frontend on page load (no user message needed)
+    const isWelcomeTrigger = body.trigger === 'welcome';
     const message = (body.message || '').trim();
-    if (!message) {
+
+    if (!message && !isWelcomeTrigger) {
       throw new AppError({ code: 'BAD_REQUEST', userMessage: 'הודעה ריקה', status: 400 });
     }
 
-    const sb = getAdminClient();
+    const sb  = getAdminClient();
     const env = getEnv();
 
     // ── Bootstrap memory record if new user ──────────────────────────────────
@@ -145,11 +148,12 @@ exports.handler = async (event, context) => {
     // ── Load full context ─────────────────────────────────────────────────────
     const ctx = await mem.loadContext(sb, user.id);
 
-    // ── First-ever session: return onboarding welcome without calling Claude ──
-    if (!ctx.memory?.onboarding_completed && ctx.todayMessages.length === 0 && !ctx.hasInteractedToday) {
-      const welcome = buildOnboardingWelcome(ctx.userName, ctx.memory?.gender_preference || 'male');
+    // ── First-ever session OR welcome trigger: return onboarding welcome ──────
+    if (!ctx.memory?.onboarding_completed && !ctx.hasInteractedToday) {
+      const welcome = buildOnboardingWelcome(ctx.userName);
       const conv    = await mem.ensureTodayConversation(sb, user.id);
-      await mem.appendTurn(sb, conv.id, [], message, welcome);
+      // Only save a turn if there was an actual user message
+      if (message) await mem.appendTurn(sb, conv.id, [], message, welcome);
       return ok({ reply: welcome, isOnboarding: true }, reqCtx.requestId);
     }
 
@@ -182,7 +186,8 @@ exports.handler = async (event, context) => {
     };
 
     // ── Run Claude with tool loop ─────────────────────────────────────────────
-    const { reply, toolsUsed } = await runToolLoop(systemPrompt, history, message, toolContext);
+    const userInput = message || '(המשתמש פתח את המערכת)';
+    const { reply, toolsUsed } = await runToolLoop(systemPrompt, history, userInput, toolContext);
 
     // ── Persist turn ──────────────────────────────────────────────────────────
     const conv = await mem.ensureTodayConversation(sb, user.id);
