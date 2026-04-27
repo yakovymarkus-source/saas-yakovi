@@ -1286,45 +1286,89 @@ function providerLabel(provider) {
   return { google_ads: 'Google Ads', ga4: 'Google Analytics 4', meta: 'Meta Ads' }[provider] || provider;
 }
 
-// ── General / welcome response (no integration required) ─────────────────────
-function generateGeneralResponse(context) {
-  const { profileName, integrations, businessProfile } = context;
-  const name = profileName || 'שם';
+// ── General / conversational response — AI-powered, no integration required ───
+async function generateGeneralResponse(context) {
+  const { profileName, integrations, businessProfile, message, userId, strategyMemory } = context;
+  const name     = profileName || 'חבר';
   const hasInteg = integrations.some(i => i.connection_status === 'active');
-  const hasBP    = !!businessProfile?.business_name;
+  const hasBP    = !!(businessProfile?.business_name);
 
-  const greeting = `היי ${name}! 👋 אני CampaignAI — הסוכן השיווקי שלך.`;
+  // Build rich context snippet for the AI
+  const bpSnippet = hasBP
+    ? `העסק: ${businessProfile.business_name}. מוכר: ${businessProfile.offer || '?'}. קהל: ${businessProfile.target_audience || '?'}. תקציב: ${businessProfile.monthly_budget ? '₪'+businessProfile.monthly_budget+'/חודש' : '?'}.`
+    : 'אין עדיין פרופיל עסקי.';
 
-  const capabilities = [
-    '📊 **ניתוח ביצועים** — Google Ads, Meta Ads ו-GA4 בזמן אמת',
-    '💡 **המלצות חכמות** — מה לתקן, מה להגדיל, מה לעצור',
-    '✍️ **כתיבת קופי** — מודעות, כותרות, מיילים ו-CTA',
-    '💰 **ניהול תקציב** — מאיפה להזיז כסף ומאיפה לחתוך',
-    '🔬 **תכנון A/B** — אילו וריאציות לבדוק ואיך לפרש תוצאות',
-    '📈 **כלכלת קמפיין** — CAC, LTV, ROAS ונקודת פריצה לרווח',
-  ].join('\n');
+  const integSnippet = hasInteg
+    ? `מחובר ל: ${integrations.filter(i=>i.connection_status==='active').map(i=>i.provider).join(', ')}.`
+    : 'אין עדיין אינטגרציות מחוברות.';
 
-  let next = '';
-  if (!hasBP) {
-    next = '\n\n🚀 **להתחלה:** ספר לי על העסק שלך — מה אתה מוכר, למי ובכמה? אבנה לך בסיס שיווקי מותאם.';
-  } else if (!hasInteg) {
-    next = '\n\n📌 **כדי לנתח ביצועים אמיתיים:** חבר חשבון Google Ads או Meta Ads דרך **אינטגרציות**.\n_בינתיים — שאל אותי כל שאלה שיווקית, אכתוב לך קופי, אנתח אסטרטגיה._';
-  } else {
-    next = '\n\n🔥 **מה עומד על הפרק?** שאל אותי על הקמפיינים שלך ואני אנתח ואמליץ.';
+  const bottleneck = strategyMemory?.persistent_bottlenecks?.[0];
+  const memSnippet = bottleneck ? `צוואר הבקבוק הכי בולט עד כה: ${bottleneck}.` : '';
+
+  const systemPrompt = `אתה CampaignAI — סוכן שיווקי דיגיטלי חכם, ישיר ואנושי שמדבר עברית.
+אתה מומחה ב: ניתוח קמפיינים, Google Ads, Meta Ads, GA4, קופי, ROAS, CAC, A/B testing, אסטרטגיה שיווקית.
+
+הסגנון שלך:
+- אנושי, חם אבל ישיר — לא רובוטי, לא גנרי
+- מותאם לטון של המשתמש (פורמלי/לא פורמלי, קצר/ארוך, שאלות/הצהרות)
+- תוכן ממשי — לא "אני יכול לעזור" אלא עזרה בפועל
+- אם המשתמש אמר משהו ספציפי — הגב על זה ישירות
+- אם זה פתיחת שיחה — הצג את עצמך בצורה שמתאימה לסיטואציה, לא תבנית קבועה
+
+הקשר המשתמש:
+שם: ${name}
+${bpSnippet}
+${integSnippet}
+${memSnippet}
+
+כללים:
+- אל תפתח ב"היי [שם]! 👋" בכל הודעה — קרא מה המשתמש אמר והגב עליו
+- אם המשתמש שאל שאלה — ענה עליה תחילה, אז הצע המשך
+- אם אין אינטגרציות ושאלות הן שיווקיות — ענה מהידע שלך, לא תדרוש חיבור לפני כל תשובה
+- סיים עם 1-2 שאלות פעילות שמקדמות את המשתמש
+- תשובה: 3-8 משפטים, עברית בלבד, Markdown מותר`;
+
+  try {
+    const routing = await routeModel(message, 'conversational');
+    const raw = await OpenRouterAdapter.execute('chat', {
+      system:    systemPrompt,
+      user:      message,
+      maxTokens: 500,
+    }, {
+      model:         routing.model,
+      fallbackModel: routing.fallbackModel,
+      timeout:       routing.timeoutMs || 15000,
+      temperature:   0.8,
+    });
+
+    const reply = raw?.choices?.[0]?.message?.content?.trim();
+    if (reply) {
+      _logAICost({ userId, taskType: 'conversational', raw, routing }).catch(() => {});
+      const qa = hasBP
+        ? ['נתח ביצועים', 'כתוב לי קופי', 'הצעד הבא שלי', 'חשב ROAS']
+        : ['ספר לי על העסק', 'כתוב לי מודעה', 'מה זה ROAS?', 'איך בונים קמפיין?'];
+      return { reply, quickActions: qa };
+    }
+  } catch (e) {
+    console.warn('[generalResponse] AI failed:', e.message);
   }
 
+  // Fallback — minimal, contextual
+  const fallback = hasBP
+    ? `${name}, אני כאן. שאל אותי על הקמפיינים, הקופי, ה-ROAS — כל מה שצריך.`
+    : `שלום ${name}! ספר לי על העסק שלך ואני אבנה לך תוכנית שיווקית. מה אתה מוכר?`;
   return {
-    reply: `${greeting}\n\n**מה אני יכול לעשות עבורך:**\n${capabilities}${next}`,
+    reply: fallback,
     quickActions: hasBP
-      ? ['נתח ביצועים', 'כתוב לי קופי', 'המלץ על הצעד הבא', 'חשב ROAS']
-      : ['ספר לי על העסק שלי', 'כתוב לי מודעה', 'מה זה ROAS?', 'איך בונים קמפיין?'],
+      ? ['נתח ביצועים', 'כתוב קופי', 'ROAS שלי', 'הצעד הבא']
+      : ['ספר על העסק', 'כתוב לי מודעה', 'מה זה ROAS?'],
   };
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
 async function generateResponse(intent, context) {
   switch (intent) {
-    case 'general':       return generateGeneralResponse(context);
+    case 'general':       return await generateGeneralResponse(context);
     case 'overview':      return generateOverviewResponse(context);
     case 'budget':        return generateBudgetResponse(context);
     case 'top_ads':       return generateTopAdsResponse(context);
@@ -1339,7 +1383,7 @@ async function generateResponse(intent, context) {
     case 'test':          return generateTestResponse(context);
     case 'copy':          return await generateCopyResponse(context);
     case 'landing_page':  return await generateLandingPageResponse(context);
-    default:              return generateGeneralResponse(context);
+    default:              return await generateGeneralResponse(context);
   }
 }
 
