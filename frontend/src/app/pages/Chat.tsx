@@ -91,9 +91,8 @@ export function Chat() {
     setLoading(true)
 
     try {
-      const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
       const res = await api<{ reply: string }>('POST', 'campaigner-chat', {
-        messages: history,
+        message: content,
         businessProfile: state.businessProfile,
         campaigns: state.campaigns,
       })
