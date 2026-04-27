@@ -40,6 +40,7 @@ const { extractProfileAnswer } = require('./_shared/profile-intake-extractor');
 const { orchestrate, CAPABILITIES }     = require('./_shared/orchestrator');
 const { route: routeModel }             = require('./_shared/model-router');
 const OpenRouterAdapter                 = require('./_shared/providers/adapters/openrouter');
+const iLogger                           = require('./_shared/intelligence-logger');
 
 // ── AI cost logger (fire-and-forget) ─────────────────────────────────────────
 async function _logAICost({ userId, taskType, raw, routing }) {
@@ -1377,6 +1378,7 @@ _מלא את הפרופיל העסקי לקבל מבנה מותאם יותר._`;
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'campaigner-chat');
+  const _ilStart = Date.now();
 
   try {
     if (event.httpMethod !== 'POST') {
@@ -1504,9 +1506,11 @@ exports.handler = async (event) => {
       }
     }
 
+    iLogger.log({ agent_name: 'campaigner-chat', interaction_type: 'llm_call', status: 'SUCCESS', latency_ms: Date.now() - _ilStart, user_id: user?.id }).catch(() => {});
     return ok({ reply, quickActions, intent }, context.requestId);
 
   } catch (error) {
+    iLogger.log({ agent_name: 'campaigner-chat', interaction_type: 'llm_call', status: 'TECH_ERROR', latency_ms: Date.now() - _ilStart, error_details: error.message }).catch(() => {});
     await writeRequestLog(buildLogPayload(context, 'error', error.message || 'campaigner_chat_failed', {
       code: error.code || 'INTERNAL_ERROR',
     })).catch(() => {});

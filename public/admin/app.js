@@ -893,10 +893,28 @@ async function renderQA() {
         <div class="kpi-value">${fmtMs(d.summary.avgLatencyMs)}</div>
         <div class="kpi-sub">p95: ${fmtMs(d.summary.p95LatencyMs)}</div>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Logs (24h)</div>
-        <div class="kpi-value">${d.summary.total24h}</div>
-        <div class="kpi-sub">sampled (10% success, 100% errors)</div>
+      <div class="kpi-card ${scoreColor(100 - (d.summary.apiErrorRate1h||0))}">
+        <div class="kpi-label">API Error Rate (1h)</div>
+        <div class="kpi-value">${d.summary.apiErrorRate1h||0}%</div>
+        <div class="kpi-sub">${d.summary.apiTotal1h||0} requests monitored</div>
+      </div>
+    </div>
+
+    <!-- Module Health Tiles -->
+    <div class="card" style="margin-bottom:1.5rem">
+      <div class="card-title">Module Health (24h)</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:.75rem;margin-top:.75rem">
+        ${(d.moduleHealth||[]).map(m => {
+          const bg    = m.status==='healthy'?'#065f46':m.status==='degraded'?'#78350f':m.status==='critical'?'#7f1d1d':'#1e293b';
+          const color = m.status==='healthy'?'#10b981':m.status==='degraded'?'#f59e0b':m.status==='critical'?'#ef4444':'#64748b';
+          const dot   = m.status==='healthy'?'🟢':m.status==='degraded'?'🟡':m.status==='critical'?'🔴':'⚪';
+          return `<div style="background:${bg};border-radius:12px;padding:.75rem;text-align:center">
+            <div style="font-size:1.2rem">${dot}</div>
+            <div style="color:#e2e8f0;font-size:.75rem;font-weight:600;margin:.25rem 0">${m.label}</div>
+            <div style="color:${color};font-size:1.1rem;font-weight:700">${m.successRate!==null?m.successRate+'%':'—'}</div>
+            <div style="color:#64748b;font-size:.7rem">${m.total} calls</div>
+          </div>`;
+        }).join('')}
       </div>
     </div>
 

@@ -25,6 +25,7 @@ exports.handler = async (event) => {
       agentStatsRes,
       recentFailuresRes,
       topErrorsRes,
+      rlTotal1h, rlError1h,
     ] = await Promise.all([
       // Counts last 1h
       sb.from('system_intelligence_logs').select('id', { count: 'exact', head: true }).gte('created_at', since1h),
@@ -53,6 +54,10 @@ exports.handler = async (event) => {
         .select('agent_name, status')
         .gte('created_at', since7d)
         .in('status', ['TECH_ERROR','TIMEOUT','LOGIC_FAIL']),
+
+      // request_logs production error rate last 1h
+      sb.from('request_logs').select('id', { count: 'exact', head: true }).gte('created_at', since1h),
+      sb.from('request_logs').select('id', { count: 'exact', head: true }).gte('created_at', since1h).eq('level', 'error'),
     ]);
 
     // Compute derived stats
@@ -60,6 +65,8 @@ exports.handler = async (event) => {
     const e1h  = error1h.count  || 0;
     const t24h = total24h.count || 0;
     const e24h = error24h.count || 0;
+    const rlT  = rlTotal1h.count || 0;
+    const rlE  = rlError1h.count || 0;
 
     const latencies  = (latencyRes.data || []).map(r => r.latency_ms).filter(Boolean);
     const avgLatency = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : 0;
@@ -89,6 +96,21 @@ exports.handler = async (event) => {
       .sort((a, b) => b.count - a.count)
       .slice(0, 5);
 
+    // Module health tiles
+    const MODULE_NAMES = ['campaigner-chat','human-agent','research-agent','strategy-agent','analysis-agent'];
+    const moduleHealth = MODULE_NAMES.map(name => {
+      const a = agentMap[name] || { total: 0, errors: 0 };
+      const rate = a.total > 0 ? Math.round(((a.total - a.errors) / a.total) * 100) : null;
+      return {
+        name,
+        label: name.replace(/-/g, ' '),
+        total: a.total,
+        errors: a.errors,
+        successRate: rate,
+        status: rate === null ? 'no_data' : rate >= 90 ? 'healthy' : rate >= 70 ? 'degraded' : 'critical',
+      };
+    });
+
     const payload = {
       summary: {
         successRate1h:  t1h  > 0 ? Math.round(((t1h  - e1h)  / t1h)  * 100) : 100,
@@ -99,7 +121,10 @@ exports.handler = async (event) => {
         error24h: e24h,
         avgLatencyMs: avgLatency,
         p95LatencyMs: p95Latency,
+        apiErrorRate1h: rlT > 0 ? Math.round((rlE / rlT) * 100) : 0,
+        apiTotal1h: rlT,
       },
+      moduleHealth,
       agentHealth,
       topErrorAgents,
       recentFailures: (recentFailuresRes.data || []).map(r => ({

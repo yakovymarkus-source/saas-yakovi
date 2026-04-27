@@ -5,6 +5,7 @@ const { ok, fail, options } = require('./_shared/http');
 const { requireAuth }       = require('./_shared/auth');
 const { parseJsonBody }     = require('./_shared/request');
 const { getAdminClient }    = require('./_shared/supabase');
+const iLogger               = require('./_shared/intelligence-logger');
 
 /**
  * POST /strategy-start
@@ -67,6 +68,7 @@ exports.handler = async (event) => {
     }).catch(e => console.warn('[strategy-start] trigger warning:', e.message));
   } catch {}
 
+  iLogger.log({ agent_name: 'strategy-agent', interaction_type: 'api_call', status: 'SUCCESS', user_id: user.id }).catch(() => {});
   return ok({
     jobId:            job.id,
     estimatedMinutes: 2,

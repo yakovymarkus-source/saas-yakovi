@@ -31,6 +31,7 @@ const { buildSystemPrompt, buildOnboardingWelcome, buildReturnWelcome } = requir
 const { getPersonalityHints }            = require('./_shared/human-agent/personality-engine');
 const { TOOLS, executeTool }             = require('./_shared/human-agent/orchestration-bridge');
 const { getEnv }                         = require('./_shared/env');
+const iLogger                            = require('./_shared/intelligence-logger');
 
 const CLAUDE_API   = 'https://api.anthropic.com/v1/messages';
 const MODEL        = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
@@ -123,6 +124,7 @@ exports.handler = async (event, context) => {
   if (event.httpMethod === 'OPTIONS') return options();
 
   const reqCtx = createRequestContext(event, 'human-agent-chat');
+  const _ilStart = Date.now();
 
   // GET ?load_proactive=1 — return today's scheduler-generated messages
   if (event.httpMethod === 'GET') {
@@ -248,12 +250,14 @@ exports.handler = async (event, context) => {
       console.warn('[human-agent-chat] persist skipped:', persistErr.message);
     }
 
+    iLogger.log({ agent_name: 'human-agent', interaction_type: 'llm_call', status: 'SUCCESS', latency_ms: Date.now() - _ilStart, user_id: reqCtx.userId }).catch(() => {});
     return ok({
       reply,
       ...(toolsUsed.length ? { toolsUsed } : {}),
     }, reqCtx.requestId);
 
   } catch (err) {
+    iLogger.log({ agent_name: 'human-agent', interaction_type: 'llm_call', status: 'TECH_ERROR', latency_ms: Date.now() - _ilStart, error_details: err?.message }).catch(() => {});
     console.error('[human-agent-chat]', err);
     return fail(err, reqCtx.requestId);
   }
