@@ -93,6 +93,8 @@ function navigate(page, params = {}) {
   // Update URL hash so page survives refresh
   window.location.hash = page;
   render();
+  // Human Agent stuck-user detection — starts 3-min timer per page
+  if (typeof haStartPageTimer === 'function') haStartPageTimer(page);
 }
 
 // ── API helper ────────────────────────────────────────────────────────────────
@@ -6146,14 +6148,44 @@ const HA_AGENT_LABELS = {
   analysis:  '📊 סוכן הניתוח',
 };
 
+// Avatar paths — replace the SVG files with real photos whenever ready.
+// Supported formats: .svg / .png / .jpg  (120×120px recommended)
+const HA_AVATARS = {
+  male:   '/assets/avatar-male.svg',
+  female: '/assets/avatar-female.svg',
+};
+
+// Stuck-user hints per page — shown after 3 min of inactivity on that page
+const HA_STUCK_HINTS = {
+  campaigns:             'נמצאים בקמפיינים כבר כמה דקות — אם אתה מתלבט על משהו, תגיד לי ואני עוזר.',
+  'ai-creation':         'בונה משהו? אם נתקעת בשלב כלשהו — שאל אותי ואני מדריך אותך צעד-צעד.',
+  'business-from-scratch': 'עובדים על הבסיס? אם לא ברור מאיפה להתחיל — בוא נחליט יחד.',
+  settings:              'מחפש הגדרה מסוימת? פשוט שאל — אני אראה לך בדיוק איפה זה.',
+  leads:                 'מסתכל על הלידים? אם תרצה ניתוח מהיר — אגיד לך מה שווה לשים לב.',
+  insights:              'מסתכל על הנתונים? אם הגרפים לא מספרים סיפור ברור — תן לי לפרש.',
+  integrations:          'מחבר אינטגרציה? אם יש בעיה טכנית — אני יכול לפתוח פנייה ליעקב.',
+  billing:               'מסתכל על החיוב? אם יש שאלה על החבילות — שאל אותי.',
+};
+
 let haState = {
   open: false, messages: [], loading: false,
   welcomed: false, genderPref: 'male',
   realtimeChannel: null, thinkingMsg: '',
 };
 
+let haPageTimer    = null;
+let haPageCurrent  = null;
+
 function haAgentIcon() { return haState.genderPref === 'female' ? '👩‍💼' : '🤵'; }
 function haAgentName() { return haState.genderPref === 'female' ? 'השותפה שלך' : 'השותף שלך'; }
+
+function haAvatarHtml(size = '100%') {
+  const src      = HA_AVATARS[haState.genderPref] || HA_AVATARS.male;
+  const fallback = haAgentIcon();
+  return `<img src="${src}" alt="agent"
+    style="width:${size};height:${size};object-fit:cover;border-radius:50%;display:block"
+    onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${fallback}',style:'font-size:1.1rem'}))">`;
+}
 
 function haInjectWidget() {
   document.getElementById('chat-trigger')?.remove();
@@ -6165,7 +6197,8 @@ function haInjectWidget() {
   const btn = document.createElement('button');
   btn.id = 'chat-trigger';
   btn.setAttribute('aria-label', 'פתח שיחה עם השותף שלך');
-  btn.innerHTML = `${icon}<span class="chat-badge" id="ha-badge"></span>`;
+  btn.style.overflow = 'hidden';
+  btn.innerHTML = `${haAvatarHtml('100%')}<span class="chat-badge" id="ha-badge"></span>`;
   btn.onclick = haToggle;
   document.body.appendChild(btn);
 
@@ -6173,7 +6206,7 @@ function haInjectWidget() {
   panel.id = 'chat-panel';
   panel.innerHTML = `
     <div class="chat-header">
-      <div class="chat-avatar">${icon}</div>
+      <div class="chat-avatar" style="overflow:hidden;padding:0">${haAvatarHtml('100%')}</div>
       <div class="chat-header-info">
         <div class="chat-header-name">${name}</div>
         <div class="chat-header-sub">Co-CEO • מחובר</div>
@@ -6208,13 +6241,15 @@ function haRenderMessages() {
     return;
   }
 
+  const agentAvatar = `<div class="chat-msg-icon" style="overflow:hidden;padding:0;background:none">${haAvatarHtml('100%')}</div>`;
+
   container.innerHTML = haState.messages.map(m => {
     if (m.role === 'system') {
       return `<div style="text-align:center;font-size:0.7rem;color:#94a3b8;padding:0.2rem 0.75rem;background:#f1f5f9;border-radius:9999px;align-self:center;margin:0.1rem auto;max-width:90%">${m.content}</div>`;
     }
     return `
       <div class="chat-msg ${m.role}">
-        <div class="chat-msg-icon">${m.role === 'user' ? '👤' : icon}</div>
+        ${m.role === 'user' ? '<div class="chat-msg-icon">👤</div>' : agentAvatar}
         <div class="chat-msg-bubble">${haFmt(m.content)}</div>
       </div>`;
   }).join('');
@@ -6222,7 +6257,7 @@ function haRenderMessages() {
   if (haState.loading) {
     container.innerHTML += `
       <div class="chat-typing" id="ha-typing">
-        <div class="chat-typing-icon">${icon}</div>
+        <div class="chat-typing-icon" style="overflow:hidden;padding:0;background:none">${haAvatarHtml('100%')}</div>
         <div class="chat-typing-bubble">
           <span id="ha-thinking-text" style="font-size:0.78rem;color:#64748b">${haState.thinkingMsg || 'חושב...'}</span>
           <div class="chat-typing-dots"><span></span><span></span><span></span></div>
@@ -6248,10 +6283,31 @@ function haToggle() {
   panel.classList.toggle('open', haState.open);
   if (haState.open) {
     document.getElementById('ha-badge')?.classList.remove('visible');
+    // Load any proactive messages that arrived while chat was closed
+    if (!haState.welcomed) {
+      haState.welcomed = true;
+      haFetchWelcome();
+    } else {
+      haLoadProactiveMessages();
+    }
     haRenderMessages();
-    if (!haState.welcomed) { haState.welcomed = true; haFetchWelcome(); }
     setTimeout(() => document.getElementById('ha-input')?.focus(), 300);
   }
+}
+
+// Pull proactive messages stored by the scheduler into local state
+async function haLoadProactiveMessages() {
+  try {
+    const res = await api('GET', 'human-agent-chat?load_proactive=1').catch(() => null);
+    if (res?.proactiveMessages?.length) {
+      res.proactiveMessages.forEach(m => {
+        if (!haState.messages.find(x => x.ts === m.ts)) {
+          haState.messages.push({ role: 'assistant', content: m.content, ts: m.ts });
+        }
+      });
+      haRenderMessages();
+    }
+  } catch {}
 }
 
 async function haFetchWelcome() {
@@ -6354,6 +6410,22 @@ function haInitRealtime(userId) {
     .channel(`agent_events:${userId}`)
     .on('broadcast', { event: '*' }, ({ event: t, payload: p }) => haHandleEvent(t, p))
     .subscribe();
+}
+
+function haStartPageTimer(page) {
+  clearTimeout(haPageTimer);
+  haPageCurrent = page;
+  const hint = HA_STUCK_HINTS[page];
+  if (!hint) return;
+  haPageTimer = setTimeout(() => {
+    if (haState.loading) return;
+    haState.messages.push({ role: 'assistant', content: hint });
+    if (!haState.open) {
+      document.getElementById('ha-badge')?.classList.add('visible');
+    } else {
+      haRenderMessages();
+    }
+  }, 3 * 60 * 1000);
 }
 
 async function initHumanAgent(userId) {

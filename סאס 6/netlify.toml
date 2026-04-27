@@ -86,6 +86,9 @@
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
 
+[functions."scheduled-human-agent"]
+  schedule = "0 * * * *"
+
 # Raw body for Stripe webhook
 [functions."billing-webhook"]
   included_files = []

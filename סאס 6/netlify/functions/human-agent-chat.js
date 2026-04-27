@@ -121,11 +121,32 @@ async function runToolLoop(systemPrompt, history, userMessage, toolContext) {
 
 exports.handler = async (event, context) => {
   if (event.httpMethod === 'OPTIONS') return options();
+
+  const reqCtx = createRequestContext(event, 'human-agent-chat');
+
+  // GET ?load_proactive=1 — return today's scheduler-generated messages
+  if (event.httpMethod === 'GET') {
+    try {
+      const user  = await requireAuth(event, 'human-agent-chat', reqCtx);
+      const sb    = getAdminClient();
+      const today = new Date().toISOString().split('T')[0];
+      const { data } = await sb
+        .from('human_agent_conversations')
+        .select('messages')
+        .eq('user_id', user.id)
+        .eq('session_date', today)
+        .maybeSingle();
+
+      const proactive = (data?.messages || []).filter(m => m.proactive === true);
+      return ok({ proactiveMessages: proactive }, reqCtx.requestId);
+    } catch (err) {
+      return fail(err, reqCtx.requestId);
+    }
+  }
+
   if (event.httpMethod !== 'POST') {
     return fail(new AppError({ code: 'METHOD_NOT_ALLOWED', userMessage: 'שיטה לא מורשית', status: 405 }));
   }
-
-  const reqCtx = createRequestContext(event, 'human-agent-chat');
 
   try {
     const user = await requireAuth(event, 'human-agent-chat', reqCtx);
