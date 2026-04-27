@@ -170,14 +170,15 @@ exports.handler = async (event) => {
     const systemPrompt = buildSystemPrompt({
       userName:            ctx.userName,
       plan:                ctx.plan,
-      genderPreference:    ctx.memory?.gender_preference  || 'male',
-      goals:               ctx.memory?.business_goals     || [],
-      personalNotes:       ctx.memory?.personal_notes     || [],
+      genderPreference:    ctx.memory?.gender_preference   || 'male',
+      goals:               ctx.memory?.business_goals      || [],
+      personalNotes:       ctx.memory?.personal_notes      || [],
+      successes:           ctx.memory?.successes           || [],
+      communicationStyle:  ctx.memory?.communication_style || {},
       recentSessions:      ctx.recentSessions,
       hasInteractedToday:  ctx.hasInteractedToday,
       onboardingCompleted: ctx.memory?.onboarding_completed || false,
       personalityHints,
-      // Let the agent know the channel so it keeps replies WhatsApp-friendly
       channel: 'whatsapp',
     });
 
@@ -193,12 +194,18 @@ exports.handler = async (event) => {
     // ── Run agent ───────────────────────────────────────────────────────────
     const reply = await runToolLoop(systemPrompt, history, text.trim(), toolContext);
 
-    // ── Persist turn ────────────────────────────────────────────────────────
-    const conv = await mem.ensureTodayConversation(sb, userId);
-    await mem.appendTurn(sb, conv.id, ctx.todayMessages, text.trim(), reply, {
-      whatsapp_message_id: messageId,
-      channel: 'whatsapp',
-    });
+    // ── Persist turn (non-fatal) ────────────────────────────────────────────
+    try {
+      const conv = await mem.ensureTodayConversation(sb, userId);
+      if (conv) {
+        await mem.appendTurn(sb, conv.id, ctx.todayMessages, text.trim(), reply, {
+          whatsapp_message_id: messageId,
+          channel: 'whatsapp',
+        });
+      }
+    } catch (persistErr) {
+      console.warn('[whatsapp-webhook] persist skipped:', persistErr.message);
+    }
 
     // ── Send reply via WhatsApp ─────────────────────────────────────────────
     await sendWhatsAppMessage(from, reply);

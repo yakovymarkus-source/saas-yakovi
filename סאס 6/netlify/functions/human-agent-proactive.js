@@ -92,9 +92,11 @@ exports.handler = async (event, context) => {
     const systemPrompt = buildSystemPrompt({
       userName:            ctx.userName,
       plan:                ctx.plan,
-      genderPreference:    ctx.memory?.gender_preference || 'male',
-      goals:               ctx.memory?.business_goals    || [],
-      personalNotes:       ctx.memory?.personal_notes    || [],
+      genderPreference:    ctx.memory?.gender_preference   || 'male',
+      goals:               ctx.memory?.business_goals      || [],
+      personalNotes:       ctx.memory?.personal_notes      || [],
+      successes:           ctx.memory?.successes           || [],
+      communicationStyle:  ctx.memory?.communication_style || {},
       recentSessions:      ctx.recentSessions,
       hasInteractedToday:  false,
       onboardingCompleted: ctx.memory?.onboarding_completed || false,
@@ -102,14 +104,21 @@ exports.handler = async (event, context) => {
     });
 
     const message = await callClaude(systemPrompt, triggerPrompt);
+    if (!message) throw new AppError({ code: 'AI_ERROR', userMessage: 'לא הצלחתי לייצר הודעה', status: 502 });
 
-    // Save proactive message as agent-initiated turn (role: assistant, no user message)
-    const conv = await mem.ensureTodayConversation(sb, userId);
-    const now  = new Date().toISOString();
-    const existing = ctx.todayMessages || [];
-    await sb.from('human_agent_conversations').update({
-      messages: [...existing, { role: 'assistant', content: message, ts: now, proactive: true }],
-    }).eq('id', conv.id);
+    // Save proactive message — non-fatal if DB not ready
+    try {
+      const conv = await mem.ensureTodayConversation(sb, userId);
+      if (conv) {
+        const now      = new Date().toISOString();
+        const existing = ctx.todayMessages || [];
+        await sb.from('human_agent_conversations')
+          .update({ messages: [...existing, { role: 'assistant', content: message, ts: now, proactive: true }] })
+          .eq('id', conv.id);
+      }
+    } catch (persistErr) {
+      console.warn('[human-agent-proactive] persist skipped:', persistErr.message);
+    }
 
     return ok({ userId, message, trigger, channel: 'chat' }, reqCtx.requestId);
 

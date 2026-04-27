@@ -86,6 +86,12 @@
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
 
+[functions."human-agent-chat"]
+  timeout = 26
+
+[functions."human-agent-proactive"]
+  timeout = 26
+
 [functions."scheduled-human-agent"]
   schedule = "0 * * * *"
 
