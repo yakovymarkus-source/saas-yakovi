@@ -25,15 +25,15 @@ function db() {
 
 // ── Hardcoded fallback defaults (used when DB unavailable) ────────────────────
 const DEFAULTS = {
-  chat:      { model: 'anthropic/claude-sonnet-4-5',          fallback: 'openai/gpt-4o',          temp: 0.7, tokens: 2000, timeout: 22000, openrouter: true  },
-  quick:     { model: 'openai/gpt-4o-mini',                   fallback: 'meta-llama/llama-3.1-8b-instruct', temp: 0.5, tokens: 500,  timeout: 8000,  openrouter: true  },
-  creative:  { model: 'anthropic/claude-sonnet-4-5',          fallback: 'openai/gpt-4o',          temp: 0.8, tokens: 3000, timeout: 22000, openrouter: true  },
-  research:  { model: 'anthropic/claude-opus-4-5',            fallback: 'openai/gpt-4o',          temp: 0.3, tokens: 4000, timeout: 22000, openrouter: false },
-  strategy:  { model: 'anthropic/claude-opus-4-5',            fallback: 'openai/gpt-4o',          temp: 0.5, tokens: 4000, timeout: 22000, openrouter: false },
-  execution: { model: 'anthropic/claude-sonnet-4-5',          fallback: 'openai/gpt-4o',          temp: 0.6, tokens: 3000, timeout: 22000, openrouter: true  },
-  qa:        { model: 'anthropic/claude-sonnet-4-5',          fallback: 'openai/gpt-4o-mini',     temp: 0.3, tokens: 2000, timeout: 22000, openrouter: true  },
-  analysis:  { model: 'anthropic/claude-opus-4-5',            fallback: 'openai/gpt-4o',          temp: 0.2, tokens: 4000, timeout: 22000, openrouter: false },
-  router:    { model: 'meta-llama/llama-3.1-8b-instruct',     fallback: 'openai/gpt-4o-mini',     temp: 0.0, tokens: 200,  timeout: 5000,  openrouter: true  },
+  chat:      { model: 'claude-sonnet-4-6',  fallback: 'claude-haiku-4-5-20251001', temp: 0.7, tokens: 2000, timeout: 22000, openrouter: false },
+  quick:     { model: 'claude-haiku-4-5-20251001', fallback: 'claude-haiku-4-5-20251001', temp: 0.5, tokens: 500,  timeout: 10000, openrouter: false },
+  creative:  { model: 'claude-sonnet-4-6',  fallback: 'claude-haiku-4-5-20251001', temp: 0.8, tokens: 3000, timeout: 22000, openrouter: false },
+  research:  { model: 'claude-sonnet-4-6',  fallback: 'claude-haiku-4-5-20251001', temp: 0.3, tokens: 4000, timeout: 22000, openrouter: false },
+  strategy:  { model: 'claude-sonnet-4-6',  fallback: 'claude-haiku-4-5-20251001', temp: 0.5, tokens: 4000, timeout: 22000, openrouter: false },
+  execution: { model: 'claude-sonnet-4-6',  fallback: 'claude-haiku-4-5-20251001', temp: 0.6, tokens: 3000, timeout: 22000, openrouter: false },
+  qa:        { model: 'claude-haiku-4-5-20251001', fallback: 'claude-haiku-4-5-20251001', temp: 0.3, tokens: 2000, timeout: 15000, openrouter: false },
+  analysis:  { model: 'claude-sonnet-4-6',  fallback: 'claude-haiku-4-5-20251001', temp: 0.2, tokens: 4000, timeout: 22000, openrouter: false },
+  router:    { model: 'claude-haiku-4-5-20251001', fallback: 'claude-haiku-4-5-20251001', temp: 0.0, tokens: 200,  timeout: 8000,  openrouter: false },
 };
 
 // ── Tier 1: Rule-based patterns (zero latency) ────────────────────────────────

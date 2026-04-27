@@ -1329,7 +1329,7 @@ ${memSnippet}
 - תשובה: 3-8 משפטים, עברית בלבד, Markdown מותר`;
 
   try {
-    const routing = await routeModel(message, 'conversational');
+    const routing = await routeModel(message, 'chat');
     const raw = await OpenRouterAdapter.execute('chat', {
       system:    systemPrompt,
       user:      message,

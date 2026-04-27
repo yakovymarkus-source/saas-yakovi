@@ -182,6 +182,16 @@ const OpenRouterAdapter = {
     const timeoutMs    = options.timeout      || this.getTimeout();
     const start        = Date.now();
 
+    // Skip OpenRouter entirely when no key — go straight to direct Anthropic
+    if (!process.env.OPENROUTER_API_KEY) {
+      console.log(`[openrouter] no key — using direct Anthropic (${capability})`);
+      const raw = await this.callDirectAnthropic({ prompt, options, timeoutMs });
+      raw._latency = Date.now() - start;
+      raw._via     = 'direct_anthropic';
+      raw._cost    = estimateCost('anthropic/claude-sonnet-4-6', raw._usage?.promptTokens || 0, raw._usage?.completionTokens || 0);
+      return raw;
+    }
+
     // Try OpenRouter first
     try {
       const raw = await this.callOpenRouter({ model, prompt, options: { ...options, fallbackModel }, timeoutMs });
