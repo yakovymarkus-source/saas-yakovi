@@ -134,7 +134,15 @@ async function loadContext(sb, userId) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function ensureMemory(sb, userId) {
-  const { data } = await sb.from('human_agent_memory').select('id').eq('user_id', userId).maybeSingle();
+  const { data, error } = await sb
+    .from('human_agent_memory')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error?.code === '42P01') {
+    throw new Error('MIGRATION_REQUIRED: טבלאות הסוכן האנושי לא נוצרו עדיין — יש להריץ את human-agent-migration.sql בסופרבייס');
+  }
   if (!data) {
     await sb.from('human_agent_memory').insert({ user_id: userId });
   }
@@ -142,20 +150,26 @@ async function ensureMemory(sb, userId) {
 
 async function ensureTodayConversation(sb, userId) {
   const today = new Date().toISOString().split('T')[0];
-  const { data } = await sb
+  const { data, error } = await sb
     .from('human_agent_conversations')
     .select('id, messages')
     .eq('user_id', userId)
     .eq('session_date', today)
     .maybeSingle();
 
+  if (error?.code === '42P01') {
+    throw new Error('MIGRATION_REQUIRED: טבלאות הסוכן האנושי לא נוצרו עדיין — יש להריץ את human-agent-migration.sql בסופרבייס');
+  }
+
   if (data) return data;
 
-  const { data: created } = await sb
+  const { data: created, error: insertErr } = await sb
     .from('human_agent_conversations')
     .insert({ user_id: userId, session_date: today, messages: [] })
     .select('id, messages')
     .single();
+
+  if (insertErr) throw new Error(`שגיאה ביצירת שיחה: ${insertErr.message}`);
   return created;
 }
 

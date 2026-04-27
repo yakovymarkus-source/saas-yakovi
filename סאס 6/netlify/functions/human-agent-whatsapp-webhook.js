@@ -11,9 +11,8 @@ require('./_shared/env');
  * Set WHATSAPP_PROVIDER=meta|twilio and matching env vars when going live.
  */
 
-const { getAdminClient }       = require('./_shared/supabase');
-const { requireInternalSecret } = require('./_shared/auth');
-const mem                       = require('./_shared/human-agent/memory');
+const { getAdminClient } = require('./_shared/supabase');
+const mem                = require('./_shared/human-agent/memory');
 const { buildSystemPrompt }     = require('./_shared/human-agent/system-prompt-builder');
 const { getPersonalityHints }   = require('./_shared/human-agent/personality-engine');
 const { TOOLS, executeTool }    = require('./_shared/human-agent/orchestration-bridge');

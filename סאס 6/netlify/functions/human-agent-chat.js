@@ -190,9 +190,13 @@ exports.handler = async (event, context) => {
         );
       }
 
-      const conv = await mem.ensureTodayConversation(sb, user.id);
-      if (!ctx.hasInteractedToday) {
-        await mem.appendTurn(sb, conv.id, [], '(כניסה למערכת)', welcome);
+      try {
+        const conv = await mem.ensureTodayConversation(sb, user.id);
+        if (conv && !ctx.hasInteractedToday) {
+          await mem.appendTurn(sb, conv.id, [], '(כניסה למערכת)', welcome);
+        }
+      } catch (persistErr) {
+        console.warn('[human-agent-chat] persist welcome skipped:', persistErr.message);
       }
       return ok({ reply: welcome, isOnboarding: isFirstVisit }, reqCtx.requestId);
     }
@@ -236,9 +240,13 @@ exports.handler = async (event, context) => {
     const userInput = message || '(המשתמש פתח את המערכת)';
     const { reply, toolsUsed } = await runToolLoop(systemPrompt, history, userInput, toolContext);
 
-    // ── Persist turn ──────────────────────────────────────────────────────────
-    const conv = await mem.ensureTodayConversation(sb, user.id);
-    await mem.appendTurn(sb, conv.id, ctx.todayMessages, message, reply);
+    // ── Persist turn (non-fatal — reply is always returned even if DB fails) ──
+    try {
+      const conv = await mem.ensureTodayConversation(sb, user.id);
+      if (conv) await mem.appendTurn(sb, conv.id, ctx.todayMessages, message, reply);
+    } catch (persistErr) {
+      console.warn('[human-agent-chat] persist skipped:', persistErr.message);
+    }
 
     return ok({
       reply,
