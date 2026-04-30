@@ -83,6 +83,11 @@ function getEnv() {
   env.SYNC_JOB_INTERNAL_SECRET   = optionalEnv('SYNC_JOB_INTERNAL_SECRET');
   env.ANALYSIS_VERSION           = optionalEnv('ANALYSIS_VERSION', '1.0.0');
 
+  // ── OpenRouter ──────────────────────────────────────────────────────────────
+  env.OPENROUTER_API_KEY         = optionalEnv('OPENROUTER_API_KEY');
+  env.OPENROUTER_DEFAULT_MODEL   = optionalEnv('OPENROUTER_DEFAULT_MODEL', 'anthropic/claude-sonnet-4-5');
+  env.OPENROUTER_TIMEOUT         = optionalEnv('OPENROUTER_TIMEOUT', '22000');
+
   return env;
 }
 

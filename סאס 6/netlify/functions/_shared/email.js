@@ -83,7 +83,23 @@ const APP_URL     = () => process.env.APP_URL     || '';
 const BILLING_URL = () => `${APP_URL()}/settings/billing`;
 
 const WRAPPER_OPEN  = `<div dir="rtl" style="font-family:Arial,sans-serif;font-size:15px;line-height:1.7;color:#1a1a1a;max-width:540px;margin:0 auto;padding:32px 24px;">`;
-const WRAPPER_CLOSE = `<hr style="border:none;border-top:1px solid #e5e5e5;margin:32px 0 16px;"><p style="font-size:12px;color:#999;margin:0;">CampaignBrain — מערכת ניהול קמפיינים חכמה</p></div>`;
+
+// Transactional footer — no unsubscribe (triggered by user action)
+const WRAPPER_CLOSE = `<hr style="border:none;border-top:1px solid #e5e5e5;margin:32px 0 16px;"><p style="font-size:12px;color:#999;margin:0;">CampaignBrain — מערכת ניהול קמפיינים חכמה<br>מייל זה נשלח כי ביצעת פעולה במערכת. לא ניתן להסיר ממיילים תפעוליים.</p></div>`;
+
+// Marketing footer — with unsubscribe link (proactive / retention emails)
+const marketingFooter = (to) => {
+  const encoded = Buffer.from(to).toString('base64');
+  const appUrl  = APP_URL() || 'https://campaignbrain.app';
+  return `<hr style="border:none;border-top:1px solid #e5e5e5;margin:32px 0 16px;">
+<p style="font-size:12px;color:#999;margin:0;">
+  CampaignBrain — מערכת ניהול קמפיינים חכמה<br>
+  קיבלת מייל זה כי נרשמת ל-CampaignBrain ואישרת קבלת עדכונים.<br>
+  <a href="${appUrl}/api/unsubscribe?e=${encoded}" style="color:#999;text-decoration:underline;">הסר אותי מרשימת התפוצה</a>
+  &nbsp;|&nbsp;
+  <a href="${appUrl}/legal/privacy.html" style="color:#999;text-decoration:underline;">מדיניות פרטיות</a>
+</p></div>`;
+};
 
 const btn = (href, text) =>
   `<p style="margin:28px 0;"><a href="${href}" style="display:inline-block;background:#111;color:#fff;padding:13px 26px;text-decoration:none;border-radius:7px;font-weight:bold;font-size:15px;">${text}</a></p>`;
@@ -102,7 +118,7 @@ ${btn(APP_URL(), 'כניסה למערכת')}
 <p>אם אתה כאן — כנראה שאתה מחפש תוצאות, לא רעש.<br>
 אז בוא נתחיל לעבוד.</p>
 <p style="margin-top:24px;">— צוות CampaignBrain</p>
-${WRAPPER_CLOSE}`,
+${marketingFooter(to)}`,
   });
 }
 
@@ -226,7 +242,7 @@ async function sendSyncCompleted({ to, campaignId, analysisId, verdict }) {
 <p>תוצאה: <strong>${verdict}</strong></p>
 ${btn(`${APP_URL()}/campaigns/${campaignId}/analysis/${analysisId}`, 'צפה בניתוח המלא')}
 <p style="margin-top:24px;">— צוות CampaignBrain</p>
-${WRAPPER_CLOSE}`,
+${marketingFooter(to)}`,
   });
 }
 

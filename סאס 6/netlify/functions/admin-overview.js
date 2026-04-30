@@ -57,6 +57,12 @@ exports.handler = async (event) => {
       .eq('status', 'failed').gte('updated_at', since24h).catch(() => ({ count: 0 }));
     const failedJobs24h = failedJobsRes?.count || 0;
 
+    // Active alerts for notification badge
+    const alerts = [];
+    if (failedJobs24h > 0)        alerts.push({ type: 'jobs',     severity: 'high',    message: `${failedJobs24h} תהליכים כשלו ב-24 שעות האחרונות` });
+    if (failedPayments24h > 0)    alerts.push({ type: 'billing',  severity: 'high',    message: `${failedPayments24h} תשלומים כושלים ב-24 שעות האחרונות` });
+    if (pendingJobs > 10)         alerts.push({ type: 'queue',    severity: 'warning', message: `${pendingJobs} תהליכים ממתינים בתור` });
+
     await writeRequestLog(buildLogPayload(context, 'info', 'admin_overview_read', {}));
 
     return ok({
@@ -77,6 +83,7 @@ exports.handler = async (event) => {
         runningJobs,
         failedJobs24h,
       },
+      alerts,
     }, context.requestId);
   } catch (error) {
     await writeRequestLog(buildLogPayload(context, 'error', 'admin_overview_failed', { code: error.code })).catch(() => {});

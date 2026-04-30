@@ -80,7 +80,19 @@ exports.handler = async (event) => {
   try {
     const { accessToken, expiresIn } = await exchangeCodeForToken(code, REDIRECT_URI());
 
-    const secret    = { accessToken, expiresIn, obtainedAt: Date.now() };
+    // Check which scopes Meta actually granted
+    let grantedScopes = [];
+    try {
+      const permRes  = await fetch(`https://graph.facebook.com/v19.0/me/permissions?access_token=${accessToken}`);
+      const permJson = await permRes.json();
+      grantedScopes  = (permJson.data || []).filter(p => p.status === 'granted').map(p => p.permission);
+    } catch (e) {
+      console.warn('[oauth-meta] Could not fetch granted scopes:', e.message);
+    }
+
+    const hasWriteAccess = grantedScopes.includes('ads_management') || grantedScopes.includes('business_management');
+
+    const secret    = { accessToken, expiresIn, obtainedAt: Date.now(), grantedScopes };
     const encrypted = encrypt(JSON.stringify(secret));
 
     const sb = getAdminClient();
@@ -90,6 +102,8 @@ exports.handler = async (event) => {
       secret_ciphertext: encrypted.ciphertext,
       secret_iv:         encrypted.iv,
       secret_tag:        encrypted.tag,
+      granted_scopes:    grantedScopes,
+      has_write_access:  hasWriteAccess,
       updated_at:        new Date().toISOString(),
     }, { onConflict: 'user_id,provider' });
 
@@ -99,8 +113,12 @@ exports.handler = async (event) => {
     }
 
     await writeAudit({ userId, action: 'integration.connect', targetType: 'provider', targetId: 'meta', ip: context.ip, requestId: context.requestId });
-    await writeRequestLog(buildLogPayload(context, 'info', 'meta_oauth_connected', { user_id: userId }));
-    return redirect(`${appUrl}/settings/integrations?connected=meta`);
+    await writeRequestLog(buildLogPayload(context, 'info', 'meta_oauth_connected', { user_id: userId, hasWriteAccess, scopeCount: grantedScopes.length }));
+
+    // setup=ready → frontend will trigger meta-setup automatically (pixel creation etc.)
+    // setup=readonly → app not approved yet, only read access
+    const setupParam = hasWriteAccess ? '&setup=ready' : '&setup=readonly';
+    return redirect(`${appUrl}/settings/integrations?connected=meta${setupParam}`);
   } catch (err) {
     console.error('[oauth-meta] error:', err.message);
     await writeRequestLog(buildLogPayload(context, 'error', 'meta_oauth_failed', { user_id: userId, error: err.message }));

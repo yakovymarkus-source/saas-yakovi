@@ -1,5 +1,6 @@
 'use strict';
 const { createClient } = require('@supabase/supabase-js');
+const iLogger = require('./_shared/intelligence-logger');
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
@@ -39,6 +40,7 @@ exports.handler = async (event) => {
     body:    JSON.stringify({ jobId: job.id }),
   }).catch(e => console.error('[analysis-start] fire-and-forget failed:', e.message));
 
+  iLogger.log({ agent_name: 'analysis-agent', interaction_type: 'api_call', status: 'SUCCESS', user_id: user.id }).catch(() => {});
   return {
     statusCode: 202,
     headers: { 'content-type': 'application/json' },

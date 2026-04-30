@@ -6,6 +6,7 @@ const { requireAuth }        = require('./_shared/auth');
 const { parseJsonBody }      = require('./_shared/request');
 const { getAdminClient }     = require('./_shared/supabase');
 const { getPlanByLevel }     = require('./_shared/research/planner');
+const iLogger                = require('./_shared/intelligence-logger');
 
 /**
  * POST /research-start
@@ -67,6 +68,7 @@ exports.handler = async (event) => {
     }).catch(e => console.warn('[research-start] trigger warning:', e.message));
   } catch {}
 
+  iLogger.log({ agent_name: 'research-agent', interaction_type: 'api_call', status: 'SUCCESS', user_id: user.id }).catch(() => {});
   return ok({
     jobId:            job.id,
     estimatedMinutes: plan.estimatedMinutes,

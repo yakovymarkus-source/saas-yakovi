@@ -19,6 +19,8 @@ exports.handler = async (event) => {
     const since1h = new Date(Date.now() - 3600 * 1000).toISOString();
     const since24h = new Date(Date.now() - 86400 * 1000).toISOString();
 
+    const CRON_FUNCTIONS = ['retention-trigger', 'trigger-pending-jobs'];
+
     const [
       providerHealthRes,
       pendingJobsRes,
@@ -28,6 +30,7 @@ exports.handler = async (event) => {
       totalReqsRes,
       errorReqsRes,
       avgDurationRes,
+      cronHistoryRes,
     ] = await Promise.all([
       sb.from('provider_health').select('*').order('updated_at', { ascending: false }),
 
@@ -54,6 +57,13 @@ exports.handler = async (event) => {
 
       // Avg response time last 1h
       sb.from('request_logs').select('duration_ms').gte('created_at', since1h).not('duration_ms', 'is', null).limit(500),
+
+      // Cron history: last 20 executions of scheduled functions
+      sb.from('request_logs')
+        .select('function_name, level, message, duration_ms, created_at')
+        .in('function_name', CRON_FUNCTIONS)
+        .order('created_at', { ascending: false })
+        .limit(20),
     ]);
 
     const totalReqs    = totalReqsRes.count  || 0;
@@ -64,6 +74,19 @@ exports.handler = async (event) => {
     const avgDurationMs = durations.length
       ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
       : 0;
+
+    // Build cron summary: last run per function
+    const cronByFn = {};
+    for (const row of (cronHistoryRes.data || [])) {
+      if (!cronByFn[row.function_name]) cronByFn[row.function_name] = [];
+      cronByFn[row.function_name].push(row);
+    }
+    const cronSummary = CRON_FUNCTIONS.map(fn => {
+      const runs = cronByFn[fn] || [];
+      const last = runs[0] || null;
+      const errors24h = runs.filter(r => r.level === 'error').length;
+      return { function: fn, lastRun: last?.created_at || null, lastStatus: last?.level || null, runs24h: runs.length, errors24h };
+    });
 
     await writeRequestLog(buildLogPayload(context, 'info', 'admin_system_read', {}));
     return ok({
@@ -79,6 +102,7 @@ exports.handler = async (event) => {
         totalRequests1h: totalReqs,
         recentErrors:   recentErrorsRes.data || [],
       },
+      cronHistory: cronSummary,
     }, context.requestId);
   } catch (error) {
     await writeRequestLog(buildLogPayload(context, 'error', 'admin_system_failed', { code: error.code })).catch(() => {});

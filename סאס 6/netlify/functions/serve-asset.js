@@ -27,6 +27,24 @@
 
 const { loadAsset }              = require('./_shared/asset-storage');
 const { createRequestContext }   = require('./_shared/observability');
+const { createClient }           = require('@supabase/supabase-js');
+
+function _adminDb() {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+async function _getPixelForUser(userId) {
+  if (!userId) return null;
+  try {
+    const { data } = await _adminDb()
+      .from('user_meta_config')
+      .select('pixel_id')
+      .eq('user_id', userId)
+      .eq('setup_completed', true)
+      .maybeSingle();
+    return data?.pixel_id || null;
+  } catch { return null; }
+}
 
 // ── UUID validation ───────────────────────────────────────────────────────────
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -152,5 +170,30 @@ exports.handler = async (event) => {
     ...(asset.expires_at ? { 'Expires': new Date(asset.expires_at).toUTCString() } : {}),
   };
 
-  return respondHtml(200, asset.html, extraHeaders);
+  // Inject tracker into landing pages — always look up latest pixel_id dynamically
+  // so pages built before Facebook was connected still get the pixel after connection
+  let html = asset.html || '';
+  if (asset.type === 'landing_page_html') {
+    const campaignId    = asset.campaign_id || '';
+    const storedPixelId = asset.pixel_id    || '';
+    // Dynamic lookup: prefer live DB value over what was baked in at build time
+    const livePixelId   = await _getPixelForUser(asset.user_id) || storedPixelId;
+
+    if (!html.includes('tracker.js')) {
+      const attrs = [
+        campaignId  ? `data-campaign-id="${campaignId}"`  : '',
+        livePixelId ? `data-pixel-id="${livePixelId}"`    : '',
+      ].filter(Boolean).join(' ');
+      const tag = `<script src="/assets/tracker.js"${attrs ? ' ' + attrs : ''} defer></script>`;
+      html = html.replace('</head>', tag + '\n</head>');
+    } else if (livePixelId && !html.includes('data-pixel-id')) {
+      // Tracker exists but pixel_id wasn't embedded at build time — patch it in
+      html = html.replace(
+        /(<script[^>]+tracker\.js[^>]*)(defer>|defer\s*\/>|>)/,
+        `$1 data-pixel-id="${livePixelId}" $2`
+      );
+    }
+  }
+
+  return respondHtml(200, html, extraHeaders);
 };

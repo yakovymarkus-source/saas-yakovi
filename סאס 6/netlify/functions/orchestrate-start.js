@@ -60,7 +60,7 @@ exports.handler = async (event) => {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-internal-secret': process.env.INTERNAL_SECRET || '',
+      'x-internal-secret': process.env.SYNC_JOB_INTERNAL_SECRET || '',
     },
     body: JSON.stringify({ jobId: job.id }),
   }).catch(e => console.error('[orchestrate-start] fire failed:', e.message));

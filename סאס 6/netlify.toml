@@ -86,6 +86,21 @@
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
 
+[functions."human-agent-chat"]
+  timeout = 26
+
+[functions."human-agent-proactive"]
+  timeout = 26
+
+[functions."scheduled-human-agent"]
+  schedule = "0 * * * *"
+
+[functions."human-agent-whatsapp-webhook"]
+  timeout = 26
+
+[functions."qa-uptime-check"]
+  schedule = "*/10 * * * *"
+
 # Raw body for Stripe webhook
 [functions."billing-webhook"]
   included_files = []

@@ -93,6 +93,8 @@ function navigate(page, params = {}) {
   // Update URL hash so page survives refresh
   window.location.hash = page;
   render();
+  // Human Agent stuck-user detection — starts 3-min timer per page
+  if (typeof haStartPageTimer === 'function') haStartPageTimer(page);
 }
 
 // ── API helper ────────────────────────────────────────────────────────────────
@@ -4076,6 +4078,9 @@ async function boot() {
         }).catch(() => {});
       }
 
+      // Init human agent (Co-CEO chat widget + Realtime) after fresh data loads
+      initHumanAgent(session.user.id).catch(() => {});
+
       // New user flow: no business profile + no prior session → ai-creation
       const isNewUser = !bpRes && !cached && initialPage === 'dashboard';
       if (isNewUser) state.currentPage = 'ai-creation';
@@ -4383,11 +4388,11 @@ function renderBusinessFromScratch() {
       <p class="page-subtitle">מערכת סוכנים חכמה שבונה את כל אסטרטגיית השיווק שלך — מחקר, אסטרטגיה, ביצוע ובקרת איכות</p>
     </div>
 
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1rem">
+    <div style="display:none">
       ${agentCards}
     </div>
 
-    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 1rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:0.75rem;margin-bottom:0.5rem">
+    <div style="display:none">
       <span style="font-size:1rem">💡</span>
       <span style="font-size:0.8rem;color:#92400e">הסוכנים עובדים בסדר — מחקר → אסטרטגיה → ביצוע → QA → ניתוח. כל 5 הסוכנים פעילים.</span>
     </div>
@@ -6121,6 +6126,334 @@ async function restoreAnalysisJob() {
   } catch {}
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  HUMAN AGENT — Co-CEO Chat Widget
+//  Uses the existing #chat-trigger / #chat-panel CSS from chat.css
+//  Replaces campaigner-chat with the full human-agent-chat endpoint
+// ══════════════════════════════════════════════════════════════════════════════
+
+const HA_THINKING = [
+  'מעבד את הבקשה...',
+  'בודק את הנתונים...',
+  'מנתח ומחשב...',
+  'מתייעץ עם הצוות...',
+  'כמעט מוכן...',
+];
+
+const HA_AGENT_LABELS = {
+  research:  '🔍 סוכן המחקר',
+  strategy:  '🎯 סוכן האסטרטגיה',
+  execution: '🧱 סוכן הביצוע',
+  qa:        '🧪 סוכן ה-QA',
+  analysis:  '📊 סוכן הניתוח',
+};
+
+// Avatar paths — replace the SVG files with real photos whenever ready.
+// Supported formats: .svg / .png / .jpg  (120×120px recommended)
+const HA_AVATARS = {
+  male:   '/assets/avatar-male.svg',
+  female: '/assets/avatar-female.svg',
+};
+
+// Stuck-user hints per page — shown after 3 min of inactivity on that page
+const HA_STUCK_HINTS = {
+  campaigns:             'נמצאים בקמפיינים כבר כמה דקות — אם אתה מתלבט על משהו, תגיד לי ואני עוזר.',
+  'ai-creation':         'בונה משהו? אם נתקעת בשלב כלשהו — שאל אותי ואני מדריך אותך צעד-צעד.',
+  'business-from-scratch': 'עובדים על הבסיס? אם לא ברור מאיפה להתחיל — בוא נחליט יחד.',
+  settings:              'מחפש הגדרה מסוימת? פשוט שאל — אני אראה לך בדיוק איפה זה.',
+  leads:                 'מסתכל על הלידים? אם תרצה ניתוח מהיר — אגיד לך מה שווה לשים לב.',
+  insights:              'מסתכל על הנתונים? אם הגרפים לא מספרים סיפור ברור — תן לי לפרש.',
+  integrations:          'מחבר אינטגרציה? אם יש בעיה טכנית — אני יכול לפתוח פנייה ליעקב.',
+  billing:               'מסתכל על החיוב? אם יש שאלה על החבילות — שאל אותי.',
+};
+
+let haState = {
+  open: false, messages: [], loading: false,
+  welcomed: false, genderPref: 'male',
+  realtimeChannel: null, thinkingMsg: '',
+};
+
+let haPageTimer    = null;
+let haPageCurrent  = null;
+
+function haAgentIcon() { return haState.genderPref === 'female' ? '👩‍💼' : '🤵'; }
+function haAgentName() { return haState.genderPref === 'female' ? 'השותפה שלך' : 'השותף שלך'; }
+
+function haAvatarHtml(size = '100%') {
+  const src      = HA_AVATARS[haState.genderPref] || HA_AVATARS.male;
+  const fallback = haAgentIcon();
+  return `<img src="${src}" alt="agent"
+    style="width:${size};height:${size};object-fit:cover;border-radius:50%;display:block"
+    onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${fallback}',style:'font-size:1.1rem'}))">`;
+}
+
+function haInjectWidget() {
+  document.getElementById('chat-trigger')?.remove();
+  document.getElementById('chat-panel')?.remove();
+
+  const icon = haAgentIcon();
+  const name = haAgentName();
+
+  const btn = document.createElement('button');
+  btn.id = 'chat-trigger';
+  btn.setAttribute('aria-label', 'פתח שיחה עם השותף שלך');
+  btn.style.overflow = 'hidden';
+  btn.innerHTML = `${haAvatarHtml('100%')}<span class="chat-badge" id="ha-badge"></span>`;
+  btn.onclick = haToggle;
+  document.body.appendChild(btn);
+
+  const panel = document.createElement('div');
+  panel.id = 'chat-panel';
+  panel.innerHTML = `
+    <div class="chat-header">
+      <div class="chat-avatar" style="overflow:hidden;padding:0">${haAvatarHtml('100%')}</div>
+      <div class="chat-header-info">
+        <div class="chat-header-name">${name}</div>
+        <div class="chat-header-sub">Co-CEO • מחובר</div>
+      </div>
+      <div class="chat-status-dot"></div>
+      <div class="chat-header-actions">
+        <button class="chat-header-btn" onclick="haToggle()" title="סגור">✕</button>
+      </div>
+    </div>
+    <div class="chat-messages" id="ha-messages"></div>
+    <div class="chat-input-bar">
+      <textarea class="chat-input" id="ha-input" placeholder="כתוב הודעה..." rows="1"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();haSubmit()}"
+        oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,100)+'px'"></textarea>
+      <button class="chat-send-btn" id="ha-send-btn" onclick="haSubmit()" title="שלח">↑</button>
+    </div>`;
+  document.body.appendChild(panel);
+}
+
+function haRenderMessages() {
+  const container = document.getElementById('ha-messages');
+  if (!container) return;
+  const icon = haAgentIcon();
+
+  if (!haState.messages.length && !haState.loading) {
+    container.innerHTML = `
+      <div class="chat-welcome">
+        <div class="chat-welcome-icon">${icon}</div>
+        <h3>היי! אני כאן 👋</h3>
+        <p>השותף העסקי שלך. שאל אותי כל דבר — אני מנהל הכל מאחורי הקלעים.</p>
+      </div>`;
+    return;
+  }
+
+  const agentAvatar = `<div class="chat-msg-icon" style="overflow:hidden;padding:0;background:none">${haAvatarHtml('100%')}</div>`;
+
+  container.innerHTML = haState.messages.map(m => {
+    if (m.role === 'system') {
+      return `<div style="text-align:center;font-size:0.7rem;color:#94a3b8;padding:0.2rem 0.75rem;background:#f1f5f9;border-radius:9999px;align-self:center;margin:0.1rem auto;max-width:90%">${m.content}</div>`;
+    }
+    return `
+      <div class="chat-msg ${m.role}">
+        ${m.role === 'user' ? '<div class="chat-msg-icon">👤</div>' : agentAvatar}
+        <div class="chat-msg-bubble">${haFmt(m.content)}</div>
+      </div>`;
+  }).join('');
+
+  if (haState.loading) {
+    container.innerHTML += `
+      <div class="chat-typing" id="ha-typing">
+        <div class="chat-typing-icon" style="overflow:hidden;padding:0;background:none">${haAvatarHtml('100%')}</div>
+        <div class="chat-typing-bubble">
+          <span id="ha-thinking-text" style="font-size:0.78rem;color:#64748b">${haState.thinkingMsg || 'חושב...'}</span>
+          <div class="chat-typing-dots"><span></span><span></span><span></span></div>
+        </div>
+      </div>`;
+  }
+
+  container.scrollTop = container.scrollHeight;
+}
+
+function haFmt(text) {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+}
+
+function haToggle() {
+  const panel = document.getElementById('chat-panel');
+  if (!panel) return;
+  haState.open = !haState.open;
+  panel.classList.toggle('open', haState.open);
+  if (haState.open) {
+    document.getElementById('ha-badge')?.classList.remove('visible');
+    // Load any proactive messages that arrived while chat was closed
+    if (!haState.welcomed) {
+      haState.welcomed = true;
+      haFetchWelcome();
+    } else {
+      haLoadProactiveMessages();
+    }
+    haRenderMessages();
+    setTimeout(() => document.getElementById('ha-input')?.focus(), 300);
+  }
+}
+
+// Pull proactive messages stored by the scheduler into local state
+async function haLoadProactiveMessages() {
+  try {
+    const res = await api('GET', 'human-agent-chat?load_proactive=1').catch(() => null);
+    if (res?.proactiveMessages?.length) {
+      res.proactiveMessages.forEach(m => {
+        if (!haState.messages.find(x => x.ts === m.ts)) {
+          haState.messages.push({ role: 'assistant', content: m.content, ts: m.ts });
+        }
+      });
+      haRenderMessages();
+    }
+  } catch {}
+}
+
+async function haFetchWelcome() {
+  haState.loading = true;
+  haState.thinkingMsg = 'מתחבר...';
+  haRenderMessages();
+
+  const userId    = state.user?.id;
+  const visitKey  = userId ? `ha_visits_${userId}` : null;
+  const visitNum  = visitKey ? parseInt(localStorage.getItem(visitKey) || '1') : 1;
+
+  try {
+    const res = await api('POST', 'human-agent-chat', { trigger: 'welcome', visit_number: visitNum });
+    if (res.reply) haState.messages.push({ role: 'assistant', content: res.reply });
+    if (res.meta?.genderPreference) { haState.genderPref = res.meta.genderPreference; haInjectWidget(); }
+  } catch {
+    haState.messages.push({ role: 'assistant', content: 'היי! אני השותף שלך. שמח שהגעת 😊' });
+  } finally {
+    haState.loading = false;
+    haRenderMessages();
+    if (!haState.open) document.getElementById('ha-badge')?.classList.add('visible');
+  }
+}
+
+async function haSubmit() {
+  const input = document.getElementById('ha-input');
+  const text  = (input?.value || '').trim();
+  if (!text || haState.loading) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+
+  haState.messages.push({ role: 'user', content: text });
+  haState.loading     = true;
+  haState.thinkingMsg = HA_THINKING[0];
+  haRenderMessages();
+
+  let ti = 0;
+  const thinkTimer = setInterval(() => {
+    ti = Math.min(ti + 1, HA_THINKING.length - 1);
+    haState.thinkingMsg = HA_THINKING[ti];
+    const el = document.getElementById('ha-thinking-text');
+    if (el) el.textContent = haState.thinkingMsg;
+  }, 3000);
+
+  try {
+    const res = await api('POST', 'human-agent-chat', { message: text });
+    clearInterval(thinkTimer);
+
+    if (res.reply) haState.messages.push({ role: 'assistant', content: res.reply });
+
+    if (res.toolsUsed?.length) {
+      const used = res.toolsUsed
+        .map(t => HA_AGENT_LABELS[t] || null)
+        .filter(Boolean);
+      if (used.length) haState.messages.push({ role: 'system', content: '⚙️ ' + used.join(' → ') + ' פעלו מאחורי הקלעים' });
+    }
+
+    if (res.meta?.genderPreference && res.meta.genderPreference !== haState.genderPref) {
+      haState.genderPref = res.meta.genderPreference;
+      haInjectWidget();
+    }
+  } catch (err) {
+    clearInterval(thinkTimer);
+    haState.messages.push({ role: 'assistant', content: 'מצטער, הייתה שגיאה. ננסה שוב?' });
+  } finally {
+    haState.loading = false;
+    haRenderMessages();
+  }
+}
+
+function haHandleEvent(eventType, payload) {
+  if (eventType === 'highlight') {
+    const el = document.querySelector(payload.selector);
+    if (el) {
+      el.style.transition = 'box-shadow 0.3s, outline 0.3s';
+      el.style.boxShadow  = '0 0 0 3px #6366f1, 0 0 24px rgba(99,102,241,0.5)';
+      el.style.outline    = '2px solid #6366f1';
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => { el.style.boxShadow = ''; el.style.outline = ''; }, payload.duration_ms || 4000);
+    }
+    if (payload.label) {
+      haState.messages.push({ role: 'system', content: `🎯 מסמן: ${payload.label}` });
+      haRenderMessages();
+    }
+  } else if (eventType === 'navigate') {
+    if (payload.page) {
+      navigate(payload.page);
+      if (payload.message) {
+        haState.messages.push({ role: 'system', content: `📍 עוברים ל-${payload.page}` });
+        haRenderMessages();
+      }
+    }
+  }
+}
+
+function haInitRealtime(userId) {
+  if (haState.realtimeChannel) return;
+  haState.realtimeChannel = sb
+    .channel(`agent_events:${userId}`)
+    .on('broadcast', { event: '*' }, ({ event: t, payload: p }) => haHandleEvent(t, p))
+    .subscribe();
+}
+
+function haStartPageTimer(page) {
+  clearTimeout(haPageTimer);
+  haPageCurrent = page;
+  const hint = HA_STUCK_HINTS[page];
+  if (!hint) return;
+  haPageTimer = setTimeout(() => {
+    if (haState.loading) return;
+    haState.messages.push({ role: 'assistant', content: hint });
+    if (!haState.open) {
+      document.getElementById('ha-badge')?.classList.add('visible');
+    } else {
+      haRenderMessages();
+    }
+  }, 3 * 60 * 1000);
+}
+
+async function initHumanAgent(userId) {
+  haState = { open: false, messages: [], loading: false, welcomed: false, genderPref: 'male', realtimeChannel: null, thinkingMsg: '' };
+  haInjectWidget();
+  haInitRealtime(userId);
+
+  // Track visits per user — auto-open chat for first 2 visits
+  const visitKey   = `ha_visits_${userId}`;
+  const visitCount = parseInt(localStorage.getItem(visitKey) || '0') + 1;
+  localStorage.setItem(visitKey, String(visitCount));
+  const isEarlyVisit = visitCount <= 2;
+
+  setTimeout(async () => {
+    if (!haState.welcomed) {
+      haState.welcomed = true;
+
+      // First 2 visits: open the panel immediately so user sees the welcome
+      if (isEarlyVisit) {
+        haState.open = true;
+        document.getElementById('chat-panel')?.classList.add('open');
+      }
+
+      await haFetchWelcome();
+    }
+  }, 1200);
+}
+
 // ── Expose to HTML event handlers ─────────────────────────────────────────────
 window.navigate              = navigate;
 window.handleLogout          = handleLogout;
@@ -6181,6 +6514,8 @@ window.leadsCopy             = leadsCopy;
 window.leadsLoadAll          = leadsLoadAll;
 window.sendSupportMessage    = sendSupportMessage;
 window.renderSupport         = renderSupport;
+window.haToggle              = haToggle;
+window.haSubmit              = haSubmit;
 window.switchSettingsTab      = switchSettingsTab;
 window.switchInsightsTab      = switchInsightsTab;
 window.renderInsights         = renderInsights;

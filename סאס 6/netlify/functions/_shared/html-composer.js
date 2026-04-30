@@ -733,15 +733,23 @@ body{
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildHTMLDocument(bodyHTML, css, meta) {
-  const lang    = escAttr(meta?.lang   || 'he');
-  const dir     = escAttr(meta?.dir    || 'rtl');
-  const fontUrl = str(meta?.google_fonts_url);
+  const lang       = escAttr(meta?.lang   || 'he');
+  const dir        = escAttr(meta?.dir    || 'rtl');
+  const fontUrl    = str(meta?.google_fonts_url);
+  const campaignId = escAttr(meta?.campaign_id || '');
+  const pixelId    = escAttr(meta?.pixel_id    || '');
 
   const fontLinks = fontUrl
     ? `<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="${escAttr(fontUrl)}" rel="stylesheet">`
     : '';
+
+  const trackerAttrs = [
+    campaignId ? `data-campaign-id="${campaignId}"` : '',
+    pixelId    ? `data-pixel-id="${pixelId}"`       : '',
+  ].filter(Boolean).join(' ');
+  const trackerTag = `<script src="/assets/tracker.js"${trackerAttrs ? ' ' + trackerAttrs : ''} defer></script>`;
 
   return `<!DOCTYPE html>
 <html lang="${lang}" dir="${dir}">
@@ -753,6 +761,7 @@ ${fontLinks}
 <style>
 ${css}
 </style>
+${trackerTag}
 </head>
 <body>
 ${bodyHTML}

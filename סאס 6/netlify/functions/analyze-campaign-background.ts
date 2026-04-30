@@ -57,7 +57,7 @@ export const handler = async (event: HandlerEvent): Promise<HandlerResponse> => 
     return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
   }
 
-  const secret = process.env.INTERNAL_SECRET || '';
+  const secret = process.env.SYNC_JOB_INTERNAL_SECRET || '';
   if (secret && event.headers['x-internal-secret'] !== secret) {
     return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden' }) };
   }

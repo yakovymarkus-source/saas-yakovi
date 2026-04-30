@@ -85,9 +85,10 @@ function getRegistry() {
 
   // Register all known adapters.
   // To add a new provider: create its adapter and add one line here.
-  try { _registry.register(require('./adapters/openai'));      } catch (e) { console.warn('[registry] openai adapter load failed:', e.message); }
-  try { _registry.register(require('./adapters/claude'));      } catch (e) { console.warn('[registry] claude adapter load failed:', e.message); }
-  try { _registry.register(require('./adapters/nano-banana')); } catch (e) { console.warn('[registry] nano-banana adapter load failed:', e.message); }
+  try { _registry.register(require('./adapters/openai'));       } catch (e) { console.warn('[registry] openai adapter load failed:', e.message); }
+  try { _registry.register(require('./adapters/claude'));       } catch (e) { console.warn('[registry] claude adapter load failed:', e.message); }
+  try { _registry.register(require('./adapters/openrouter'));   } catch (e) { console.warn('[registry] openrouter adapter load failed:', e.message); }
+  try { _registry.register(require('./adapters/nano-banana'));  } catch (e) { console.warn('[registry] nano-banana adapter load failed:', e.message); }
 
   return _registry;
 }

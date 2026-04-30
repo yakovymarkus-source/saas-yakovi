@@ -13,6 +13,9 @@ function sanitizeProfile(profile, userId) {
     id: source.id || userId,
     email: typeof source.email === 'string' ? source.email : null,
     name: typeof source.name === 'string' ? source.name : null,
+    full_name: typeof source.full_name === 'string' ? source.full_name : null,
+    avatar_url: typeof source.avatar_url === 'string' ? source.avatar_url : null,
+    created_at: source.created_at || null,
     deleted: Boolean(source.deleted),
   };
 }
@@ -26,7 +29,7 @@ async function getProfile(userOrId) {
   }
 
   if (typeof client.from === 'function') {
-    const response = await client.from('profiles').select('id,email,name').eq('id', userId).maybeSingle();
+    const response = await client.from('profiles').select('id,email,name,full_name,avatar_url,created_at').eq('id', userId).maybeSingle();
     if (response?.error) {
       throw new AppError({ code: 'DB_READ_FAILED', userMessage: 'טעינת הפרופיל נכשלה', devMessage: response.error.message, status: 500, details: { userId } });
     }
@@ -49,6 +52,13 @@ async function updateProfile(userOrId, updates) {
   if (Object.prototype.hasOwnProperty.call(updates, 'name')) {
     patch.name = typeof updates.name === 'string' && updates.name.trim() ? updates.name.trim() : null;
   }
+  if (Object.prototype.hasOwnProperty.call(updates, 'avatarUrl') || Object.prototype.hasOwnProperty.call(updates, 'avatar_url')) {
+    const val = updates.avatarUrl ?? updates.avatar_url;
+    patch.avatar_url = typeof val === 'string' && val.trim() ? val.trim() : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, 'full_name')) {
+    patch.full_name = typeof updates.full_name === 'string' && updates.full_name.trim() ? updates.full_name.trim() : null;
+  }
 
   const client = getAdminClient();
   if (typeof client.updateProfile === 'function') {
@@ -57,7 +67,7 @@ async function updateProfile(userOrId, updates) {
   }
 
   if (typeof client.from === 'function' && Object.keys(patch).length > 0) {
-    const response = await client.from('profiles').update(patch).eq('id', userId).select('id,email,name').maybeSingle();
+    const response = await client.from('profiles').update(patch).eq('id', userId).select('id,email,name,full_name,avatar_url,created_at').maybeSingle();
     if (response?.error) {
       throw new AppError({ code: 'DB_WRITE_FAILED', userMessage: 'עדכון הפרופיל נכשל', devMessage: response.error.message, status: 500, details: { userId } });
     }

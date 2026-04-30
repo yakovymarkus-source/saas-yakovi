@@ -38,6 +38,27 @@ const { loadRunningTests, buildNextTestSuggestion, formatTestCard } = require('.
 const { generateAdCopy, formatCopyCard } = require('./_shared/ad-copy-generator');
 const { extractProfileAnswer } = require('./_shared/profile-intake-extractor');
 const { orchestrate, CAPABILITIES }     = require('./_shared/orchestrator');
+const { route: routeModel }             = require('./_shared/model-router');
+const OpenRouterAdapter                 = require('./_shared/providers/adapters/openrouter');
+const iLogger                           = require('./_shared/intelligence-logger');
+
+// ── AI cost logger (fire-and-forget) ─────────────────────────────────────────
+async function _logAICost({ userId, taskType, raw, routing }) {
+  try {
+    const sb = getAdminClient();
+    await sb.from('ai_cost_log').insert({
+      user_id:       userId || null,
+      task_type:     taskType,
+      model_used:    raw?._model || routing?.model || 'unknown',
+      provider:      raw?._via === 'direct_fallback' ? 'anthropic_direct' : 'openrouter',
+      input_tokens:  raw?._usage?.promptTokens     || 0,
+      output_tokens: raw?._usage?.completionTokens || 0,
+      cost_usd:      raw?._cost || 0,
+      latency_ms:    raw?._latency || 0,
+      success:       true,
+    });
+  } catch { /* non-critical */ }
+}
 
 // ── Intent detection ──────────────────────────────────────────────────────────
 const INTENT_PATTERNS = [
@@ -63,7 +84,7 @@ function detectIntent(message) {
   for (const { intent, patterns } of INTENT_PATTERNS) {
     if (patterns.test(lower)) return intent;
   }
-  return 'overview';
+  return 'general';
 }
 
 // ── Context builder ───────────────────────────────────────────────────────────
@@ -1020,6 +1041,9 @@ async function generateLandingPageResponse(context) {
     const { buildHTMLBlueprint } = require('./_shared/html-blueprint-builder');
     const blueprint = buildHTMLBlueprint(structure, null, memory);
 
+    // Inject pixel_id from user's Meta config (null-safe — works even if not connected)
+    if (blueprint.meta) blueprint.meta.pixel_id = await _getPixelId(userId);
+
     // Step 4: Compose full HTML + CSS (self-contained, RTL, mobile-first)
     // asset_id is not yet known — placeholder will be injected in Step 6 after saveAsset()
     const { composeHTML } = require('./_shared/html-composer');
@@ -1131,6 +1155,20 @@ async function generateLandingPageResponse(context) {
   }
 }
 
+// ── Pixel ID lookup — returns user's Meta pixel_id or null ───────────────────
+async function _getPixelId(userId) {
+  try {
+    const sb = getAdminClient();
+    const { data } = await sb
+      .from('user_meta_config')
+      .select('pixel_id')
+      .eq('user_id', userId)
+      .eq('setup_completed', true)
+      .maybeSingle();
+    return data?.pixel_id || null;
+  } catch { return null; }
+}
+
 // ── Variation generator — runs the pipeline once per mode ────────────────────
 async function _generateVariants(modes, baseMemory, baseStructure, assetType, context) {
   const { applyVariationMode }      = require('./_shared/iteration-engine');
@@ -1153,6 +1191,7 @@ async function _generateVariants(modes, baseMemory, baseStructure, assetType, co
         applyVariationMode(mode, baseStructure, baseMemory);
 
       const blueprint     = buildHTMLBlueprint(varStructure, null, varMemory);
+      if (blueprint.meta) blueprint.meta.pixel_id = await _getPixelId(userId);
       const composeResult = composeHTML(blueprint);
 
       const genericResult = validateGeneric({ blueprint, composeResult, memory: varMemory });
@@ -1247,9 +1286,89 @@ function providerLabel(provider) {
   return { google_ads: 'Google Ads', ga4: 'Google Analytics 4', meta: 'Meta Ads' }[provider] || provider;
 }
 
+// ── General / conversational response — AI-powered, no integration required ───
+async function generateGeneralResponse(context) {
+  const { profileName, integrations, businessProfile, message, userId, strategyMemory } = context;
+  const name     = profileName || 'חבר';
+  const hasInteg = integrations.some(i => i.connection_status === 'active');
+  const hasBP    = !!(businessProfile?.business_name);
+
+  // Build rich context snippet for the AI
+  const bpSnippet = hasBP
+    ? `העסק: ${businessProfile.business_name}. מוכר: ${businessProfile.offer || '?'}. קהל: ${businessProfile.target_audience || '?'}. תקציב: ${businessProfile.monthly_budget ? '₪'+businessProfile.monthly_budget+'/חודש' : '?'}.`
+    : 'אין עדיין פרופיל עסקי.';
+
+  const integSnippet = hasInteg
+    ? `מחובר ל: ${integrations.filter(i=>i.connection_status==='active').map(i=>i.provider).join(', ')}.`
+    : 'אין עדיין אינטגרציות מחוברות.';
+
+  const bottleneck = strategyMemory?.persistent_bottlenecks?.[0];
+  const memSnippet = bottleneck ? `צוואר הבקבוק הכי בולט עד כה: ${bottleneck}.` : '';
+
+  const systemPrompt = `אתה CampaignAI — סוכן שיווקי דיגיטלי חכם, ישיר ואנושי שמדבר עברית.
+אתה מומחה ב: ניתוח קמפיינים, Google Ads, Meta Ads, GA4, קופי, ROAS, CAC, A/B testing, אסטרטגיה שיווקית.
+
+הסגנון שלך:
+- אנושי, חם אבל ישיר — לא רובוטי, לא גנרי
+- מותאם לטון של המשתמש (פורמלי/לא פורמלי, קצר/ארוך, שאלות/הצהרות)
+- תוכן ממשי — לא "אני יכול לעזור" אלא עזרה בפועל
+- אם המשתמש אמר משהו ספציפי — הגב על זה ישירות
+- אם זה פתיחת שיחה — הצג את עצמך בצורה שמתאימה לסיטואציה, לא תבנית קבועה
+
+הקשר המשתמש:
+שם: ${name}
+${bpSnippet}
+${integSnippet}
+${memSnippet}
+
+כללים:
+- אל תפתח ב"היי [שם]! 👋" בכל הודעה — קרא מה המשתמש אמר והגב עליו
+- אם המשתמש שאל שאלה — ענה עליה תחילה, אז הצע המשך
+- אם אין אינטגרציות ושאלות הן שיווקיות — ענה מהידע שלך, לא תדרוש חיבור לפני כל תשובה
+- סיים עם 1-2 שאלות פעילות שמקדמות את המשתמש
+- תשובה: 3-8 משפטים, עברית בלבד, Markdown מותר`;
+
+  try {
+    const routing = await routeModel(message, 'chat');
+    const raw = await OpenRouterAdapter.execute('chat', {
+      system:    systemPrompt,
+      user:      message,
+      maxTokens: 500,
+    }, {
+      model:         routing.model,
+      fallbackModel: routing.fallbackModel,
+      timeout:       routing.timeoutMs || 15000,
+      temperature:   0.8,
+    });
+
+    const reply = raw?.choices?.[0]?.message?.content?.trim();
+    if (reply) {
+      _logAICost({ userId, taskType: 'conversational', raw, routing }).catch(() => {});
+      const qa = hasBP
+        ? ['נתח ביצועים', 'כתוב לי קופי', 'הצעד הבא שלי', 'חשב ROAS']
+        : ['ספר לי על העסק', 'כתוב לי מודעה', 'מה זה ROAS?', 'איך בונים קמפיין?'];
+      return { reply, quickActions: qa };
+    }
+  } catch (e) {
+    console.warn('[generalResponse] AI failed:', e.message);
+  }
+
+  // Fallback — minimal, contextual
+  const fallback = hasBP
+    ? `${name}, אני כאן. שאל אותי על הקמפיינים, הקופי, ה-ROAS — כל מה שצריך.`
+    : `שלום ${name}! ספר לי על העסק שלך ואני אבנה לך תוכנית שיווקית. מה אתה מוכר?`;
+  return {
+    reply: fallback,
+    quickActions: hasBP
+      ? ['נתח ביצועים', 'כתוב קופי', 'ROAS שלי', 'הצעד הבא']
+      : ['ספר על העסק', 'כתוב לי מודעה', 'מה זה ROAS?'],
+  };
+}
+
 // ── Router ────────────────────────────────────────────────────────────────────
 async function generateResponse(intent, context) {
   switch (intent) {
+    case 'general':       return await generateGeneralResponse(context);
     case 'overview':      return generateOverviewResponse(context);
     case 'budget':        return generateBudgetResponse(context);
     case 'top_ads':       return generateTopAdsResponse(context);
@@ -1264,7 +1383,7 @@ async function generateResponse(intent, context) {
     case 'test':          return generateTestResponse(context);
     case 'copy':          return await generateCopyResponse(context);
     case 'landing_page':  return await generateLandingPageResponse(context);
-    default:              return generateOverviewResponse(context);
+    default:              return await generateGeneralResponse(context);
   }
 }
 
@@ -1339,6 +1458,7 @@ _מלא את הפרופיל העסקי לקבל מבנה מותאם יותר._`;
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options();
   const context = createRequestContext(event, 'campaigner-chat');
+  const _ilStart = Date.now();
 
   try {
     if (event.httpMethod !== 'POST') {
@@ -1361,62 +1481,36 @@ exports.handler = async (event) => {
     if (message.startsWith('[DIRECT_AD]') || message.startsWith('[DIRECT_GENERATE]')) {
       const rawPrompt = message.replace(/^\[(DIRECT_AD|DIRECT_GENERATE)\]\s*/, '');
 
-      // Read key fresh from .env every call — avoids netlify dev caching stale keys
-      let anthropicKey = process.env.ANTHROPIC_API_KEY || '';
-      try {
-        const _fs = require('node:fs'), _path = require('node:path');
-        const _envFile = _path.resolve(__dirname, '../..', '.env');
-        if (_fs.existsSync(_envFile)) {
-          for (const _line of _fs.readFileSync(_envFile, 'utf8').split('\n')) {
-            const _m = _line.match(/^ANTHROPIC_API_KEY=(.+)/);
-            if (_m) { anthropicKey = _m[1].trim(); break; }
-          }
-        }
-      } catch {}
-      if (!anthropicKey) {
-        return ok({ reply: '⚠️ שגיאה: לא נמצא ANTHROPIC_API_KEY. אנא הגדר אותו בהגדרות הסביבה של Netlify.', quickActions: [] }, context.requestId);
-      }
-
       let reply = '';
-      let errorDetail = '';
       try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 22000);
-        const model = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
-        console.log('[direct-gen] calling Anthropic, model:', model, 'key prefix:', anthropicKey.slice(0, 20));
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          signal: controller.signal,
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': anthropicKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model,
-            max_tokens: 1500,
-            system: 'אתה קופירייטר ישראלי מקצועי המתמחה בפרסום דיגיטלי. כתוב תוכן שיווקי בעברית, ישיר, ממיר ומשכנע. השב ישירות עם התוכן המבוקש בלבד, ללא הסברים נוספים.',
-            messages: [{ role: 'user', content: rawPrompt }],
-          }),
+        // Route through model-router → OpenRouter (with Anthropic parachute)
+        const routing = await routeModel(rawPrompt, 'creative');
+        console.log('[direct-gen] routing:', routing.taskType, '→', routing.model, 'via', routing.useOpenRouter ? 'openrouter' : 'direct');
+
+        const raw = await OpenRouterAdapter.execute('ad_copy', {
+          system:    'אתה קופירייטר ישראלי מקצועי המתמחה בפרסום דיגיטלי. כתוב תוכן שיווקי בעברית, ישיר, ממיר ומשכנע. השב ישירות עם התוכן המבוקש בלבד, ללא הסברים נוספים.',
+          user:      rawPrompt,
+          maxTokens: 1500,
+        }, {
+          model:         routing.model,
+          fallbackModel: routing.fallbackModel,
+          timeout:       routing.timeoutMs,
+          temperature:   routing.temperature,
         });
-        clearTimeout(timer);
-        console.log('[direct-gen] Anthropic status:', res.status);
-        if (res.ok) {
-          const data = await res.json();
-          reply = data?.content?.find(b => b.type === 'text')?.text || '';
-          console.log('[direct-gen] reply length:', reply.length);
-        } else {
-          const errBody = await res.text().catch(() => '');
-          errorDetail = `HTTP ${res.status}: ${errBody.slice(0, 200)}`;
-          console.error('[direct-gen] Anthropic error:', errorDetail);
-        }
+
+        reply = raw?.choices?.[0]?.message?.content || '';
+        console.log('[direct-gen] reply length:', reply.length, '| via:', raw?._via, '| cost: $' + (raw?._cost || 0).toFixed(5));
+
+        // Log cost (fire-and-forget)
+        _logAICost({ userId: user.id, taskType: 'creative', raw, routing }).catch(() => {});
+
       } catch (e) {
-        errorDetail = e.message || 'network error';
-        console.error('[direct-gen] fetch error:', errorDetail);
+        console.error('[direct-gen] error:', e.message);
+        reply = '';
       }
 
       if (!reply) {
-        return ok({ reply: `⚠️ שגיאה בגישה ל-AI${errorDetail ? ': ' + errorDetail : '. אנא נסה שנית.'}`, quickActions: [] }, context.requestId);
+        return ok({ reply: '⚠️ שגיאה בגישה ל-AI. אנא נסה שנית.', quickActions: [] }, context.requestId);
       }
       return ok({ reply, quickActions: [] }, context.requestId);
     }
@@ -1492,9 +1586,11 @@ exports.handler = async (event) => {
       }
     }
 
+    iLogger.log({ agent_name: 'campaigner-chat', interaction_type: 'llm_call', status: 'SUCCESS', latency_ms: Date.now() - _ilStart, user_id: user?.id }).catch(() => {});
     return ok({ reply, quickActions, intent }, context.requestId);
 
   } catch (error) {
+    iLogger.log({ agent_name: 'campaigner-chat', interaction_type: 'llm_call', status: 'TECH_ERROR', latency_ms: Date.now() - _ilStart, error_details: error.message }).catch(() => {});
     await writeRequestLog(buildLogPayload(context, 'error', error.message || 'campaigner_chat_failed', {
       code: error.code || 'INTERNAL_ERROR',
     })).catch(() => {});
