@@ -25,7 +25,10 @@
       "mcp__claude_ai_Supabase__list_projects",
       "mcp__claude_ai_Supabase__restore_project",
       "mcp__claude_ai_Supabase__apply_migration",
-      "Bash(dir /s \"C:\\\\Users\\\\User\\\\Desktop\\\\saas\\\\סאס 6\\\\netlify\\\\functions\\\\_shared\\\\strategy\")"
+      "Bash(dir /s \"C:\\\\Users\\\\User\\\\Desktop\\\\saas\\\\סאס 6\\\\netlify\\\\functions\\\\_shared\\\\strategy\")",
+      "Bash(node_modules/.bin/tsx src/server.ts)",
+      "Bash(npx --yes tsx src/server.ts)",
+      "Bash(tsx src/server.ts)"
     ]
   }
 }
