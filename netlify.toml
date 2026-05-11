@@ -18,6 +18,7 @@
 # Function timeouts
 [functions."campaigner-chat"]
   timeout = 26
+  node_bundler = "esbuild"
 
 [functions."process-research-job"]
   timeout = 26
