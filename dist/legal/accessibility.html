@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>הצהרת נגישות — CampaignBrain</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root { --brand:#6366f1; --gray-50:#f8fafc; --gray-100:#f1f5f9; --gray-200:#e2e8f0; --gray-500:#64748b; --gray-700:#374151; --gray-800:#1e293b; --gray-900:#0f172a; }
+    *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Inter',-apple-system,sans-serif; background:var(--gray-50); color:var(--gray-800); line-height:1.75; direction:rtl; font-size:16px; }
+    a { color:var(--brand); }
+    .top-bar { background:var(--gray-900); padding:1rem 2rem; display:flex; align-items:center; justify-content:space-between; }
+    .top-bar-logo { color:white; font-weight:800; font-size:1.1rem; text-decoration:none; display:flex; align-items:center; gap:0.5rem; }
+    .back-btn { background:rgba(255,255,255,0.1); color:white; border:1px solid rgba(255,255,255,0.2); border-radius:0.5rem; padding:0.4rem 1rem; font-size:0.875rem; cursor:pointer; text-decoration:none; font-family:inherit; }
+    .back-btn:hover { background:rgba(255,255,255,0.18); }
+    .container { max-width:780px; margin:2.5rem auto; padding:0 1.5rem 4rem; }
+    .doc-header { margin-bottom:2.5rem; padding-bottom:1.5rem; border-bottom:2px solid var(--gray-200); }
+    .doc-header h1 { font-size:1.875rem; font-weight:800; color:var(--gray-900); margin-bottom:0.375rem; }
+    .doc-meta { font-size:0.875rem; color:var(--gray-500); }
+    .toc { background:var(--gray-100); border-radius:0.75rem; padding:1.25rem 1.5rem; margin-bottom:2rem; }
+    .toc h2 { font-size:0.9rem; font-weight:700; color:var(--gray-700); margin-bottom:0.75rem; }
+    .toc ol { padding-right:1.25rem; display:flex; flex-direction:column; gap:0.3rem; }
+    .toc li a { font-size:0.875rem; color:var(--brand); text-decoration:none; }
+    .toc li a:hover { text-decoration:underline; }
+    h2 { font-size:1.25rem; font-weight:700; color:var(--gray-900); margin:2.25rem 0 0.875rem; padding-top:1rem; }
+    h3 { font-size:1rem; font-weight:600; color:var(--gray-800); margin:1.25rem 0 0.5rem; }
+    p { margin-bottom:0.875rem; color:var(--gray-700); }
+    ul,ol { padding-right:1.5rem; margin-bottom:0.875rem; color:var(--gray-700); }
+    li { margin-bottom:0.3rem; }
+    .badge { display:inline-flex; align-items:center; gap:0.375rem; background:var(--brand); color:white; border-radius:9999px; padding:0.25rem 0.875rem; font-size:0.8rem; font-weight:600; margin-bottom:1rem; }
+    .status-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:0.75rem; margin:1.25rem 0; }
+    .status-card { background:white; border:1.5px solid var(--gray-200); border-radius:0.625rem; padding:0.875rem 1rem; }
+    .status-card.done { border-color:#86efac; background:#f0fdf4; }
+    .status-card.partial { border-color:#fde68a; background:#fefce8; }
+    .status-card .s-icon { font-size:1.1rem; margin-bottom:0.25rem; }
+    .status-card .s-title { font-size:0.875rem; font-weight:600; color:var(--gray-800); }
+    .status-card .s-note { font-size:0.78rem; color:var(--gray-500); margin-top:0.2rem; }
+    .feature-list { display:flex; flex-direction:column; gap:0.5rem; margin:1rem 0; }
+    .feature-item { display:flex; align-items:flex-start; gap:0.625rem; font-size:0.9rem; color:var(--gray-700); }
+    .feature-item .fi-icon { font-size:1rem; flex-shrink:0; margin-top:0.1rem; }
+    .contact-box { background:var(--gray-100); border-radius:0.75rem; padding:1.25rem 1.5rem; margin-top:2rem; }
+    .contact-box h3 { margin-top:0; }
+    footer { text-align:center; margin-top:3rem; padding-top:1.5rem; border-top:1px solid var(--gray-200); font-size:0.8rem; color:var(--gray-500); }
+    footer a { color:var(--gray-500); margin:0 0.5rem; }
+  </style>
+</head>
+<body>
+  <div class="top-bar">
+    <a href="/" class="top-bar-logo">🧠 CampaignBrain</a>
+    <a href="/" class="back-btn">← חזרה לאפליקציה</a>
+  </div>
+
+  <div class="container">
+    <div class="doc-header">
+      <h1>הצהרת נגישות</h1>
+      <p class="doc-meta">עדכון אחרון: אפריל 2025 &nbsp;|&nbsp; נכתב בהתאם לתקנות שוויון זכויות לאנשים עם מוגבלות (התאמות נגישות לשירות), התשע"ג–2013</p>
+    </div>
+
+    <div class="badge">♿ המחויבות שלנו לנגישות</div>
+
+    <div class="toc">
+      <h2>תוכן עניינים</h2>
+      <ol>
+        <li><a href="#commitment">מחויבותנו לנגישות</a></li>
+        <li><a href="#standard">תקן הנגישות</a></li>
+        <li><a href="#features">פיצ'רים ותמיכה</a></li>
+        <li><a href="#status">סטטוס נגישות</a></li>
+        <li><a href="#tools">כלי הנגישות המובנים</a></li>
+        <li><a href="#known-issues">מגבלות ידועות</a></li>
+        <li><a href="#feedback">פניות ומשוב</a></li>
+        <li><a href="#regulator">גורם ממונה</a></li>
+      </ol>
+    </div>
+
+    <h2 id="commitment">1. מחויבותנו לנגישות</h2>
+    <p>CampaignBrain מחויבת לנגישות דיגיטלית עבור כל המשתמשים, לרבות אנשים עם מוגבלויות. אנחנו עובדים באופן שוטף לשיפור הנגישות של הממשק ולהסרת חסמים.</p>
+    <p>אנחנו מאמינים שכל אחד — ללא קשר ליכולות — זכאי לגישה מלאה לכלים שיווקיים מתקדמים.</p>
+
+    <h2 id="standard">2. תקן הנגישות</h2>
+    <p>אנחנו שואפים לעמוד ב:</p>
+    <ul>
+      <li><strong>WCAG 2.1 ברמה AA</strong> — תקן הנגישות הבינלאומי של W3C</li>
+      <li><strong>Israeli Standard 5568</strong> — תקן ישראלי לנגישות אתרי אינטרנט</li>
+      <li><strong>תקנות שוויון זכויות לאנשים עם מוגבלות</strong> — חוק ישראלי</li>
+    </ul>
+
+    <h2 id="features">3. פיצ'רים ותמיכה</h2>
+
+    <h3>ניווט מקלדת</h3>
+    <div class="feature-list">
+      <div class="feature-item"><span class="fi-icon">⌨️</span> כל פונקציות הניווט הראשיות נגישות עם מקלדת בלבד</div>
+      <div class="feature-item"><span class="fi-icon">⌨️</span> קיצורי Tab / Shift+Tab לניווט בין אלמנטים</div>
+      <div class="feature-item"><span class="fi-icon">⌨️</span> Enter / Space להפעלת כפתורים ופריטי תפריט</div>
+      <div class="feature-item"><span class="fi-icon">⌨️</span> Escape לסגירת חלונות ומודאלים</div>
+      <div class="feature-item"><span class="fi-icon">⌨️</span> דילוג לתוכן ראשי (skip link) בלחיצה ראשונה על Tab</div>
+    </div>
+
+    <h3>קוראי מסך</h3>
+    <div class="feature-list">
+      <div class="feature-item"><span class="fi-icon">🔊</span> ARIA landmarks: role=navigation, role=main, role=complementary</div>
+      <div class="feature-item"><span class="fi-icon">🔊</span> aria-label על כל אלמנט אינטראקטיבי</div>
+      <div class="feature-item"><span class="fi-icon">🔊</span> aria-current="page" על פריט הניווט הפעיל</div>
+      <div class="feature-item"><span class="fi-icon">🔊</span> aria-live="polite" להודעות מערכת ותגובות AI</div>
+      <div class="feature-item"><span class="fi-icon">🔊</span> role="alert" לשגיאות (aria-live="assertive")</div>
+      <div class="feature-item"><span class="fi-icon">🔊</span> נבדק עם NVDA ו-VoiceOver</div>
+    </div>
+
+    <h3>ממשק ויזואלי</h3>
+    <div class="feature-list">
+      <div class="feature-item"><span class="fi-icon">🎨</span> ניגודיות צבעים עומדת ב-WCAG AA (יחס 4.5:1 לטקסט)</div>
+      <div class="feature-item"><span class="fi-icon">🎨</span> :focus-visible גלוי בכל הרכיבים האינטראקטיביים</div>
+      <div class="feature-item"><span class="fi-icon">🎨</span> כיוון RTL מלא (ימין-לשמאל)</div>
+      <div class="feature-item"><span class="fi-icon">🎨</span> גודל גופן מינימלי 14px, בדרך כלל 16px</div>
+    </div>
+
+    <h2 id="status">4. סטטוס נגישות</h2>
+    <div class="status-grid">
+      <div class="status-card done">
+        <div class="s-icon">✅</div>
+        <div class="s-title">ניווט מקלדת</div>
+        <div class="s-note">מלא בכל הדפים</div>
+      </div>
+      <div class="status-card done">
+        <div class="s-icon">✅</div>
+        <div class="s-title">ARIA Landmarks</div>
+        <div class="s-note">role=main, nav, complementary</div>
+      </div>
+      <div class="status-card done">
+        <div class="s-icon">✅</div>
+        <div class="s-title">Skip link</div>
+        <div class="s-note">דילוג לתוכן הראשי</div>
+      </div>
+      <div class="status-card done">
+        <div class="s-icon">✅</div>
+        <div class="s-title">Focus visible</div>
+        <div class="s-note">outline מוגדר גלובלית</div>
+      </div>
+      <div class="status-card done">
+        <div class="s-icon">✅</div>
+        <div class="s-title">RTL מלא</div>
+        <div class="s-note">dir=rtl, עברית ראשית</div>
+      </div>
+      <div class="status-card done">
+        <div class="s-icon">✅</div>
+        <div class="s-title">הודעות live</div>
+        <div class="s-note">aria-live לטוסטים ותגובות</div>
+      </div>
+      <div class="status-card partial">
+        <div class="s-icon">⚠️</div>
+        <div class="s-title">תמונות alt</div>
+        <div class="s-note">חלקי — בעבודה</div>
+      </div>
+      <div class="status-card partial">
+        <div class="s-icon">⚠️</div>
+        <div class="s-title">טבלאות נגישות</div>
+        <div class="s-note">בשיפור — caption+scope</div>
+      </div>
+    </div>
+
+    <h2 id="tools">5. כלי הנגישות המובנים</h2>
+    <p>האפליקציה כוללת ווידג'ט נגישות מובנה (לחצן ♿ בפינה) עם 6 מצבים:</p>
+    <ul>
+      <li><strong>טקסט גדול:</strong> מגדיל את גופן הבסיס ל-18px</li>
+      <li><strong>ניגודיות גבוהה:</strong> רקע שחור, טקסט לבן, כפתורים צהובים</li>
+      <li><strong>ריווח מוגבר:</strong> מגדיל line-height, letter-spacing ו-word-spacing</li>
+      <li><strong>הדגשת קישורים:</strong> underline + outline על כל הקישורים</li>
+      <li><strong>פונט נגיש (דיסלקציה):</strong> עובר לגופן Arial לקריאות מוגברת</li>
+      <li><strong>עצירת אנימציות:</strong> מבטל את כל האנימציות (prefers-reduced-motion)</li>
+    </ul>
+    <p>ההגדרות נשמרות ב-localStorage ומתאחזרות אוטומטית בכל ביקור עתידי.</p>
+
+    <h2 id="known-issues">6. מגבלות ידועות</h2>
+    <p>אנחנו מודעים למגבלות הבאות ועובדים על שיפורן:</p>
+    <ul>
+      <li>חלק מהתרשימים (גרפים) עדיין חסרי תיאור טקסטואלי מלא לקוראי מסך</li>
+      <li>ממשק ה-AI Chat עשוי להיות מאתגר לניווט בקוראי מסך בגרסה הנוכחית</li>
+      <li>חלק מהאייקונים האמוג'ים אינם כוללים aria-label — בטיפול</li>
+    </ul>
+
+    <h2 id="feedback">7. פניות ומשוב</h2>
+    <div class="contact-box">
+      <h3>נתקלת בבעיית נגישות?</h3>
+      <p>שלח אימייל ל-<a href="mailto:yakovymarkus@gmail.com">yakovymarkus@gmail.com</a> עם הנושא: "נגישות — CampaignBrain"</p>
+      <p>אנחנו מתחייבים לענות תוך <strong>5 ימי עסקים</strong> ולטפל בבעיה בהתאם לחומרתה.</p>
+      <p>פרטי הפנייה: תיאור הבעיה, הדף שבו נתקלת, הדפדפן ומערכת ההפעלה, וטכנולוגיית הסיוע שבה אתה משתמש (אם רלוונטי).</p>
+    </div>
+
+    <h2 id="regulator">8. גורם ממונה</h2>
+    <p>ממונה הנגישות לפי חוק שוויון זכויות לאנשים עם מוגבלות:</p>
+    <p><strong>יעקב מרקוס</strong><br/>
+    אימייל: <a href="mailto:yakovymarkus@gmail.com">yakovymarkus@gmail.com</a></p>
+    <p>אם לא קיבלת מענה מספק, תוכל לפנות ל<a href="https://www.gov.il/he/departments/bureaus/npa" target="_blank" rel="noopener">נציבות שוויון זכויות לאנשים עם מוגבלות</a>.</p>
+
+    <footer>
+      <a href="/legal/terms.html">תנאי שימוש</a>
+      <a href="/legal/privacy.html">מדיניות פרטיות</a>
+      <a href="/">חזרה לאפליקציה</a>
+      <p style="margin-top:0.75rem">© 2025 CampaignBrain. כל הזכויות שמורות.</p>
+    </footer>
+  </div>
+</body>
+</html>

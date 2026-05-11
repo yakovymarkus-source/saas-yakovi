@@ -194,7 +194,7 @@ export function Assets() {
       {/* Category tabs */}
       <div className="flex gap-2 mb-5 flex-wrap">
         {CATEGORIES.map(cat => {
-          const Icon = cat.icon ?? Image
+          const Icon = cat.Icon ?? Image
           const count = countByCategory(cat.id)
           return (
             <button key={cat.id} onClick={() => setActiveCategory(cat.id)}

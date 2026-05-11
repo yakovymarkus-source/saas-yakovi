@@ -153,7 +153,7 @@ export function Settings() {
       )
       setState(dispatch, {
         profile: state.profile
-          ? { ...state.profile, name: updated.name ?? profileForm.name, avatar_url: updated.avatar_url ?? profileForm.avatarUrl || null }
+          ? { ...state.profile, name: updated.name ?? profileForm.name, avatar_url: (updated.avatar_url ?? profileForm.avatarUrl) || null }
           : state.profile,
       })
       setSaved(true)

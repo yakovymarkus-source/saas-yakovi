@@ -1,6 +1,6 @@
 [build]
-  command = "node scripts/inject-env.js"
-  publish = "public"
+  command = "printf 'VITE_SUPABASE_URL=%s\\nVITE_SUPABASE_ANON_KEY=%s\\n' \"$SUPABASE_URL\" \"$SUPABASE_ANON_KEY\" > frontend/.env && cd frontend && npm install && npm run build && cd .. && node scripts/inject-env.js && cp -r public/admin dist/admin && cp -r public/legal dist/legal && cp public/assets/avatar-female.svg public/assets/avatar-male.svg public/assets/tracker.js dist/assets/"
+  publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20"
