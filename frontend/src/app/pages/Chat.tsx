@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Send, Bot, User, Sparkles, RotateCcw, Loader2, CheckCircle2 } from 'lucide-react'
+import { Send, Bot, User, Sparkles, RotateCcw, Loader2, CheckCircle2, Copy, Check } from 'lucide-react'
 import { useAppState } from '../state/store'
 import { useUpgradeModal } from '../hooks/useUpgradeModal'
 import { api } from '../api/client'
@@ -44,6 +44,13 @@ interface ImageData {
   size: string
 }
 
+interface CopyVariant {
+  label: string
+  headline: string
+  body: string
+  cta: string
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -51,6 +58,7 @@ interface Message {
   ts: number
   imageData?: ImageData
   previewUrl?: string
+  copyVariants?: CopyVariant[]
 }
 
 const QUICK_PROMPTS = [
@@ -60,6 +68,61 @@ const QUICK_PROMPTS = [
   'איך לשפר את שיעור ההמרה שלי?',
   'תכתוב לי סדרת מיילים ל-3 ימים',
 ]
+
+function CopyVariantCard({ variant }: { variant: CopyVariant }) {
+  const [copied, setCopied] = useState(false)
+
+  const adText = [variant.headline, variant.body, variant.cta].filter(Boolean).join('\n\n')
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(adText)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // fallback for browsers without clipboard API
+      const el = document.createElement('textarea')
+      el.value = adText
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const waUrl = `https://wa.me/?text=${encodeURIComponent(adText)}`
+
+  return (
+    <div className="bg-slate-900/60 border border-white/10 rounded-xl p-3 space-y-2">
+      <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wide">{variant.label}</p>
+      <div className="space-y-1 text-slate-200 text-xs leading-relaxed">
+        {variant.headline && <p className="font-semibold">{variant.headline}</p>}
+        {variant.body     && <p className="whitespace-pre-wrap text-slate-300">{variant.body}</p>}
+        {variant.cta      && <p className="text-purple-400 font-medium">{variant.cta}</p>}
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+        >
+          {copied
+            ? <><Check className="w-3 h-3 text-green-400" /><span className="text-green-400">הועתק!</span></>
+            : <><Copy className="w-3 h-3" />העתק טקסט</>}
+        </button>
+        <a
+          href={waUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg bg-green-700/40 hover:bg-green-700/60 text-green-300 transition-colors"
+        >
+          <span>💬</span> שלח בווצאפ
+        </a>
+      </div>
+    </div>
+  )
+}
 
 export function Chat() {
   const { state } = useAppState()
@@ -181,8 +244,9 @@ export function Chat() {
           role: 'assistant',
           content: data.reply || 'לא קיבלתי תשובה, נסה שוב.',
           ts: Date.now(),
-          imageData:  data.imageData  || undefined,
-          previewUrl: data.previewUrl || undefined,
+          imageData:    data.imageData    || undefined,
+          previewUrl:   data.previewUrl   || undefined,
+          copyVariants: data.copyVariants || undefined,
         }
         setMessages(prev => [...prev, assistantMsg])
       }
@@ -284,7 +348,7 @@ export function Chat() {
                   ? 'bg-gradient-to-l from-purple-600 to-indigo-600 text-white px-4 py-3'
                   : 'bg-slate-800/80 border border-white/10 text-slate-200'
               }`}>
-                {msg.role === 'assistant' && (msg.imageData || msg.previewUrl) ? (
+                {msg.role === 'assistant' && (msg.imageData || msg.previewUrl || msg.copyVariants) ? (
                   <div className="p-3 space-y-3">
                     <p className="whitespace-pre-wrap px-1">{msg.content}</p>
                     {msg.imageData && (
@@ -317,6 +381,13 @@ export function Chat() {
                       >
                         🔗 פתח דף נחיתה בתצוגה מקדימה ↗
                       </a>
+                    )}
+                    {msg.copyVariants && msg.copyVariants.length > 0 && (
+                      <div className="space-y-2 pt-1">
+                        {msg.copyVariants.map((v, i) => (
+                          <CopyVariantCard key={i} variant={v} />
+                        ))}
+                      </div>
                     )}
                   </div>
                 ) : (

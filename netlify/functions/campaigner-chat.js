@@ -952,7 +952,16 @@ async function generateCopyResponse(context) {
     reply += `_בדוק משתנה אחד בלבד — בחר וריאציה אחת ל-A/B test._\n\n`;
     reply += aiVariants.map(v => formatCopyCard(v)).join('\n\n---\n\n');
     reply += `\n\n📌 **הצעד הבא:** בחר וריאציה אחת, הרץ אותה 7 ימים מול ה-control הנוכחי.`;
-    return { reply, quickActions: ['פתח בדיקת A/B', 'נתח ביצועים כלליים', 'חשב כלכלת יחידה'] };
+    return {
+      reply,
+      quickActions: ['פתח בדיקת A/B', 'נתח ביצועים כלליים', 'חשב כלכלת יחידה'],
+      copyVariants: aiVariants.map((v, i) => ({
+        label:    `וריאציה ${v.variant || String.fromCharCode(65 + i)}`,
+        headline: v.headline || '',
+        body:     v.body     || '',
+        cta:      v.cta      || '',
+      })),
+    };
   }
 
   // ── Fallback: template-based copy ─────────────────────────────────────────
@@ -965,6 +974,12 @@ async function generateCopyResponse(context) {
   return {
     reply,
     quickActions: ['פתח בדיקת A/B', 'נתח ביצועים כלליים', 'חשב כלכלת יחידה'],
+    copyVariants: variants.map((v, i) => ({
+      label:    `וריאציה ${v.variant || String.fromCharCode(65 + i)}`,
+      headline: v.headline || '',
+      body:     v.body     || '',
+      cta:      v.cta      || '',
+    })),
   };
 }
 
@@ -1537,7 +1552,7 @@ exports.handler = async (event) => {
       responseData = await generateResponse(intent, chatContext);
     }
 
-    const { reply, quickActions, imageData, assetId, previewUrl, expiresAt } = responseData;
+    const { reply, quickActions, imageData, assetId, previewUrl, expiresAt, copyVariants } = responseData;
 
     await writeRequestLog(buildLogPayload(context, 'info', 'campaigner_chat_response', {
       user_id:             user.id,
@@ -1564,10 +1579,11 @@ exports.handler = async (event) => {
 
     iLogger.log({ agent_name: 'campaigner-chat', interaction_type: 'llm_call', status: 'SUCCESS', latency_ms: Date.now() - _ilStart, user_id: user?.id }).catch(() => {});
     const responsePayload = { reply, quickActions, intent };
-    if (imageData)   responsePayload.imageData   = imageData;
-    if (assetId)     responsePayload.assetId     = assetId;
-    if (previewUrl)  responsePayload.previewUrl  = previewUrl;
-    if (expiresAt)   responsePayload.expiresAt   = expiresAt;
+    if (imageData)    responsePayload.imageData    = imageData;
+    if (assetId)      responsePayload.assetId      = assetId;
+    if (previewUrl)   responsePayload.previewUrl   = previewUrl;
+    if (expiresAt)    responsePayload.expiresAt    = expiresAt;
+    if (copyVariants) responsePayload.copyVariants = copyVariants;
     return ok(responsePayload, context.requestId);
 
   } catch (error) {
