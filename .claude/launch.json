@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "netlify-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/User/AppData/Roaming/npm/node_modules/netlify-cli/bin/run.js", "dev", "--no-open"],
+      "cwd": "C:/Users/User/Desktop/saas/סאס 6",
+      "port": 8888
+    }
+  ]
+}
