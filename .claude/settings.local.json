@@ -71,7 +71,8 @@
       "mcp__Claude_Preview__preview_start",
       "mcp__Claude_in_Chrome__tabs_create_mcp",
       "mcp__Claude_in_Chrome__read_page",
-      "Bash(dir /b \"C:/Users/User/Desktop/saas/סאס 6/netlify/functions\")"
+      "Bash(dir /b \"C:/Users/User/Desktop/saas/סאס 6/netlify/functions\")",
+      "mcp__4baa1513-e0a0-468d-bdf7-45f11c539971__apply_migration"
     ]
   }
 }
