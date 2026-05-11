@@ -61,55 +61,6 @@ async function _logAICost({ userId, taskType, raw, routing }) {
   } catch { /* non-critical */ }
 }
 
-// ── Streaming response handler ────────────────────────────────────────────────
-function handleStreamingResponse(anthropicResponse) {
-  const encoder = new TextEncoder();
-  let buffer = '';
-
-  return new Response(
-    new ReadableStream({
-      async start(controller) {
-        try {
-          const reader = anthropicResponse.body.getReader();
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              controller.close();
-              break;
-            }
-
-            // Collect incoming bytes and parse SSE events from Anthropic stream
-            buffer += new TextDecoder().decode(value);
-
-            // Process complete lines
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; // Keep incomplete line
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                // Pass through Anthropic's SSE format to client
-                controller.enqueue(encoder.encode(line + '\n\n'));
-              }
-            }
-          }
-        } catch (err) {
-          console.error('[streaming] error:', err.message);
-          controller.error(err);
-        }
-      },
-    }),
-    {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
-    }
-  );
-}
-
 // ── Intent detection ──────────────────────────────────────────────────────────
 // NOTE: JavaScript \b doesn't match Hebrew word boundaries (only ASCII \w).
 // Using plain substring match (no \b) — false positives are negligible for
@@ -117,9 +68,9 @@ function handleStreamingResponse(anthropicResponse) {
 // Most-specific intents first to avoid false-positive substring matches
 const INTENT_PATTERNS = [
   // ── Content creation (checked first — very explicit keywords) ───────────────
-  { intent: 'creative',      patterns: /(קריאייטיב|עיצוב ויזואלי|גרפיקה|ויזואל|עיצוב מודעה|visual.?ad|ad.*design|creative.?concept|banner)/i },
-  { intent: 'landing_page',  patterns: /(דף נחיתה|תכנן דף|מבנה דף|מבנה נחיתה|landing.?page|above.?the.?fold)/i },
-  { intent: 'copy',          patterns: /(כתוב לי|כתוב עבורי|קופי|מודעת טקסט|ad text|creative text|\bcopy\b|headline|כותרת מודעה)/i },
+  { intent: 'creative',      patterns: /(קריאייטיב|עיצוב ויזואלי|גרפיקה|ויזואל|עיצוב מודעה|תמונת מודעה|צור מודעה|עשה לי מודעה|מודעה לפייסבוק|מודעה לאינסטגרם|פוסט ממומן|פרסומת|ביזואל|visual.?ad|ad.*design|creative.?concept|banner|create.*ad|generate.*visual)/i },
+  { intent: 'landing_page',  patterns: /(דף נחיתה|תכנן דף|מבנה דף|מבנה נחיתה|עיצוב דף|דף הנחיתה שלי|landing.?page|above.?the.?fold)/i },
+  { intent: 'copy',          patterns: /(כתוב לי|כתוב עבורי|קופי|מודעת טקסט|כותרת מודעה|ad text|creative text|\bcopy\b|headline|כתוב טקסט)/i },
   // ── Specific metrics ────────────────────────────────────────────────────────
   { intent: 'economics',     patterns: /(כלכלה|עלות ליד|עולה ליד|כמה ליד|רווחיות|כמה להמיר|\bCAC\b|\bLTV\b|\bCPL\b|break.?even|payback|economics|feasib)/i },
   { intent: 'roas',          patterns: /(החזר על פרסום|תשואה על פרסום|\broas\b|\breturn on ad)/i },
@@ -983,7 +934,8 @@ async function generateCopyResponse(context) {
   };
 }
 
-// ── Visual ad generator — DALL-E pipeline via shared visual-generator ────────
+// ── Visual ad generator — returns pendingVisual so frontend fires the long DALL-E
+// request in a separate call (avoids hitting Netlify's 26s function timeout).
 async function generateCreativeResponse(context) {
   const { businessProfile, profileName, message } = context;
 
@@ -999,7 +951,6 @@ async function generateCreativeResponse(context) {
   const platform = detectPlatform(message);
 
   if (!platform) {
-    // Ask which platform before generating — determines ad size
     const platformSizes = {
       facebook:  '1792×1024 (Landscape)',
       instagram: '1080×1080 (Square)',
@@ -1016,43 +967,21 @@ async function generateCreativeResponse(context) {
     };
   }
 
-  // ── Generate image via DALL-E pipeline ───────────────────────────────────
+  // ── Return pendingVisual — frontend will call /generate-ad-visual separately ─
+  // This keeps campaigner-chat well under Netlify's 26s timeout.
   const PLATFORM_LABEL = { facebook: 'פייסבוק', instagram: 'אינסטגרם', tiktok: 'טיקטוק', google: 'גוגל' };
-
-  const result = await generateAdVisual({
-    platform,
-    type:     detectAdType(message),
-    offer:    businessProfile.offer,
-    audience: businessProfile.target_audience || '',
-    deal:     businessProfile.unique_offer    || '',
-    brand:    businessProfile.business_name   || '',
-  });
-
-  if (result.error) {
-    return {
-      reply: `⚠️ שגיאה בייצור המודעה: ${result.error}\n\nאנא נסה שנית.`,
-      quickActions: ['נסה שוב', 'כתוב קופי טקסט'],
-    };
-  }
-
   const pLabel = PLATFORM_LABEL[platform] || platform;
-  const reply =
-    `🎨 **מודעה ל${pLabel} מוכנה — ${businessProfile.business_name || profileName}**\n\n` +
-    `**כותרת:** ${result.headline}\n` +
-    `**טקסט:** ${result.subtext}\n` +
-    `**CTA:** ${result.cta}\n\n` +
-    `_גודל: ${result.size} | לחץ "הורד PNG" להורדת התמונה_`;
 
   return {
-    reply,
-    quickActions: ['וריאציה נוספת לפייסבוק', 'גרסה לאינסטגרם', 'גרסה לטיקטוק', 'צור דף נחיתה'],
-    imageData: {
-      imageUrl: result.imageUrl,
-      headline: result.headline,
-      subtext:  result.subtext,
-      cta:      result.cta,
+    reply: `🎨 **מייצר מודעה ל${pLabel}...**\n\n_ה-AI עובד על התמונה — זה עשוי לקחת עד 20 שניות_`,
+    quickActions: [],
+    pendingVisual: {
       platform,
-      size:     result.size,
+      type:     detectAdType(message),
+      offer:    businessProfile.offer,
+      audience: businessProfile.target_audience || '',
+      deal:     businessProfile.unique_offer    || '',
+      brand:    businessProfile.business_name   || '',
     },
   };
 }
@@ -1552,7 +1481,7 @@ exports.handler = async (event) => {
       responseData = await generateResponse(intent, chatContext);
     }
 
-    const { reply, quickActions, imageData, assetId, previewUrl, expiresAt, copyVariants } = responseData;
+    const { reply, quickActions, imageData, assetId, previewUrl, expiresAt, copyVariants, pendingVisual } = responseData;
 
     await writeRequestLog(buildLogPayload(context, 'info', 'campaigner_chat_response', {
       user_id:             user.id,
@@ -1579,11 +1508,12 @@ exports.handler = async (event) => {
 
     iLogger.log({ agent_name: 'campaigner-chat', interaction_type: 'llm_call', status: 'SUCCESS', latency_ms: Date.now() - _ilStart, user_id: user?.id }).catch(() => {});
     const responsePayload = { reply, quickActions, intent };
-    if (imageData)    responsePayload.imageData    = imageData;
-    if (assetId)      responsePayload.assetId      = assetId;
-    if (previewUrl)   responsePayload.previewUrl   = previewUrl;
-    if (expiresAt)    responsePayload.expiresAt    = expiresAt;
-    if (copyVariants) responsePayload.copyVariants = copyVariants;
+    if (imageData)     responsePayload.imageData     = imageData;
+    if (assetId)       responsePayload.assetId       = assetId;
+    if (previewUrl)    responsePayload.previewUrl    = previewUrl;
+    if (expiresAt)     responsePayload.expiresAt     = expiresAt;
+    if (copyVariants)  responsePayload.copyVariants  = copyVariants;
+    if (pendingVisual) responsePayload.pendingVisual = pendingVisual;
     return ok(responsePayload, context.requestId);
 
   } catch (error) {

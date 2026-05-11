@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import { Send, Bot, User, Sparkles, RotateCcw, Loader2, CheckCircle2, Copy, Check } from 'lucide-react'
 import { useAppState } from '../state/store'
@@ -150,6 +150,35 @@ export function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const generateAdVisualAsync = async (pendingVisual: any, messageId: string, token: string) => {
+    try {
+      const response = await fetch('/.netlify/functions/generate-ad-visual', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(pendingVisual),
+      })
+
+      if (!response.ok) {
+        console.error(`[Chat] Image generation failed: ${response.status}`)
+        return
+      }
+
+      const imageData = await response.json()
+
+      // Update the specific message with the generated image
+      setMessages(prev => prev.map(m =>
+        m.id === messageId
+          ? { ...m, imageData }
+          : m
+      ))
+    } catch (err) {
+      console.error('[Chat] Image generation error:', err)
+    }
+  }
+
   const send = async (text?: string) => {
     const content = (text || input).trim()
     if (!content) return
@@ -249,6 +278,11 @@ export function Chat() {
           copyVariants: data.copyVariants || undefined,
         }
         setMessages(prev => [...prev, assistantMsg])
+
+        // If there's a pending visual, generate the image asynchronously
+        if (data.pendingVisual) {
+          generateAdVisualAsync(data.pendingVisual, assistantMsgId, token)
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'שגיאה בשיחה'

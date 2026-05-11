@@ -127,14 +127,51 @@ Return JSON:
     return { error: `Failed to generate image: ${e.message}` };
   }
 
+  // ── Step 3: Save to Supabase Storage for a permanent URL ──────────────────
+  // DALL-E URLs expire in ~1 hour — Storage URL is permanent.
+  const permanentUrl = await _saveImageToStorage(imageUrl, platform);
+
   return {
-    imageUrl,
+    imageUrl: permanentUrl,
     headline: adCopy.headline || '',
     subtext:  adCopy.subtext  || '',
     cta:      adCopy.cta      || 'למד עוד',
     platform,
     size,
   };
+}
+
+/**
+ * _saveImageToStorage — download DALL-E image and upload to Supabase Storage.
+ * Falls back to the original DALL-E URL on any error.
+ */
+async function _saveImageToStorage(dalleUrl, platform) {
+  try {
+    const { getAdminClient } = require('./supabase');
+    const sb = getAdminClient();
+
+    // Download the image from DALL-E (temporary URL, expires in ~1h)
+    const imgRes = await fetch(dalleUrl, { signal: AbortSignal.timeout(15000) });
+    if (!imgRes.ok) return dalleUrl;
+
+    const buffer = Buffer.from(await imgRes.arrayBuffer());
+    const fileName = `ad-images/${Date.now()}-${platform}.png`;
+
+    const { error } = await sb.storage
+      .from('generated-assets')
+      .upload(fileName, buffer, { contentType: 'image/png', upsert: false });
+
+    if (error) {
+      console.warn('[visual-generator] storage upload failed (non-fatal):', error.message);
+      return dalleUrl;
+    }
+
+    const { data } = sb.storage.from('generated-assets').getPublicUrl(fileName);
+    return data?.publicUrl || dalleUrl;
+  } catch (e) {
+    console.warn('[visual-generator] storage save failed (non-fatal):', e.message);
+    return dalleUrl; // always fall back to original URL
+  }
 }
 
 /**
