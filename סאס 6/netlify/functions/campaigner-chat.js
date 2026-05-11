@@ -60,23 +60,80 @@ async function _logAICost({ userId, taskType, raw, routing }) {
   } catch { /* non-critical */ }
 }
 
+// ── Streaming response handler ────────────────────────────────────────────────
+function handleStreamingResponse(anthropicResponse) {
+  const encoder = new TextEncoder();
+  let buffer = '';
+
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        try {
+          const reader = anthropicResponse.body.getReader();
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              controller.close();
+              break;
+            }
+
+            // Collect incoming bytes and parse SSE events from Anthropic stream
+            buffer += new TextDecoder().decode(value);
+
+            // Process complete lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep incomplete line
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                // Pass through Anthropic's SSE format to client
+                controller.enqueue(encoder.encode(line + '\n\n'));
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[streaming] error:', err.message);
+          controller.error(err);
+        }
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    }
+  );
+}
+
 // ── Intent detection ──────────────────────────────────────────────────────────
+// NOTE: JavaScript \b doesn't match Hebrew word boundaries (only ASCII \w).
+// Using plain substring match (no \b) — false positives are negligible for
+// the multi-character Hebrew terms listed here.
+// Most-specific intents first to avoid false-positive substring matches
 const INTENT_PATTERNS = [
-  { intent: 'overview',      patterns: /\b(איך|ביצועים|סקירה|סטטוס|מצב|overview|status|how am|doing)\b/i },
-  { intent: 'budget',        patterns: /\b(תקציב|budget|הזזה|חלוקה|הקצאה|shift|allocat|reallocat)\b/i },
-  { intent: 'top_ads',       patterns: /\b(מודעות|טובות|top|best|ads|קמפיין|campaign|ניצחון|נצח)\b/i },
-  { intent: 'tracking',      patterns: /\b(tracking|טראקינג|מעקב|פיקסל|pixel|pixel|audit|בדיקה)\b/i },
-  { intent: 'roas',          patterns: /\b(roas|החזר|return|spend|תשואה)\b/i },
-  { intent: 'ctr',           patterns: /\b(ctr|קליקים|clicks|חשיפות|impressions)\b/i },
-  { intent: 'recs',          patterns: /\b(המלצ|מה לעש|recommend|suggest|what should|תעשה|עצה)\b/i },
-  { intent: 'integrations',  patterns: /\b(חיבור|integration|connected|גוגל|מטא|google|meta|ga4)\b/i },
-  { intent: 'trends',        patterns: /\b(טרנד|מגמה|שיפור|ירידה|trend|progress|היסטוריה|לאורך זמן|תקופה|שינוי|למידה|פרי|כיוון)\b/i },
-  { intent: 'business',      patterns: /\b(עסק|פרופיל|מה אני מוכר|מחיר שלי|קהל יעד|הצעה שלי|business|profile|offer)\b/i },
-  { intent: 'economics',     patterns: /\b(כלכלה|CAC|LTV|CPL|cac|ltv|cpl|עלות ליד|break.?even|רווחיות|כמה להמיר|payback|economics|feasib)\b/i },
-  { intent: 'test',          patterns: /\b(בדיקה|a\/b|ab test|וריאציה|ניסוי|מה לבדוק|hypothesis|variant|control)\b/i },
-  { intent: 'copy',          patterns: /\b(כתוב|קופי|copy|מודעה|ad text|creative text|כותרת|headline|טקסט|מסר|נוסח)\b/i },
-  // landing_page must appear AFTER copy so targeted copy requests still match copy
-  { intent: 'landing_page',  patterns: /\b(דף נחיתה|landing.?page|above.?the.?fold|תכנן.*(דף|מבנה)|מבנה.*(דף|נחיתה))\b/i },
+  // ── Content creation (checked first — very explicit keywords) ───────────────
+  { intent: 'creative',      patterns: /(קריאייטיב|עיצוב ויזואלי|גרפיקה|ויזואל|עיצוב מודעה|visual.?ad|ad.*design|creative.?concept|banner)/i },
+  { intent: 'landing_page',  patterns: /(דף נחיתה|תכנן דף|מבנה דף|מבנה נחיתה|landing.?page|above.?the.?fold)/i },
+  { intent: 'copy',          patterns: /(כתוב לי|כתוב עבורי|קופי|מודעת טקסט|ad text|creative text|\bcopy\b|headline|כותרת מודעה)/i },
+  // ── Specific metrics ────────────────────────────────────────────────────────
+  { intent: 'economics',     patterns: /(כלכלה|עלות ליד|עולה ליד|כמה ליד|רווחיות|כמה להמיר|\bCAC\b|\bLTV\b|\bCPL\b|break.?even|payback|economics|feasib)/i },
+  { intent: 'roas',          patterns: /(החזר על פרסום|תשואה על פרסום|\broas\b|\breturn on ad)/i },
+  { intent: 'ctr',           patterns: /(אחוז קליקים|קצב קליקים|\bctr\b|\bclick.through)/i },
+  { intent: 'test',          patterns: /(וריאציה|ניסוי|מה לבדוק|a\/b|ab test|hypothesis|variant|split test)/i },
+  // ── Analytics & data ────────────────────────────────────────────────────────
+  { intent: 'budget',        patterns: /(תקציב|הזזת תקציב|חלוקת תקציב|הקצאת תקציב|\bbudget\b|reallocat)/i },
+  { intent: 'top_ads',       patterns: /(מודעות הכי|הכי טובות|top ads|\bbest ads\b|מודעות מובילות|ניצחון קמפיין)/i },
+  { intent: 'tracking',      patterns: /(טראקינג|מעקב המרות|פיקסל|pixel|tracking|audit)/i },
+  { intent: 'recs',          patterns: /(המלצ|מה לעש|תן לי עצה|recommend|suggest|what should)/i },
+  { intent: 'trends',        patterns: /(טרנד|מגמה|ירידה בביצועים|היסטוריה|לאורך זמן|שינוי בביצועים|trend|progress over)/i },
+  { intent: 'overview',      patterns: /(ביצועי|ביצועים|סקירה כללית|סטטוס קמפיין|overview|how am i doing)/i },
+  { intent: 'integrations',  patterns: /(חיבור מערכת|חיבור גוגל|חיבור מטא|integration|ga4|connected)/i },
+  // ── Business profile (broad terms last to avoid false matches) ──────────────
+  { intent: 'business',      patterns: /(פרופיל עסקי|מה אני מוכר|מחיר שלי|קהל יעד שלי|הצעת הערך|business profile)/i },
 ];
 
 function detectIntent(message) {
@@ -945,12 +1002,17 @@ async function generateCreativeResponse(context) {
   const { generateAdCopy } = require('./_shared/ad-copy-generator');
   const adCopyVariants = generateAdCopy({ businessProfile, bottleneck, platform: 'meta' });
 
-  // ── Step 4: orchestrate — passes memory + contextPack into upgraded prompt ───
+  // ── Step 4: orchestrate with streaming — passes memory + contextPack into upgraded prompt ───
   const aiResult = await orchestrate(
     CAPABILITIES.AD_CREATIVE,
     { memory, contextPack, adCopyVariants, platform: 'meta' },
-    { userId },
+    { userId, options: { stream: true } },
   );
+
+  // If streaming, return the stream directly to client
+  if (aiResult._isStream) {
+    return handleStreamingResponse(aiResult._stream);
+  }
 
   if (aiResult.ok && Array.isArray(aiResult.content?.creatives) && aiResult.content.creatives.length > 0) {
     const creatives  = aiResult.content.creatives;
@@ -1382,6 +1444,7 @@ async function generateResponse(intent, context) {
     case 'economics':     return generateEconomicsResponse(context);
     case 'test':          return generateTestResponse(context);
     case 'copy':          return await generateCopyResponse(context);
+    case 'creative':      return await generateCreativeResponse(context);
     case 'landing_page':  return await generateLandingPageResponse(context);
     default:              return await generateGeneralResponse(context);
   }
@@ -1404,12 +1467,17 @@ async function generateLandingPageResponse(context) {
     };
   }
 
-  // Try AI-generated landing page via orchestrator
+  // Try AI-generated landing page via orchestrator with streaming
   const aiResult = await orchestrate(
     CAPABILITIES.LANDING_PAGE,
     { businessProfile },
-    { userId },
+    { userId, options: { stream: true } },
   );
+
+  // If streaming, return the stream directly to client
+  if (aiResult._isStream) {
+    return handleStreamingResponse(aiResult._stream);
+  }
 
   if (aiResult.ok && aiResult.content?.structure) {
     return {
@@ -1522,16 +1590,8 @@ exports.handler = async (event) => {
     // Detect intent
     const intent = detectIntent(message);
 
-    // ── Creation intents → redirect to AI Creation page (chat only) ──────────
-    // mode:'create' is set by the dedicated creation form — bypass this redirect.
-    // Chat widget requests (no mode) get a helpful pointer to the creation page.
-    const CREATION_INTENTS = new Set(['landing', 'creative', 'visual']);
-    if (CREATION_INTENTS.has(intent) && body.mode !== 'create') {
-      return ok({
-        reply: 'יצירת נכסים שיווקיים (דפי נחיתה, קריאייטיב, ויזואלים) מתבצעת דרך עמוד **מחולל התכנים** — ממשק ייעודי ומלא ללא צ׳אט.\n\nלחץ על **מחולל תכנים** בתפריט הצד.\n\nכאן אני עונה על שאלות, מנתח ביצועים ומייעץ אסטרטגית. במה אוכל לעזור?',
-        quickActions: ['נתח ביצועי קמפיינים', 'מה הצעד הבא המומלץ לי?', 'בצע חקר שוק', 'יש לי שאלה על הקמפיין שלי'],
-      });
-    }
+    // NOTE: creation intents (creative, landing_page, copy) are handled inline
+    // by generateCreativeResponse / generateLandingPageResponse / generateCopyResponse.
 
     // ── Engine result (shared between beginner layer + intelligence update) ──
     const engineResult = chatContext.globalRaw.clicks > 0

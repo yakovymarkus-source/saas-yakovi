@@ -47,7 +47,20 @@ async function route(capability, prompt, options = {}) {
     // 4. Execute
     const raw = await adapter.execute(capability, prompt, options);
 
-    // 5. Parse + normalize
+    // 5a. Handle streaming response
+    if (raw._isStream) {
+      return buildStandardResult({
+        ok:         true,
+        provider:   providerName,
+        capability,
+        _isStream:  true,
+        _stream:    raw._response,
+        model:      raw._model || (typeof adapter.getDefaultModel === 'function' ? adapter.getDefaultModel() : null),
+        latency_ms: Date.now() - start,
+      });
+    }
+
+    // 5b. Parse + normalize (non-streaming)
     const content = adapter.parseResponse(raw, capability);
 
     return buildStandardResult({
