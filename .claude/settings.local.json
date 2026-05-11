@@ -74,7 +74,8 @@
       "Bash(dir /b \"C:/Users/User/Desktop/saas/סאס 6/netlify/functions\")",
       "mcp__4baa1513-e0a0-468d-bdf7-45f11c539971__apply_migration",
       "Bash(echo \"Started PID: $!\")",
-      "Bash(grep -n \"streaming = options.stream\" \"$\\(pwd\\)/סאס 6/netlify/functions/_shared/providers/adapters/claude.js\")"
+      "Bash(grep -n \"streaming = options.stream\" \"$\\(pwd\\)/סאס 6/netlify/functions/_shared/providers/adapters/claude.js\")",
+      "Bash(git commit *)"
     ]
   }
 }
