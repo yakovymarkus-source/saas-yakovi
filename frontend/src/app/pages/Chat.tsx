@@ -174,6 +174,26 @@ export function Chat() {
           ? { ...m, imageData }
           : m
       ))
+
+      // Save the asset to the assets table for later retrieval
+      try {
+        const assetName = `${pendingVisual.platform || 'ad'}-${Date.now()}.png`
+        await fetch('/.netlify/functions/save-asset', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: assetName,
+            type: 'image',
+            category: 'post_banner',
+            url: imageData.imageUrl,
+          }),
+        })
+      } catch (err) {
+        console.warn('[Chat] Asset save failed (non-critical):', err)
+      }
     } catch (err) {
       console.error('[Chat] Image generation error:', err)
     }
@@ -397,8 +417,7 @@ export function Chat() {
                           <span className="text-slate-400 text-xs">{msg.imageData.platform} · {msg.imageData.size}</span>
                           <a
                             href={msg.imageData.imageUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            download={`ad-${msg.imageData.platform}-${Date.now()}.png`}
                             className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-lg transition-colors font-medium"
                           >
                             הורד PNG ↓

@@ -1091,6 +1091,10 @@ async function generateLandingPageResponse(context) {
       _pregenId: pregenId,   // passed through so saveAsset uses this UUID instead of generating a new one
     });
 
+    // Also save to assets table for easy retrieval in Assets page
+    const assetCategory = assetType === 'landing_page_html' ? 'landing_page' : 'post_banner';
+    const assetTitle = `${_assetLabel(assetType)} — ${businessProfile.business_name || profileName}`;
+
     // Fire-and-forget: store last generated asset reference for feedback lookups
     const { storeLastGeneratedAsset } = require('./_shared/feedback-loop');
     storeLastGeneratedAsset(userId, {
@@ -1102,6 +1106,15 @@ async function generateLandingPageResponse(context) {
     // Fire-and-forget: advance onboarding progress so progressive unlock triggers
     const { advanceOnboarding } = require('./_shared/product-context');
     const _sb = getAdminClient();
+
+    _sb.from('assets').insert({
+      user_id: userId,
+      name: assetTitle,
+      type: 'document',
+      category: assetCategory,
+      url: saved.previewUrl,
+      size_bytes: null,
+    }).catch(() => {}); // fire-and-forget, don't block
     advanceOnboarding(userId, _sb, 'profile_started').catch(() => {});
     advanceOnboarding(userId, _sb, 'first_asset').catch(() => {});
     // Count assets to check if multiple_assets threshold reached
