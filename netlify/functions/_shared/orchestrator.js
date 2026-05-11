@@ -127,6 +127,11 @@ async function orchestrate(capability, payload, ctx = {}) {
     result = await route(capability, prompt, options);
   }
 
+  // 3b. If streaming, return immediately without logging
+  if (result._isStream) {
+    return result;
+  }
+
   // 4. Log (fire-and-forget — must not block or throw)
   logAIRequest({ userId, requestId, capability, result }).catch(() => {});
 

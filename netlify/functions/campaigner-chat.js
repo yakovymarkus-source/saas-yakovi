@@ -60,6 +60,55 @@ async function _logAICost({ userId, taskType, raw, routing }) {
   } catch { /* non-critical */ }
 }
 
+// ── Streaming response handler ────────────────────────────────────────────────
+function handleStreamingResponse(anthropicResponse) {
+  const encoder = new TextEncoder();
+  let buffer = '';
+
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        try {
+          const reader = anthropicResponse.body.getReader();
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              controller.close();
+              break;
+            }
+
+            // Collect incoming bytes and parse SSE events from Anthropic stream
+            buffer += new TextDecoder().decode(value);
+
+            // Process complete lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep incomplete line
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                // Pass through Anthropic's SSE format to client
+                controller.enqueue(encoder.encode(line + '\n\n'));
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[streaming] error:', err.message);
+          controller.error(err);
+        }
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    }
+  );
+}
+
 // ── Intent detection ──────────────────────────────────────────────────────────
 // NOTE: JavaScript \b doesn't match Hebrew word boundaries (only ASCII \w).
 // Using plain substring match (no \b) — false positives are negligible for
@@ -953,12 +1002,17 @@ async function generateCreativeResponse(context) {
   const { generateAdCopy } = require('./_shared/ad-copy-generator');
   const adCopyVariants = generateAdCopy({ businessProfile, bottleneck, platform: 'meta' });
 
-  // ── Step 4: orchestrate — passes memory + contextPack into upgraded prompt ───
+  // ── Step 4: orchestrate with streaming — passes memory + contextPack into upgraded prompt ───
   const aiResult = await orchestrate(
     CAPABILITIES.AD_CREATIVE,
     { memory, contextPack, adCopyVariants, platform: 'meta' },
-    { userId },
+    { userId, options: { stream: true } },
   );
+
+  // If streaming, return the stream directly to client
+  if (aiResult._isStream) {
+    return handleStreamingResponse(aiResult._stream);
+  }
 
   if (aiResult.ok && Array.isArray(aiResult.content?.creatives) && aiResult.content.creatives.length > 0) {
     const creatives  = aiResult.content.creatives;
@@ -1413,12 +1467,17 @@ async function generateLandingPageResponse(context) {
     };
   }
 
-  // Try AI-generated landing page via orchestrator
+  // Try AI-generated landing page via orchestrator with streaming
   const aiResult = await orchestrate(
     CAPABILITIES.LANDING_PAGE,
     { businessProfile },
-    { userId },
+    { userId, options: { stream: true } },
   );
+
+  // If streaming, return the stream directly to client
+  if (aiResult._isStream) {
+    return handleStreamingResponse(aiResult._stream);
+  }
 
   if (aiResult.ok && aiResult.content?.structure) {
     return {

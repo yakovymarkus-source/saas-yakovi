@@ -58,8 +58,9 @@ const ClaudeAdapter = {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new AdapterError('PROVIDER_NOT_CONFIGURED', 'ANTHROPIC_API_KEY is not set');
 
-    const model   = options.model   || this.getDefaultModel();
-    const timeout = options.timeout || this.getTimeout();
+    const model     = options.model   || this.getDefaultModel();
+    const timeout   = options.timeout || this.getTimeout();
+    const streaming = options.stream === true;
 
     // Anthropic Messages API format
     const body = {
@@ -68,6 +69,11 @@ const ClaudeAdapter = {
       system:     prompt.system,
       messages:   [{ role: 'user', content: prompt.user }],
     };
+
+    // Add stream flag if requested
+    if (streaming) {
+      body.stream = true;
+    }
 
     const controller = new AbortController();
     const timer      = setTimeout(() => controller.abort(), timeout);
@@ -89,6 +95,24 @@ const ClaudeAdapter = {
       throw new AdapterError('NETWORK_ERROR', `Claude network error: ${err.message}`);
     } finally {
       clearTimeout(timer);
+    }
+
+    // For streaming, return the response object directly
+    if (streaming) {
+      if (!response.ok) {
+        const raw = await response.json().catch(() => null);
+        const msg  = raw?.error?.message || `HTTP ${response.status}`;
+        const code = response.status === 429 ? 'RATE_LIMITED'
+                   : response.status === 401 ? 'PROVIDER_NOT_CONFIGURED'
+                   : 'PROVIDER_ERROR';
+        throw new AdapterError(code, `Claude error: ${msg}`);
+      }
+
+      return {
+        _isStream: true,
+        _response: response,
+        _model: model,
+      };
     }
 
     const raw = await response.json().catch(() => null);

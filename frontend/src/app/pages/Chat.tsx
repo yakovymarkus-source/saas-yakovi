@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Send, Bot, User, Sparkles, RotateCcw, Loader2, CheckCircle2 } from 'lucide-react'
 import { useAppState } from '../state/store'
 import { useUpgradeModal } from '../hooks/useUpgradeModal'
-import { api } from '../api/client'
+import { api, sb } from '../api/client'
 
 const MILESTONES = ['חיבור עסק', 'ניתוח שוק', 'יצירת אסטרטגיה', 'השקת קמפיין']
 
@@ -90,23 +90,94 @@ export function Chat() {
     setInput('')
     setLoading(true)
 
+    const assistantMsgId = (Date.now() + 1).toString()
+    let streamedContent = ''
+
     try {
-      const res = await api<{ reply: string }>('POST', 'campaigner-chat', {
-        message: content,
-        businessProfile: state.businessProfile,
-        campaigns: state.campaigns,
+      const session = await sb.auth.getSession()
+      const token = session.data.session?.access_token
+      if (!token) throw new Error('Not authenticated')
+
+      const response = await fetch('/.netlify/functions/campaigner-chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          message: content,
+          businessProfile: state.businessProfile,
+          campaigns: state.campaigns,
+        }),
       })
-      const assistantMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: res.reply || 'לא קיבלתי תשובה, נסה שוב.',
-        ts: Date.now(),
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+
+      // Check if response is streaming
+      const contentType = response.headers.get('content-type') || ''
+      if (contentType.includes('text/event-stream')) {
+        // Handle streaming response
+        const reader = response.body?.getReader()
+        if (!reader) throw new Error('No readable stream')
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        // Add empty assistant message for streaming
+        setMessages(prev => [...prev, {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: '⏳ יוצר תוכן...',
+          ts: Date.now(),
+        }])
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value)
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const eventData = line.slice(6)
+                const parsed = JSON.parse(eventData)
+                // Anthropic streaming sends delta objects with content
+                if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                  streamedContent += parsed.delta.text
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantMsgId
+                      ? { ...m, content: streamedContent }
+                      : m
+                  ))
+                }
+              } catch {
+                // Ignore parse errors on individual events
+              }
+            }
+          }
+        }
+
+        if (!streamedContent) {
+          throw new Error('No content generated')
+        }
+      } else {
+        // Handle regular JSON response
+        const data = await response.json()
+        const assistantMsg: Message = {
+          id: assistantMsgId,
+          role: 'assistant',
+          content: data.reply || 'לא קיבלתי תשובה, נסה שוב.',
+          ts: Date.now(),
+        }
+        setMessages(prev => [...prev, assistantMsg])
       }
-      setMessages(prev => [...prev, assistantMsg])
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'שגיאה בשיחה'
       const errMsg: Message = {
-        id: (Date.now() + 1).toString(),
+        id: assistantMsgId,
         role: 'assistant',
         content: `שגיאה: ${msg}`,
         ts: Date.now(),
