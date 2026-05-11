@@ -20,7 +20,7 @@ exports.handler = async (event) => {
 
   // Load job
   const { data: job, error: jobErr } = await db.from('execution_jobs')
-    .select('id, user_id, strategy_report_id, status, execution_mode, platform, asset_types')
+    .select('id, user_id, strategy_report_id, custom_brief, status, execution_mode, platform, asset_types')
     .eq('id', jobId)
     .single();
 
@@ -30,15 +30,18 @@ exports.handler = async (event) => {
   // Mark running
   await db.from('execution_jobs').update({ status: 'running', started_at: new Date().toISOString() }).eq('id', jobId);
 
-  // Load strategy report (full)
-  const { data: strategyReport, error: srErr } = await db.from('strategy_reports')
-    .select('*')
-    .eq('id', job.strategy_report_id)
-    .single();
-
-  if (srErr || !strategyReport) {
-    await db.from('execution_jobs').update({ status: 'failed', error_message: 'Strategy report not found' }).eq('id', jobId);
-    return { statusCode: 404, body: 'Strategy report not found' };
+  // Load strategy report — null when running in standalone mode (custom_brief used instead)
+  let strategyReport = null;
+  if (job.strategy_report_id) {
+    const { data: sr, error: srErr } = await db.from('strategy_reports')
+      .select('*')
+      .eq('id', job.strategy_report_id)
+      .single();
+    if (srErr || !sr) {
+      await db.from('execution_jobs').update({ status: 'failed', error_message: 'Strategy report not found' }).eq('id', jobId);
+      return { statusCode: 404, body: 'Strategy report not found' };
+    }
+    strategyReport = sr;
   }
 
   try {
@@ -49,6 +52,7 @@ exports.handler = async (event) => {
       assetTypes:     job.asset_types || ['ads', 'hooks', 'cta'],
       executionMode:  job.execution_mode || 'smart',
       platform:       job.platform || 'meta',
+      customBrief:    job.custom_brief || undefined,
     });
 
     return {

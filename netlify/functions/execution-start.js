@@ -8,8 +8,12 @@ exports.handler = async (event) => {
   try { body = JSON.parse(event.body || '{}'); }
   catch { return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { strategyReportId, assetTypes, executionMode, platform } = body;
-  if (!strategyReportId) return { statusCode: 400, body: JSON.stringify({ error: 'strategyReportId required' }) };
+  const { strategyReportId, businessDescription, assetTypes, executionMode, platform } = body;
+
+  // Require either pipeline mode (strategyReportId) or standalone mode (businessDescription)
+  if (!strategyReportId && !businessDescription) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'strategyReportId or businessDescription required' }) };
+  }
 
   // Auth
   const authHeader = event.headers['authorization'] || '';
@@ -23,19 +27,33 @@ exports.handler = async (event) => {
     .auth.getUser(token);
   if (authErr || !user) return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
 
-  // Verify strategy report belongs to user
-  const { data: stratReport, error: srErr } = await db
-    .from('strategy_reports')
-    .select('id, niche, confidence, go_signal')
-    .eq('id', strategyReportId)
-    .eq('user_id', user.id)
-    .single();
-  if (srErr || !stratReport) return { statusCode: 404, body: JSON.stringify({ error: 'Strategy report not found' }) };
+  // Pipeline mode: verify strategy report belongs to user
+  let resolvedStrategyReportId = null;
+  if (strategyReportId) {
+    const { data: stratReport, error: srErr } = await db
+      .from('strategy_reports')
+      .select('id, niche, confidence, go_signal')
+      .eq('id', strategyReportId)
+      .eq('user_id', user.id)
+      .single();
+    if (srErr || !stratReport) return { statusCode: 404, body: JSON.stringify({ error: 'Strategy report not found' }) };
+    resolvedStrategyReportId = strategyReportId;
+  }
+
+  // Standalone mode: build synthetic brief from businessDescription
+  const customBrief = !strategyReportId ? {
+    businessDescription,
+    selectedPain:  businessDescription,
+    coreMessage:   businessDescription,
+    platform:      platform || 'meta',
+    source:        'standalone',
+  } : null;
 
   // Create execution job
   const { data: job, error: jobErr } = await db.from('execution_jobs').insert({
     user_id:            user.id,
-    strategy_report_id: strategyReportId,
+    strategy_report_id: resolvedStrategyReportId,
+    custom_brief:       customBrief,
     status:             'queued',
     execution_mode:     executionMode || 'smart',
     platform:           platform || 'meta',

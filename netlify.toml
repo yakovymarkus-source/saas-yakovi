@@ -5,6 +5,13 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[dev]
+  command = "cd frontend && npm run dev"
+  targetPort = 5173
+  port = 8888
+  publish = "frontend/dist"
+  autoLaunch = false
+
 # Orchestration background function (15 min limit, returns 202 immediately)
 [functions."analyze-campaign-background"]
   timeout = 900
