@@ -299,9 +299,38 @@ export function Chat() {
         }
         setMessages(prev => [...prev, assistantMsg])
 
+        // Save landing page to assets if created
+        if (data.previewUrl && data.reply?.includes('דף נחיתה')) {
+          fetch('/.netlify/functions/save-asset', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              name: `דף נחיתה — ${new Date().toLocaleDateString('he-IL')}`,
+              type: 'document',
+              category: 'landing_page',
+              url: data.previewUrl,
+            }),
+          }).catch(() => {})
+        }
+
         // If there's a pending visual, generate the image asynchronously
         if (data.pendingVisual) {
           generateAdVisualAsync(data.pendingVisual, assistantMsgId, token)
+        }
+
+        // Save copy variants as text asset
+        if (data.copyVariants && data.copyVariants.length > 0) {
+          fetch('/.netlify/functions/save-copy-variants', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ copyVariants: data.copyVariants }),
+          }).catch(() => {})
         }
       }
     } catch (err: unknown) {
@@ -426,14 +455,25 @@ export function Chat() {
                       </div>
                     )}
                     {msg.previewUrl && (
-                      <a
-                        href={msg.previewUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 underline transition-colors"
-                      >
-                        🔗 פתח דף נחיתה בתצוגה מקדימה ↗
-                      </a>
+                      <div className="space-y-2 pt-1">
+                        <div className="bg-purple-900/30 border border-purple-500/30 rounded-lg p-3 flex items-center justify-between gap-2">
+                          <a
+                            href={msg.previewUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 font-medium"
+                          >
+                            🔗 פתח דף בתצוגה מקדימה ↗
+                          </a>
+                          <a
+                            href={msg.previewUrl}
+                            download={`landing-page-${Date.now()}.html`}
+                            className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-2 py-1 rounded transition-colors font-medium"
+                          >
+                            הורד HTML ↓
+                          </a>
+                        </div>
+                      </div>
                     )}
                     {msg.copyVariants && msg.copyVariants.length > 0 && (
                       <div className="space-y-2 pt-1">
@@ -442,6 +482,45 @@ export function Chat() {
                         ))}
                       </div>
                     )}
+                  </div>
+                ) : msg.role === 'assistant' && msg.content?.includes('דף נחיתה') ? (
+                  <div className="px-4 py-3 space-y-3">
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-3 space-y-2">
+                      <p className="text-blue-300 text-xs font-semibold">💡 רוצה שאדריך אותך להעלות את הדף לאחסון חינמי בנטליפיי?</p>
+                      <button
+                        onClick={() => {
+                          const guide = `📖 **הדרכה: העלאת דף נחיתה לנטליפיי**
+
+**שלב 1: פתח חשבון בנטליפיי**
+1. כנס ל: https://netlify.com
+2. לחץ "Sign up" (בחינם!)
+3. בחר "Sign up with GitHub" או "Email"
+4. אשר את האימייל שלך
+
+**שלב 2: הורדת הדף שלך**
+1. בדף הנכסים, לחץ על הדף שלך
+2. לחץ על כפתור "הורד HTML"
+3. שמור את הקובץ במחשב שלך
+
+**שלב 3: העלאה לנטליפיי**
+1. בנטליפיי, לחץ "Add new site" → "Deploy manually"
+2. גרור את קובץ ה-HTML שהורדת לתיבה
+3. המערכת תציין לך קישור (יופיע תוך שניות)
+
+**שלב 4: שיתוף לפרסום**
+1. העתק את הקישור שקיבלת
+2. שתף עם לקוחות / בחוסמות שלך
+3. הדף פעיל לגמרי - כל שינוי דורש העלאה חדשה
+
+✅ **זהו! הדף שלך אונליין וזמין לפרסום!**`;
+                          setInput(guide);
+                        }}
+                        className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition-colors font-medium w-full"
+                      >
+                        🚀 הראה לי את ההדרכה
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   <p className={`whitespace-pre-wrap ${msg.role === 'assistant' ? 'px-4 py-3' : ''}`}>{msg.content}</p>
