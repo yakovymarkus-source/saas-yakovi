@@ -1,9 +1,16 @@
 [build]
-  command = "node scripts/inject-env.js"
-  publish = "public"
+  command = "printf 'VITE_SUPABASE_URL=%s\\nVITE_SUPABASE_ANON_KEY=%s\\n' \"$SUPABASE_URL\" \"$SUPABASE_ANON_KEY\" > frontend/.env && cd frontend && npm install && npm run build && cd .. && node scripts/inject-env.js && cp -r public/admin dist/admin && cp -r public/legal dist/legal && cp public/assets/avatar-female.svg public/assets/avatar-male.svg public/assets/tracker.js dist/assets/"
+  publish = "dist"
 
 [build.environment]
   NODE_VERSION = "20"
+
+[dev]
+  command = "cd frontend && npm run dev"
+  targetPort = 5173
+  port = 8888
+  publish = "frontend/dist"
+  autoLaunch = false
 
 # Orchestration background function (15 min limit, returns 202 immediately)
 [functions."analyze-campaign-background"]
@@ -18,6 +25,7 @@
 # Function timeouts
 [functions."campaigner-chat"]
   timeout = 26
+  node_bundler = "esbuild"
 
 [functions."process-research-job"]
   timeout = 26

@@ -38,6 +38,7 @@ const { loadRunningTests, buildNextTestSuggestion, formatTestCard } = require('.
 const { generateAdCopy, formatCopyCard } = require('./_shared/ad-copy-generator');
 const { extractProfileAnswer } = require('./_shared/profile-intake-extractor');
 const { orchestrate, CAPABILITIES }     = require('./_shared/orchestrator');
+const { generateAdVisual, detectPlatform, detectAdType } = require('./_shared/visual-generator');
 const { route: routeModel }             = require('./_shared/model-router');
 const OpenRouterAdapter                 = require('./_shared/providers/adapters/openrouter');
 const iLogger                           = require('./_shared/intelligence-logger');
@@ -60,55 +61,6 @@ async function _logAICost({ userId, taskType, raw, routing }) {
   } catch { /* non-critical */ }
 }
 
-// ── Streaming response handler ────────────────────────────────────────────────
-function handleStreamingResponse(anthropicResponse) {
-  const encoder = new TextEncoder();
-  let buffer = '';
-
-  return new Response(
-    new ReadableStream({
-      async start(controller) {
-        try {
-          const reader = anthropicResponse.body.getReader();
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              controller.close();
-              break;
-            }
-
-            // Collect incoming bytes and parse SSE events from Anthropic stream
-            buffer += new TextDecoder().decode(value);
-
-            // Process complete lines
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || ''; // Keep incomplete line
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                // Pass through Anthropic's SSE format to client
-                controller.enqueue(encoder.encode(line + '\n\n'));
-              }
-            }
-          }
-        } catch (err) {
-          console.error('[streaming] error:', err.message);
-          controller.error(err);
-        }
-      },
-    }),
-    {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-      },
-    }
-  );
-}
-
 // ── Intent detection ──────────────────────────────────────────────────────────
 // NOTE: JavaScript \b doesn't match Hebrew word boundaries (only ASCII \w).
 // Using plain substring match (no \b) — false positives are negligible for
@@ -116,24 +68,24 @@ function handleStreamingResponse(anthropicResponse) {
 // Most-specific intents first to avoid false-positive substring matches
 const INTENT_PATTERNS = [
   // ── Content creation (checked first — very explicit keywords) ───────────────
-  { intent: 'creative',      patterns: /(קריאייטיב|עיצוב ויזואלי|גרפיקה|ויזואל|עיצוב מודעה|visual.?ad|ad.*design|creative.?concept|banner)/i },
-  { intent: 'landing_page',  patterns: /(דף נחיתה|תכנן דף|מבנה דף|מבנה נחיתה|landing.?page|above.?the.?fold)/i },
-  { intent: 'copy',          patterns: /(כתוב לי|כתוב עבורי|קופי|מודעת טקסט|ad text|creative text|\bcopy\b|headline|כותרת מודעה)/i },
+  { intent: 'creative',      patterns: /(קריאייטיב|עיצוב ויזואלי|גרפיקה|ויזואל|עיצוב מודעה|תמונת מודעה|צור מודעה|עשה לי מודעה|מודעה לפייסבוק|מודעה לאינסטגרם|מודעה לטיקטוק|מודעה לגוגל|פוסט ממומן|פרסומת|ביזואל|דיזיין|עיצוב|תמונה|סרטון|וידיאו|אנימציה|גיף|סטורי|ריל|שורט|אצטטיקה|עשה לי משהו יפה|עשה לי משהו ויזואלי|כמו הזה אבל שונה|משהו מקורי|עיצוב קריאייטיבי|כרטיס מודעה|visual.?ad|ad.*design|creative.?concept|banner|create.*ad|generate.*visual|shorts|reels|stories|video.*ad|אצלך יש משהו|תיצור לי|בנה לי|אני רוצה דברים נחמדים|יוצר|עושה|עשה יפה|ויזואלי|גרפיקאי)/i },
+  { intent: 'landing_page',  patterns: /(דף נחיתה|תכנן דף|מבנה דף|מבנה נחיתה|עיצוב דף|דף הנחיתה שלי|עמוד הנחיתה|דף בעיצוב|דף אחיד|דף מכירה|עמוד מכירה|דף בזום|עמוד בזום|landing.?page|sales.?page|squeeze.?page|above.?the.?fold|webpage|הדף שלי|דף הנחיתה|עמוד נחיתה|תבנית דף|דף חדש|עזור לי לעמוד|צור דף|בנה דף|עשה עמוד)/i },
+  { intent: 'copy',          patterns: /(כתוב לי|כתוב עבורי|קופי|מודעת טקסט|כותרת מודעה|כתוב טקסט|משפט קצר|טקסט למודעה|כותרת וטקסט|כתוב קופי|כתוב מודעה|טקסט|כתיבה|מה אכתוב|טקסט למודעה|ad copy|ad text|creative text|\bcopy\b|headline|copywriting|write.*ad|caption|ad headline|sales copy|אני צריך טקסט|כתוב לי משהו|כתוב דברים חכמים|כתוב משפט|טקסט טוב)/i },
   // ── Specific metrics ────────────────────────────────────────────────────────
-  { intent: 'economics',     patterns: /(כלכלה|עלות ליד|עולה ליד|כמה ליד|רווחיות|כמה להמיר|\bCAC\b|\bLTV\b|\bCPL\b|break.?even|payback|economics|feasib)/i },
-  { intent: 'roas',          patterns: /(החזר על פרסום|תשואה על פרסום|\broas\b|\breturn on ad)/i },
-  { intent: 'ctr',           patterns: /(אחוז קליקים|קצב קליקים|\bctr\b|\bclick.through)/i },
-  { intent: 'test',          patterns: /(וריאציה|ניסוי|מה לבדוק|a\/b|ab test|hypothesis|variant|split test)/i },
+  { intent: 'economics',     patterns: /(כלכלה|עלות ליד|עולה ליד|כמה ליד|רווחיות|כמה להמיר|כדאי|משתלם|ROI|עלות חיזוק|כמה זה עולה|כמה זה עולה ליד|חזקה כלכלית|הסכם כלכלי|\bCAC\b|\bLTV\b|\bCPL\b|break.?even|payback|economics|feasib|profitab|חישוב עלות|תחשוב לי|עלות חיזוק|הוצאות|כנסות|רווח וההוצאה|טוב כלכלית|אם כדאי)/i },
+  { intent: 'roas',          patterns: /(החזר על פרסום|תשואה על פרסום|החזר השקעה|רווח|הכנסה|תשואה|revenue|\broas\b|\breturn on ad|how much money|earning|כמה משתלם|כמה הרווח|כמה אקבל חזרה|החזר ההשקעה|הכנסה מפרסום|רווחיות קמפיין|חזרה על השקעה)/i },
+  { intent: 'ctr',           patterns: /(אחוז קליקים|קצב קליקים|קליקים|CTR|engagement|קליקתיות|\bctr\b|\bclick.through|click rate|קליקים לכל מודעה|כמה קליקים|קליקים חם|אחוז קליקות|CTR נמוך|קליקתיות רחוקה)/i },
+  { intent: 'test',          patterns: /(וריאציה|ניסוי|מה לבדוק|בדיקה|לבדוק|השוואה|בדיקה לעומת|בדיקת אב|a\/b|ab test|hypothesis|variant|split test|experiment|לבדוק וריאציות|מה עדיף|אי זה עדיף|לבדוק מודעות שונות|בדוק|נסה|טסט)/i },
   // ── Analytics & data ────────────────────────────────────────────────────────
-  { intent: 'budget',        patterns: /(תקציב|הזזת תקציב|חלוקת תקציב|הקצאת תקציב|\bbudget\b|reallocat)/i },
-  { intent: 'top_ads',       patterns: /(מודעות הכי|הכי טובות|top ads|\bbest ads\b|מודעות מובילות|ניצחון קמפיין)/i },
-  { intent: 'tracking',      patterns: /(טראקינג|מעקב המרות|פיקסל|pixel|tracking|audit)/i },
-  { intent: 'recs',          patterns: /(המלצ|מה לעש|תן לי עצה|recommend|suggest|what should)/i },
-  { intent: 'trends',        patterns: /(טרנד|מגמה|ירידה בביצועים|היסטוריה|לאורך זמן|שינוי בביצועים|trend|progress over)/i },
-  { intent: 'overview',      patterns: /(ביצועי|ביצועים|סקירה כללית|סטטוס קמפיין|overview|how am i doing)/i },
-  { intent: 'integrations',  patterns: /(חיבור מערכת|חיבור גוגל|חיבור מטא|integration|ga4|connected)/i },
+  { intent: 'budget',        patterns: /(תקציב|הזזת תקציב|חלוקת תקציב|הקצאת תקציב|כמה להוציא|תקציב יומי|הקצה תקציב|חלוק תקציב|\bbudget\b|reallocat|daily spend|spending|הוצאה|תקציב שלי|למה קופץ התקציב|תקציב עלה|תקציב ירד|כמה להוציא יום|חלוקת כסף|הקצה כסף|חלוק כסף)/i },
+  { intent: 'top_ads',       patterns: /(מודעות הכי|הכי טובות|מודעה הטובה|המודעה המובילה|top ads|\bbest ads\b|מודעות מובילות|ניצחון קמפיין|מה המודעה הטובה|איזו מודעה עובדת|בדקת מודעות|מודעה הכי טובה|מודעות מנצחות|לראות את המודעות הטובות|איזה יוצר עובד|מודעות מומלצות)/i },
+  { intent: 'tracking',      patterns: /(טראקינג|מעקב המרות|פיקסל|pixel|tracking|audit|מעקב|pixel meta|pixel גוגל|מעקב המרה|מה זה tracked|בדוק track|לא עובד מעקב|טראק|המרות|מעקב היכולות|אתביעות מעקב|מה קורה לי בטראק)/i },
+  { intent: 'recs',          patterns: /(המלצ|מה לעש|תן לי עצה|recommend|suggest|what should|מה הצעתך|דעה שלך|מה אתה חושב|הנחני|בואו נעשה|זה טוב לעשות|איך יום אלה|הנה הדעה שלי|יש לך הצעה|מה אתה מציע|תעיר לי|תגיד לי מה לעשות|עזור לי|חשוב שלך)/i },
+  { intent: 'trends',        patterns: /(טרנד|מגמה|ירידה בביצועים|עלייה בביצועים|היסטוריה|לאורך זמן|שינוי בביצועים|trend|progress over|טרנדים|מה קורה בזמן|היסטוריה של|לאורך הקמפיין|כלכלי זמן|שינויים בביצועים|ביצועים בזמן|טרנד ירידה|טרנד עלייה|עלה עלה|ירד)|ביצועי לאורך הזמן)/i },
+  { intent: 'overview',      patterns: /(ביצועי|ביצועים|סקירה כללית|סטטוס קמפיין|סטטוס|כמה הביצועים|איך זה עובד|מצב הקמפיין|overview|how am i doing|כמה אני עושה|איך זה הולך|ביצועים כלליים|סיכום|סקירה|מה הסטטוס|מצב העניינים|ביצועי הקמפיין|תסכם לי)/i },
+  { intent: 'integrations',  patterns: /(חיבור מערכת|חיבור גוגל|חיבור מטא|integration|ga4|connected|חיבור|מתחברת|מחברים|חברתי|google analytics|meta pixel|facebook|instagram|טיקטוק|חברת אתי|חיבור חדש|לא מחובר|בדוק את החיבור|חברתים|צריך להחברת|איך מחברים|נתחבר)/i },
   // ── Business profile (broad terms last to avoid false matches) ──────────────
-  { intent: 'business',      patterns: /(פרופיל עסקי|מה אני מוכר|מחיר שלי|קהל יעד שלי|הצעת הערך|business profile)/i },
+  { intent: 'business',      patterns: /(פרופיל עסקי|מה אני מוכר|מחיר שלי|קהל יעד שלי|הצעת הערך|business profile|הפרופיל שלי|עסק שלי|מה אני מבצע|מה טוב בי|עסקי|עסק|המוצר שלי|השירות שלי|הגישה שלי|הערך שלי|אני מוכר|אני עושה|התיאור שלי|הפרופיל שלי|עדכן פרופיל|שנה פרופיל)/i },
 ];
 
 function detectIntent(message) {
@@ -951,7 +903,16 @@ async function generateCopyResponse(context) {
     reply += `_בדוק משתנה אחד בלבד — בחר וריאציה אחת ל-A/B test._\n\n`;
     reply += aiVariants.map(v => formatCopyCard(v)).join('\n\n---\n\n');
     reply += `\n\n📌 **הצעד הבא:** בחר וריאציה אחת, הרץ אותה 7 ימים מול ה-control הנוכחי.`;
-    return { reply, quickActions: ['פתח בדיקת A/B', 'נתח ביצועים כלליים', 'חשב כלכלת יחידה'] };
+    return {
+      reply,
+      quickActions: ['פתח בדיקת A/B', 'נתח ביצועים כלליים', 'חשב כלכלת יחידה'],
+      copyVariants: aiVariants.map((v, i) => ({
+        label:    `וריאציה ${v.variant || String.fromCharCode(65 + i)}`,
+        headline: v.headline || '',
+        body:     v.body     || '',
+        cta:      v.cta      || '',
+      })),
+    };
   }
 
   // ── Fallback: template-based copy ─────────────────────────────────────────
@@ -964,93 +925,64 @@ async function generateCopyResponse(context) {
   return {
     reply,
     quickActions: ['פתח בדיקת A/B', 'נתח ביצועים כלליים', 'חשב כלכלת יחידה'],
+    copyVariants: variants.map((v, i) => ({
+      label:    `וריאציה ${v.variant || String.fromCharCode(65 + i)}`,
+      headline: v.headline || '',
+      body:     v.body     || '',
+      cta:      v.cta      || '',
+    })),
   };
 }
 
-// ── Creative brief generator (Claude) ────────────────────────────────────────
+// ── Visual ad generator — returns pendingVisual so frontend fires the long DALL-E
+// request in a separate call (avoids hitting Netlify's 26s function timeout).
 async function generateCreativeResponse(context) {
-  const { businessProfile, recentAnalysis, strategyMemory, memoryRaw, runningTests, profileName, userId } = context;
+  const { businessProfile, profileName, message } = context;
 
-  if (!businessProfile || !scoreCompletion(businessProfile)) {
+  if (!businessProfile?.offer) {
     return {
-      reply: `🎨 כדי לייצר קריאייטיב ויזואלי אני צריך קודם להכיר את העסק שלך.\n\n` +
+      reply: `🎨 כדי לייצר מודעה ויזואלית אני צריך קודם להכיר את העסק שלך.\n\n` +
              `ספר לי: **מה אתה מוכר, למי, ומה התוצאה שהלקוח מקבל?**`,
       quickActions: ['ספר על העסק שלך', 'כתוב קופי למודעה', 'נתח ביצועים'],
     };
   }
 
-  // ── Step 1: build marketing memory from all available context sources ───────
-  // recentAnalysis.metrics contains merged computed metrics (ctr, roas, cpc, etc.)
-  // memoryRaw is the raw loadUserMemory() nested map — correct shape for buildMarketingMemory
-  const { buildMarketingMemory } = require('./_shared/marketing-memory');
-  const memory = buildMarketingMemory({
-    businessProfile:  businessProfile,
-    apiCache:         recentAnalysis?.metrics       || null,
-    analysisResults:  recentAnalysis                || null,
-    strategyMemory:   strategyMemory                || null,
-    userIntelligence: memoryRaw                     || null,
-    abTests:          runningTests                  || [],
-  });
+  // ── Detect platform from user's message ──────────────────────────────────
+  const platform = detectPlatform(message);
 
-  // ── Step 2: build asset-type-specific context pack ───────────────────────────
-  // ad_visual: cold traffic feed — pain > differentiator > message priority
-  const { buildCreativeContext } = require('./_shared/creative-context-pack');
-  const contextPack = buildCreativeContext(memory, 'ad_visual');
+  if (!platform) {
+    const platformSizes = {
+      facebook:  '1792×1024 (Landscape)',
+      instagram: '1080×1080 (Square)',
+      tiktok:    '1080×1920 (Vertical)',
+      google:    '1792×1024 (Display)',
+    };
+    const lines = Object.entries(platformSizes)
+      .map(([p, s]) => `• **${p.charAt(0).toUpperCase() + p.slice(1)}** — ${s}`)
+      .join('\n');
 
-  // ── Step 3: build template copy variants to anchor the creative brief ────────
-  const bottleneck = strategyMemory?.persistent_bottlenecks?.[0] || null;
-  const { generateAdCopy } = require('./_shared/ad-copy-generator');
-  const adCopyVariants = generateAdCopy({ businessProfile, bottleneck, platform: 'meta' });
-
-  // ── Step 4: orchestrate with streaming — passes memory + contextPack into upgraded prompt ───
-  const aiResult = await orchestrate(
-    CAPABILITIES.AD_CREATIVE,
-    { memory, contextPack, adCopyVariants, platform: 'meta' },
-    { userId, options: { stream: true } },
-  );
-
-  // If streaming, return the stream directly to client
-  if (aiResult._isStream) {
-    return handleStreamingResponse(aiResult._stream);
-  }
-
-  if (aiResult.ok && Array.isArray(aiResult.content?.creatives) && aiResult.content.creatives.length > 0) {
-    const creatives  = aiResult.content.creatives;
-    const decision   = aiResult.content.decision || null;
-
-    let reply = `🎨 **${creatives.length} קונספטים קריאייטיב — ${businessProfile.business_name || profileName}:**\n\n`;
-
-    // Surface the strategic decision so the user sees the creative reasoning
-    if (decision?.primary_emotional_trigger) {
-      reply += `_עוגן רגשי: **${decision.primary_emotional_trigger}**_\n\n`;
-    }
-
-    creatives.forEach((c, i) => {
-      const label = c.variant_name || String.fromCharCode(65 + i);
-      reply += `**${i + 1}. ${label}** — _${c.emotional_angle || ''}_\n`;
-      if (c.visual_strategy)   reply += `🎯 **אסטרטגיה:** ${c.visual_strategy}\n`;
-      if (c.core_scene)        reply += `🖼️ **סצנה:** ${c.core_scene}\n`;
-      if (c.tension_or_contrast) reply += `⚡ **מתח ויזואלי:** ${c.tension_or_contrast}\n`;
-      if (c.text_overlay)      reply += `📝 **טקסט על תמונה:** ${c.text_overlay}\n`;
-      if (c.color_palette)     reply += `🎨 **צבעים:** ${Array.isArray(c.color_palette) ? c.color_palette.join(' · ') : c.color_palette}\n`;
-      if (c.external_image_prompt) reply += `🤖 **Image prompt:**\n> ${c.external_image_prompt}\n`;
-      if (c.designer_notes)    reply += `💡 _${c.designer_notes}_\n`;
-      reply += '\n---\n\n';
-    });
-
-    reply += `📌 **הצעד הבא:** שלח את ה-image prompt לכלי יצירת תמונות (DALL-E, Midjourney, Firefly).`;
     return {
-      reply,
-      quickActions: ['צור קופי מודעה', 'צור דף נחיתה', 'נתח ביצועים'],
+      reply: `🎯 **לאיזו פלטפורמה המודעה?**\n\nכל פלטפורמה דורשת גודל שונה:\n\n${lines}\n\n_ניתן לשנות אחרי הגנרציה אם תרצה גרסה נוספת._`,
+      quickActions: ['מודעה לפייסבוק', 'מודעה לאינסטגרם', 'מודעה לטיקטוק', 'מודעה לגוגל'],
     };
   }
 
-  // Fallback
+  // ── Return pendingVisual — frontend will call /generate-ad-visual separately ─
+  // This keeps campaigner-chat well under Netlify's 26s timeout.
+  const PLATFORM_LABEL = { facebook: 'פייסבוק', instagram: 'אינסטגרם', tiktok: 'טיקטוק', google: 'גוגל' };
+  const pLabel = PLATFORM_LABEL[platform] || platform;
+
   return {
-    reply: `🎨 **קריאייטיב ויזואלי — ${businessProfile.business_name || profileName}:**\n\n` +
-           `לא הצלחתי ליצור בריף ויזואלי כרגע. ודא שמפתח Anthropic מוגדר ונסה שנית.\n\n` +
-           `בינתיים, צור קופי טקסט ושתף אותו עם הדיזיינר שלך.`,
-    quickActions: ['כתוב קופי למודעה', 'צור דף נחיתה'],
+    reply: `🎨 **מייצר מודעה ל${pLabel}...**\n\n_ה-AI עובד על התמונה — זה עשוי לקחת עד 20 שניות_`,
+    quickActions: [],
+    pendingVisual: {
+      platform,
+      type:     detectAdType(message),
+      offer:    businessProfile.offer,
+      audience: businessProfile.target_audience || '',
+      deal:     businessProfile.unique_offer    || '',
+      brand:    businessProfile.business_name   || '',
+    },
   };
 }
 
@@ -1159,6 +1091,10 @@ async function generateLandingPageResponse(context) {
       _pregenId: pregenId,   // passed through so saveAsset uses this UUID instead of generating a new one
     });
 
+    // Also save to assets table for easy retrieval in Assets page
+    const assetCategory = assetType === 'landing_page_html' ? 'landing_page' : 'post_banner';
+    const assetTitle = `${_assetLabel(assetType)} — ${businessProfile.business_name || profileName}`;
+
     // Fire-and-forget: store last generated asset reference for feedback lookups
     const { storeLastGeneratedAsset } = require('./_shared/feedback-loop');
     storeLastGeneratedAsset(userId, {
@@ -1170,6 +1106,15 @@ async function generateLandingPageResponse(context) {
     // Fire-and-forget: advance onboarding progress so progressive unlock triggers
     const { advanceOnboarding } = require('./_shared/product-context');
     const _sb = getAdminClient();
+
+    _sb.from('assets').insert({
+      user_id: userId,
+      name: assetTitle,
+      type: 'document',
+      category: assetCategory,
+      url: saved.previewUrl,
+      size_bytes: null,
+    }).catch(() => {}); // fire-and-forget, don't block
     advanceOnboarding(userId, _sb, 'profile_started').catch(() => {});
     advanceOnboarding(userId, _sb, 'first_asset').catch(() => {});
     // Count assets to check if multiple_assets threshold reached
@@ -1450,78 +1395,6 @@ async function generateResponse(intent, context) {
   }
 }
 
-async function generateLandingPageResponse(context) {
-  const { businessProfile, profileName, userId } = context;
-
-  const quickActionsDefault = [
-    'כתוב לי headline ל-A/B test',
-    'צור FAQ לדף הנחיתה',
-    'מה ה-CTA הכי ממיר?',
-    'כתוב תסריט מודעה שמוביל לדף',
-  ];
-
-  if (!businessProfile?.offer) {
-    return {
-      reply: `🏗️ **תכנון דף נחיתה — ${profileName}:**\n\nלא ניתן לתכנן דף נחיתה ללא פרופיל עסקי.\n\n❓ **מה אתה מוכר ומי קהל היעד?**\n\n_עדכן את הפרופיל העסקי כדי שאוכל לבנות מבנה דף ממוקד לעסק שלך._`,
-      quickActions: ['עדכן פרופיל עסקי', 'הצג פרופיל נוכחי'],
-    };
-  }
-
-  // Try AI-generated landing page via orchestrator with streaming
-  const aiResult = await orchestrate(
-    CAPABILITIES.LANDING_PAGE,
-    { businessProfile },
-    { userId, options: { stream: true } },
-  );
-
-  // If streaming, return the stream directly to client
-  if (aiResult._isStream) {
-    return handleStreamingResponse(aiResult._stream);
-  }
-
-  if (aiResult.ok && aiResult.content?.structure) {
-    return {
-      reply: `🏗️ **מבנה דף נחיתה — ${businessProfile.business_name || profileName}:**\n\n${aiResult.content.structure}`,
-      quickActions: quickActionsDefault,
-    };
-  }
-
-  // Fallback: structured template
-  const offer    = businessProfile.offer.slice(0, 80);
-  const audience = businessProfile.target_audience || 'קהל היעד שלך';
-  const promise  = businessProfile.main_promise    || businessProfile.desired_outcome || '';
-
-  const reply = `🏗️ **מבנה דף נחיתה ממיר — ${businessProfile.business_name || profileName}:**
-
-**1. Hero Section**
-- Headline: "${promise || offer}"
-- Sub-headline: מה הלקוח מקבל ואיך חייו ישתנו
-- CTA ראשי: "קבל הצעת מחיר / התחל עכשיו"
-
-**2. בעיה (Above the fold)**
-- תאר את הכאב של ${audience}
-- 3 bullet points של הבעיות שהם חווים
-
-**3. פתרון**
-- איך "${offer.slice(0, 60)}" פותר את הבעיה
-- מנגנון ייחודי / USP
-
-**4. ראיות חברתיות**
-- לפחות 2–3 המלצות עם שם ותמונה
-- מספרים (לקוחות, תוצאות, שנות ניסיון)
-
-**5. FAQ**
-- 4–5 שאלות נפוצות שמונעות קנייה
-
-**6. CTA סופי**
-- כפתור עם דחיפות (מוגבל בזמן / כמות)
-- ערבות / ביטחון
-
-_מלא את הפרופיל העסקי לקבל מבנה מותאם יותר._`;
-
-  return { reply, quickActions: quickActionsDefault };
-}
-
 // ── Handler ───────────────────────────────────────────────────────────────────
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options();
@@ -1621,7 +1494,7 @@ exports.handler = async (event) => {
       responseData = await generateResponse(intent, chatContext);
     }
 
-    const { reply, quickActions } = responseData;
+    const { reply, quickActions, imageData, assetId, previewUrl, expiresAt, copyVariants, pendingVisual } = responseData;
 
     await writeRequestLog(buildLogPayload(context, 'info', 'campaigner_chat_response', {
       user_id:             user.id,
@@ -1647,7 +1520,14 @@ exports.handler = async (event) => {
     }
 
     iLogger.log({ agent_name: 'campaigner-chat', interaction_type: 'llm_call', status: 'SUCCESS', latency_ms: Date.now() - _ilStart, user_id: user?.id }).catch(() => {});
-    return ok({ reply, quickActions, intent }, context.requestId);
+    const responsePayload = { reply, quickActions, intent };
+    if (imageData)     responsePayload.imageData     = imageData;
+    if (assetId)       responsePayload.assetId       = assetId;
+    if (previewUrl)    responsePayload.previewUrl    = previewUrl;
+    if (expiresAt)     responsePayload.expiresAt     = expiresAt;
+    if (copyVariants)  responsePayload.copyVariants  = copyVariants;
+    if (pendingVisual) responsePayload.pendingVisual = pendingVisual;
+    return ok(responsePayload, context.requestId);
 
   } catch (error) {
     iLogger.log({ agent_name: 'campaigner-chat', interaction_type: 'llm_call', status: 'TECH_ERROR', latency_ms: Date.now() - _ilStart, error_details: error.message }).catch(() => {});

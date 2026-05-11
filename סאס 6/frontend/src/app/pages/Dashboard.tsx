@@ -48,7 +48,7 @@ export function Dashboard() {
   const planLabel = getPlanLabel(plan)
   const planLimits = getPlanLimits(plan)
   const connectedInteg = (state.integrations || []).filter(i => i.connection_status === 'active')
-  const businessName = state.businessProfile?.business_name || state.profile?.name || 'משתמש'
+  const businessName = state.businessProfile?.business_name || state.profile?.full_name || state.profile?.name || 'משתמש'
 
   // Load barrel effect for first campaign
   useEffect(() => {

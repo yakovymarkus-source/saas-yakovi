@@ -194,7 +194,7 @@ export function Assets() {
       {/* Category tabs */}
       <div className="flex gap-2 mb-5 flex-wrap">
         {CATEGORIES.map(cat => {
-          const Icon = cat.icon ?? Image
+          const Icon = cat.Icon ?? Image
           const count = countByCategory(cat.id)
           return (
             <button key={cat.id} onClick={() => setActiveCategory(cat.id)}
@@ -261,9 +261,11 @@ export function Assets() {
               <div className="aspect-square bg-slate-800 flex items-center justify-center overflow-hidden">
                 {asset.type === 'image' ? (
                   <img src={asset.url} alt={asset.name} className="w-full h-full object-cover" />
+                ) : asset.type === 'document' && asset.category === 'landing_page' ? (
+                  <iframe src={asset.url} className="w-full h-full border-none" title={asset.name} />
                 ) : (
                   <div className="text-4xl">
-                    {asset.type === 'video' ? '🎬' : asset.type === 'document' ? '📄' : '📁'}
+                    {asset.type === 'video' ? '🎬' : asset.type === 'document' && asset.category === 'copywriting' ? '✍️' : '📄'}
                   </div>
                 )}
               </div>
@@ -305,12 +307,20 @@ export function Assets() {
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => copyUrl(asset.url, asset.id)} className="p-1.5 text-slate-500 hover:text-blue-400 transition-colors rounded-lg hover:bg-white/5">
+                <button onClick={() => copyUrl(asset.url, asset.id)} className="p-1.5 text-slate-500 hover:text-blue-400 transition-colors rounded-lg hover:bg-white/5" title="העתק קישור">
                   {copied === asset.id ? <CheckCheck className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
-                <a href={asset.url} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                {asset.type === 'document' && asset.category === 'landing_page' ? (
+                  <a href={asset.url} download={`landing-page-${Date.now()}.html`} className="p-1.5 text-slate-500 hover:text-green-400 transition-colors rounded-lg hover:bg-white/5" title="הורד HTML">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </a>
+                ) : (
+                  <a href={asset.url} target="_blank" rel="noopener noreferrer" className="p-1.5 text-slate-500 hover:text-white transition-colors rounded-lg hover:bg-white/5">
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
                 <button onClick={() => deleteAsset(asset)} disabled={deleting === asset.id} className="p-1.5 text-slate-500 hover:text-red-400 transition-colors rounded-lg hover:bg-white/5">
                   {deleting === asset.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                 </button>
@@ -389,15 +399,28 @@ export function Assets() {
               {preview.type === 'image' && (
                 <img src={preview.url} alt={preview.name} className="w-full max-h-[60vh] object-contain rounded-xl" />
               )}
-              <div className="flex gap-2 mt-3">
+              {preview.type === 'document' && preview.category === 'landing_page' && (
+                <iframe src={preview.url} className="w-full h-[60vh] border-none rounded-xl" title={preview.name} />
+              )}
+              <div className="flex gap-2 mt-3 flex-wrap">
                 <button onClick={() => copyUrl(preview.url, preview.id)}
-                  className="flex-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm py-2 rounded-xl transition-colors">
+                  className="flex-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm py-2 rounded-xl transition-colors min-w-[100px]">
                   <Copy className="w-4 h-4" /> העתק קישור
                 </button>
-                <a href={preview.url} target="_blank" rel="noopener noreferrer"
-                  className="flex-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm py-2 rounded-xl transition-colors">
-                  <ExternalLink className="w-4 h-4" /> פתח בחלון חדש
-                </a>
+                {preview.type === 'document' && preview.category === 'landing_page' ? (
+                  <a href={preview.url} download={`landing-page-${Date.now()}.html`}
+                    className="flex-1 flex items-center justify-center gap-2 bg-green-700 hover:bg-green-600 text-white text-sm py-2 rounded-xl transition-colors min-w-[100px]">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    הורד HTML
+                  </a>
+                ) : (
+                  <a href={preview.url} target="_blank" rel="noopener noreferrer"
+                    className="flex-1 flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm py-2 rounded-xl transition-colors min-w-[100px]">
+                    <ExternalLink className="w-4 h-4" /> פתח
+                  </a>
+                )}
                 <button onClick={() => { deleteAsset(preview); setPreview(null) }}
                   className="px-3 flex items-center gap-2 bg-red-900/30 hover:bg-red-900/50 border border-red-500/30 text-red-400 text-sm py-2 rounded-xl transition-colors">
                   <Trash2 className="w-4 h-4" />

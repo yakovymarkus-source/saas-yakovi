@@ -159,7 +159,7 @@ export function Campaigns() {
   const limits = getPlanLimits(plan)
   const canCreate = (limits.campaignLimit ?? 0) > 0
 
-  useEffect(() => { if (state.user) loadCamps() }, [state.user])
+  useEffect(() => { if (state.user) loadCamps() }, [state.user?.id])
 
   const loadCamps = async () => {
     setLoading(true)

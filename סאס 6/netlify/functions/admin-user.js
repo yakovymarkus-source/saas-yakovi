@@ -98,13 +98,14 @@ exports.handler = async (event) => {
           throw new AppError({ code: 'BAD_REQUEST', userMessage: `תוכנית לא תקינה. ערכים מותרים: ${VALID_PLANS.join(', ')}`, status: 400 });
         }
         const isActive = newPlan !== 'free';
-        await sb.from('subscriptions').upsert({
+        const { error: upsertErr } = await sb.from('subscriptions').upsert({
           user_id:        targetId,
           plan:           newPlan,
           status:         isActive ? 'active' : 'canceled',
-          payment_status: isActive ? 'paid'   : 'none',
+          payment_status: isActive ? 'verified' : 'none',
           updated_at:     new Date().toISOString(),
         }, { onConflict: 'user_id' });
+        if (upsertErr) throw new AppError({ code: 'DB_WRITE_FAILED', devMessage: upsertErr.message, status: 500 });
 
         await writeAudit({
           userId: admin.id, action: 'admin.change_plan',

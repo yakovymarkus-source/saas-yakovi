@@ -23,6 +23,7 @@ const Integrations  = lazy(() => import('./pages/Integrations').then(m => ({ def
 const Settings      = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })))
 const HelpCenter    = lazy(() => import('./pages/HelpCenter').then(m => ({ default: m.HelpCenter })))
 const Updates       = lazy(() => import('./pages/Updates').then(m => ({ default: m.Updates })))
+const LandingPages  = lazy(() => import('./pages/LandingPages').then(m => ({ default: m.LandingPages })))
 
 function PageFallback() {
   return (
@@ -89,6 +90,7 @@ function AppShell() {
               {page === 'settings'      && <Settings />}
               {page === 'help-center'   && <HelpCenter />}
               {page === 'updates'       && <Updates />}
+              {page === 'landing-pages' && <LandingPages />}
             </Suspense>
           </motion.div>
         </AnimatePresence>

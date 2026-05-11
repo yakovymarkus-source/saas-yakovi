@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { Send, Bot, User, Sparkles, RotateCcw, Loader2, CheckCircle2 } from 'lucide-react'
+import { Send, Bot, User, Sparkles, RotateCcw, Loader2, CheckCircle2, Copy, Check } from 'lucide-react'
 import { useAppState } from '../state/store'
 import { useUpgradeModal } from '../hooks/useUpgradeModal'
-import { api, sb } from '../api/client'
+import { api } from '../api/client'
 
 const MILESTONES = ['חיבור עסק', 'ניתוח שוק', 'יצירת אסטרטגיה', 'השקת קמפיין']
 
@@ -35,11 +35,30 @@ function MilestoneBar({ completed }: { completed: number }) {
   )
 }
 
+interface ImageData {
+  imageUrl: string
+  headline: string
+  subtext: string
+  cta: string
+  platform: string
+  size: string
+}
+
+interface CopyVariant {
+  label: string
+  headline: string
+  body: string
+  cta: string
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   ts: number
+  imageData?: ImageData
+  previewUrl?: string
+  copyVariants?: CopyVariant[]
 }
 
 const QUICK_PROMPTS = [
@@ -49,6 +68,61 @@ const QUICK_PROMPTS = [
   'איך לשפר את שיעור ההמרה שלי?',
   'תכתוב לי סדרת מיילים ל-3 ימים',
 ]
+
+function CopyVariantCard({ variant }: { variant: CopyVariant }) {
+  const [copied, setCopied] = useState(false)
+
+  const adText = [variant.headline, variant.body, variant.cta].filter(Boolean).join('\n\n')
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(adText)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // fallback for browsers without clipboard API
+      const el = document.createElement('textarea')
+      el.value = adText
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
+  const waUrl = `https://wa.me/?text=${encodeURIComponent(adText)}`
+
+  return (
+    <div className="bg-slate-900/60 border border-white/10 rounded-xl p-3 space-y-2">
+      <p className="text-slate-400 text-[11px] font-semibold uppercase tracking-wide">{variant.label}</p>
+      <div className="space-y-1 text-slate-200 text-xs leading-relaxed">
+        {variant.headline && <p className="font-semibold">{variant.headline}</p>}
+        {variant.body     && <p className="whitespace-pre-wrap text-slate-300">{variant.body}</p>}
+        {variant.cta      && <p className="text-purple-400 font-medium">{variant.cta}</p>}
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+        >
+          {copied
+            ? <><Check className="w-3 h-3 text-green-400" /><span className="text-green-400">הועתק!</span></>
+            : <><Copy className="w-3 h-3" />העתק טקסט</>}
+        </button>
+        <a
+          href={waUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-lg bg-green-700/40 hover:bg-green-700/60 text-green-300 transition-colors"
+        >
+          <span>💬</span> שלח בווצאפ
+        </a>
+      </div>
+    </div>
+  )
+}
 
 export function Chat() {
   const { state } = useAppState()
@@ -76,6 +150,55 @@ export function Chat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const generateAdVisualAsync = async (pendingVisual: any, messageId: string, token: string) => {
+    try {
+      const response = await fetch('/.netlify/functions/generate-ad-visual', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(pendingVisual),
+      })
+
+      if (!response.ok) {
+        console.error(`[Chat] Image generation failed: ${response.status}`)
+        return
+      }
+
+      const imageData = await response.json()
+
+      // Update the specific message with the generated image
+      setMessages(prev => prev.map(m =>
+        m.id === messageId
+          ? { ...m, imageData }
+          : m
+      ))
+
+      // Save the asset to the assets table for later retrieval
+      try {
+        const assetName = `${pendingVisual.platform || 'ad'}-${Date.now()}.png`
+        await fetch('/.netlify/functions/save-asset', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: assetName,
+            type: 'image',
+            category: 'post_banner',
+            url: imageData.imageUrl,
+          }),
+        })
+      } catch (err) {
+        console.warn('[Chat] Asset save failed (non-critical):', err)
+      }
+    } catch (err) {
+      console.error('[Chat] Image generation error:', err)
+    }
+  }
+
   const send = async (text?: string) => {
     const content = (text || input).trim()
     if (!content) return
@@ -94,8 +217,7 @@ export function Chat() {
     let streamedContent = ''
 
     try {
-      const session = await sb.auth.getSession()
-      const token = session.data.session?.access_token
+      const token = state.accessToken
       if (!token) throw new Error('Not authenticated')
 
       const response = await fetch('/.netlify/functions/campaigner-chat', {
@@ -171,8 +293,45 @@ export function Chat() {
           role: 'assistant',
           content: data.reply || 'לא קיבלתי תשובה, נסה שוב.',
           ts: Date.now(),
+          imageData:    data.imageData    || undefined,
+          previewUrl:   data.previewUrl   || undefined,
+          copyVariants: data.copyVariants || undefined,
         }
         setMessages(prev => [...prev, assistantMsg])
+
+        // Save landing page to assets if created
+        if (data.previewUrl && data.reply?.includes('דף נחיתה')) {
+          fetch('/.netlify/functions/save-asset', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              name: `דף נחיתה — ${new Date().toLocaleDateString('he-IL')}`,
+              type: 'document',
+              category: 'landing_page',
+              url: data.previewUrl,
+            }),
+          }).catch(() => {})
+        }
+
+        // If there's a pending visual, generate the image asynchronously
+        if (data.pendingVisual) {
+          generateAdVisualAsync(data.pendingVisual, assistantMsgId, token)
+        }
+
+        // Save copy variants as text asset
+        if (data.copyVariants && data.copyVariants.length > 0) {
+          fetch('/.netlify/functions/save-copy-variants', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ copyVariants: data.copyVariants }),
+          }).catch(() => {})
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'שגיאה בשיחה'
@@ -267,12 +426,105 @@ export function Chat() {
                   ? <Sparkles className="w-4 h-4 text-white" />
                   : <User className="w-4 h-4 text-white" />}
               </div>
-              <div className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+              <div className={`max-w-[75%] rounded-2xl text-sm leading-relaxed overflow-hidden ${
                 msg.role === 'user'
-                  ? 'bg-gradient-to-l from-purple-600 to-indigo-600 text-white'
+                  ? 'bg-gradient-to-l from-purple-600 to-indigo-600 text-white px-4 py-3'
                   : 'bg-slate-800/80 border border-white/10 text-slate-200'
               }`}>
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+                {msg.role === 'assistant' && (msg.imageData || msg.previewUrl || msg.copyVariants) ? (
+                  <div className="p-3 space-y-3">
+                    <p className="whitespace-pre-wrap px-1">{msg.content}</p>
+                    {msg.imageData && (
+                      <div className="rounded-xl overflow-hidden border border-white/10">
+                        <img
+                          src={msg.imageData.imageUrl}
+                          alt={msg.imageData.headline}
+                          className="w-full object-cover"
+                          loading="lazy"
+                        />
+                        <div className="bg-slate-900/80 px-3 py-2 flex items-center justify-between gap-2">
+                          <span className="text-slate-400 text-xs">{msg.imageData.platform} · {msg.imageData.size}</span>
+                          <a
+                            href={msg.imageData.imageUrl}
+                            download={`ad-${msg.imageData.platform}-${Date.now()}.png`}
+                            className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-lg transition-colors font-medium"
+                          >
+                            הורד PNG ↓
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                    {msg.previewUrl && (
+                      <div className="space-y-2 pt-1">
+                        <div className="bg-purple-900/30 border border-purple-500/30 rounded-lg p-3 flex items-center justify-between gap-2">
+                          <a
+                            href={msg.previewUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 font-medium"
+                          >
+                            🔗 פתח דף בתצוגה מקדימה ↗
+                          </a>
+                          <a
+                            href={msg.previewUrl}
+                            download={`landing-page-${Date.now()}.html`}
+                            className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-2 py-1 rounded transition-colors font-medium"
+                          >
+                            הורד HTML ↓
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                    {msg.copyVariants && msg.copyVariants.length > 0 && (
+                      <div className="space-y-2 pt-1">
+                        {msg.copyVariants.map((v, i) => (
+                          <CopyVariantCard key={i} variant={v} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : msg.role === 'assistant' && msg.content?.includes('דף נחיתה') ? (
+                  <div className="px-4 py-3 space-y-3">
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
+                    <div className="bg-blue-900/30 border border-blue-500/30 rounded-lg p-3 space-y-2">
+                      <p className="text-blue-300 text-xs font-semibold">💡 רוצה שאדריך אותך להעלות את הדף לאחסון חינמי בנטליפיי?</p>
+                      <button
+                        onClick={() => {
+                          const guide = `📖 **הדרכה: העלאת דף נחיתה לנטליפיי**
+
+**שלב 1: פתח חשבון בנטליפיי**
+1. כנס ל: https://netlify.com
+2. לחץ "Sign up" (בחינם!)
+3. בחר "Sign up with GitHub" או "Email"
+4. אשר את האימייל שלך
+
+**שלב 2: הורדת הדף שלך**
+1. בדף הנכסים, לחץ על הדף שלך
+2. לחץ על כפתור "הורד HTML"
+3. שמור את הקובץ במחשב שלך
+
+**שלב 3: העלאה לנטליפיי**
+1. בנטליפיי, לחץ "Add new site" → "Deploy manually"
+2. גרור את קובץ ה-HTML שהורדת לתיבה
+3. המערכת תציין לך קישור (יופיע תוך שניות)
+
+**שלב 4: שיתוף לפרסום**
+1. העתק את הקישור שקיבלת
+2. שתף עם לקוחות / בחוסמות שלך
+3. הדף פעיל לגמרי - כל שינוי דורש העלאה חדשה
+
+✅ **זהו! הדף שלך אונליין וזמין לפרסום!**`;
+                          setInput(guide);
+                        }}
+                        className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg transition-colors font-medium w-full"
+                      >
+                        🚀 הראה לי את ההדרכה
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className={`whitespace-pre-wrap ${msg.role === 'assistant' ? 'px-4 py-3' : ''}`}>{msg.content}</p>
+                )}
               </div>
             </motion.div>
           ))}
@@ -287,8 +539,9 @@ export function Chat() {
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center flex-shrink-0">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
-            <div className="bg-slate-800/80 border border-white/10 px-4 py-3 rounded-2xl">
+            <div className="bg-slate-800/80 border border-white/10 px-4 py-3 rounded-2xl flex items-center gap-2">
               <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
+              <span className="text-slate-400 text-xs">יוצר תוכן...</span>
             </div>
           </motion.div>
         )}

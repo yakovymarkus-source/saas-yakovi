@@ -35,7 +35,7 @@ export function LandingPages() {
   const plan = state.subscription?.plan || 'free'
   const canGenerate = plan !== 'free'
 
-  useEffect(() => { if (state.user) load() }, [state.user])
+  useEffect(() => { if (state.user) load() }, [state.user?.id])
 
   const load = async () => {
     setLoading(true)

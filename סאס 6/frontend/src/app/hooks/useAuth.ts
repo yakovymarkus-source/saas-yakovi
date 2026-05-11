@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from 'react'
-import { sb, api, setAccessToken } from '../api/client'
+import { sb, setAccessToken } from '../api/client'
 import { useAppState, setState } from '../state/store'
 import type { Profile, Subscription, Campaign, Integration, BusinessProfile } from '../state/types'
 
@@ -22,10 +22,9 @@ export function useAuth() {
     } catch {}
 
     try {
-      const [profileRes, subsRes, campsRes, integRes, bizRes] = await Promise.all([
+      const [profileRes, subsRes, integRes, bizRes] = await Promise.all([
         sb.from('profiles').select('*').eq('id', userId).maybeSingle(),
         sb.from('subscriptions').select('*').eq('user_id', userId).maybeSingle(),
-        api<Campaign[]>('GET', 'create-campaign').catch(() => []),
         sb.from('integrations').select('*').eq('user_id', userId),
         sb.from('business_profiles').select('*').eq('user_id', userId).maybeSingle(),
       ])
@@ -42,12 +41,6 @@ export function useAuth() {
       const integrations = (integRes.data || []) as Integration[]
       const businessProfile = bizRes.data as BusinessProfile | null
       const campList = (campaigns || []) as Campaign[]
-
-      // Check unread updates
-      const { count: updatesCount } = await sb
-        .from('system_updates')
-        .select('id', { count: 'exact', head: true })
-        .eq('published', true)
 
       const seenKey = 'seen_updates_' + userId
       const seen: string[] = JSON.parse(localStorage.getItem(seenKey) || '[]')
@@ -75,6 +68,10 @@ export function useAuth() {
     const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setAccessToken(session.access_token)
+        if (event === 'TOKEN_REFRESHED') {
+          setState(dispatch, { accessToken: session.access_token })
+          return
+        }
         setState(dispatch, {
           user: { id: session.user.id, email: session.user.email || '' },
           accessToken: session.access_token,

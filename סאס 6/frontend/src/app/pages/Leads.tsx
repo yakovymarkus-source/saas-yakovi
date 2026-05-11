@@ -50,7 +50,7 @@ export function Leads() {
   const [savingNotes, setSavingNotes] = useState(false)
   const [movingId, setMovingId]     = useState<string | null>(null)
 
-  useEffect(() => { if (state.user) loadLeads() }, [state.user])
+  useEffect(() => { if (state.user) loadLeads() }, [state.user?.id])
   useEffect(() => { if (selected) setEditNotes(selected.notes || '') }, [selected])
 
   const loadLeads = async () => {
