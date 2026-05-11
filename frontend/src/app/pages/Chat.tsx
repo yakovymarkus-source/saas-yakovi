@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { Send, Bot, User, Sparkles, RotateCcw, Loader2, CheckCircle2 } from 'lucide-react'
 import { useAppState } from '../state/store'
 import { useUpgradeModal } from '../hooks/useUpgradeModal'
-import { api, sb } from '../api/client'
+import { api } from '../api/client'
 
 const MILESTONES = ['חיבור עסק', 'ניתוח שוק', 'יצירת אסטרטגיה', 'השקת קמפיין']
 
@@ -94,8 +94,7 @@ export function Chat() {
     let streamedContent = ''
 
     try {
-      const session = await sb.auth.getSession()
-      const token = session.data.session?.access_token
+      const token = state.accessToken
       if (!token) throw new Error('Not authenticated')
 
       const response = await fetch('/.netlify/functions/campaigner-chat', {
