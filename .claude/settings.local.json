@@ -75,7 +75,11 @@
       "mcp__4baa1513-e0a0-468d-bdf7-45f11c539971__apply_migration",
       "Bash(echo \"Started PID: $!\")",
       "Bash(grep -n \"streaming = options.stream\" \"$\\(pwd\\)/סאס 6/netlify/functions/_shared/providers/adapters/claude.js\")",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git -C \"/c/Users/User/Desktop/saas/סאס 6\" status --short)",
+      "Bash(git -C \"/c/Users/User/Desktop/saas/סאס 6\" diff frontend/src/app/pages/Chat.tsx)",
+      "Bash(git -C \"/c/Users/User/Desktop/saas/סאס 6\" add frontend/src/app/pages/Chat.tsx frontend/src/app/pages/Settings.tsx netlify/functions/_shared/visual-generator.js netlify/functions/campaigner-chat.js)",
+      "Bash(git -C '/c/Users/User/Desktop/saas/סאס 6' commit -m ' *)"
     ]
   }
 }
