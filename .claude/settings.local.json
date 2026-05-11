@@ -81,7 +81,9 @@
       "Bash(git -C \"/c/Users/User/Desktop/saas/סאס 6\" add frontend/src/app/pages/Chat.tsx frontend/src/app/pages/Settings.tsx netlify/functions/_shared/visual-generator.js netlify/functions/campaigner-chat.js)",
       "Bash(git -C '/c/Users/User/Desktop/saas/סאס 6' commit -m ' *)",
       "Bash(git -C \"/c/Users/User/Desktop/saas/סאס 6\" add frontend/src/app/pages/Chat.tsx netlify/functions/campaigner-chat.js netlify/functions/save-asset.js)",
-      "Bash(git -C \"/c/Users/User/Desktop/saas/סאס 6\" add frontend/src/app/pages/Assets.tsx frontend/src/app/pages/Chat.tsx netlify/functions/save-copy-variants.js)"
+      "Bash(git -C \"/c/Users/User/Desktop/saas/סאס 6\" add frontend/src/app/pages/Assets.tsx frontend/src/app/pages/Chat.tsx netlify/functions/save-copy-variants.js)",
+      "mcp__fc0d7118-9050-4904-8d92-b8665a6718f1__netlify-deploy-services-updater",
+      "Bash(npx -y @netlify/mcp@latest --site-id 3f484570-2619-4e89-8f51-9ff22d8a24d7 --proxy-path \"https://netlify-mcp.netlify.app/proxy/eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..3pWy87Q1CqWr2Pj8.h4asSHpQimI5EvBw1F1eU-kP5fpPiXwrm65GVTJgnqEj9ztSG5aG5-c5dZuc931rNI0NqCX0f-2-3099FyQPBXxna1A4OJ-2FtZt8PfWDxPutm6tsJeuNXJRwMJ_FP-jOsW466GUBUCI2GhIiYK-Y4gwFx_t5kQAV1t-JMJDKkdJiUtITxoud_AqPK0I_I6Mw24dc2WlvYuWAAjeKEui0e3RP_73ILA-ko_I2qoeIxxeld2wQskCEtm5w2FJs6Kyzk8JxMXY4oBj4ZPH2QESOkz5e-wPLjVPFylFNjdpw-2yKwEs6Xxqkmx5RJ0aGyhqKOqmEIqyQ-3q9p8MmJNOswYZ7f1sdR-7HUZ2CsAc7ldw3irLEQ.xqwbJWFiJHpl4Df8Hc5_uA\" --no-wait)"
     ]
   }
 }
