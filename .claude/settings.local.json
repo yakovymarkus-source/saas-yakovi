@@ -28,7 +28,28 @@
       "Bash(dir /s \"C:\\\\Users\\\\User\\\\Desktop\\\\saas\\\\סאס 6\\\\netlify\\\\functions\\\\_shared\\\\strategy\")",
       "Bash(node_modules/.bin/tsx src/server.ts)",
       "Bash(npx --yes tsx src/server.ts)",
-      "Bash(tsx src/server.ts)"
+      "Bash(tsx src/server.ts)",
+      "Read(//c/Users/User/Desktop/saas/סאס 6/dist//**)",
+      "Read(//c/Users/User/Desktop/saas/סאס 6/public/assets//**)",
+      "Bash(npm run *)",
+      "Bash(cp -r public/admin dist/admin)",
+      "Bash(cp -r public/legal dist/legal)",
+      "Bash(cp public/assets/avatar-female.svg public/assets/avatar-male.svg public/assets/tracker.js dist/assets/)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "mcp__Claude_in_Chrome__browser_batch",
+      "mcp__Claude_in_Chrome__navigate",
+      "mcp__Claude_in_Chrome__computer",
+      "Bash(grep -o 'saqvsbiehmxlmpsvguis\\\\|SUPABASE_URL\\\\|$SUPABASE' '/c/Users/User/Desktop/saas/סאס 6/dist/assets/index-*.js')",
+      "mcp__Claude_in_Chrome__javascript_tool",
+      "mcp__Claude_in_Chrome__find",
+      "Bash(npx tsc *)",
+      "mcp__Claude_in_Chrome__read_network_requests",
+      "mcp__Claude_in_Chrome__read_console_messages",
+      "mcp__4baa1513-e0a0-468d-bdf7-45f11c539971__execute_sql",
+      "mcp__fc0d7118-9050-4904-8d92-b8665a6718f1__netlify-project-services-reader",
+      "mcp__fc0d7118-9050-4904-8d92-b8665a6718f1__netlify-deploy-services-reader",
+      "Bash(python3 -c ' *)",
+      "Bash(python -c ' *)"
     ]
   }
 }
