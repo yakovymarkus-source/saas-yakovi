@@ -35,11 +35,22 @@ function MilestoneBar({ completed }: { completed: number }) {
   )
 }
 
+interface ImageData {
+  imageUrl: string
+  headline: string
+  subtext: string
+  cta: string
+  platform: string
+  size: string
+}
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   ts: number
+  imageData?: ImageData
+  previewUrl?: string
 }
 
 const QUICK_PROMPTS = [
@@ -170,6 +181,8 @@ export function Chat() {
           role: 'assistant',
           content: data.reply || 'לא קיבלתי תשובה, נסה שוב.',
           ts: Date.now(),
+          imageData:  data.imageData  || undefined,
+          previewUrl: data.previewUrl || undefined,
         }
         setMessages(prev => [...prev, assistantMsg])
       }
@@ -266,12 +279,49 @@ export function Chat() {
                   ? <Sparkles className="w-4 h-4 text-white" />
                   : <User className="w-4 h-4 text-white" />}
               </div>
-              <div className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+              <div className={`max-w-[75%] rounded-2xl text-sm leading-relaxed overflow-hidden ${
                 msg.role === 'user'
-                  ? 'bg-gradient-to-l from-purple-600 to-indigo-600 text-white'
+                  ? 'bg-gradient-to-l from-purple-600 to-indigo-600 text-white px-4 py-3'
                   : 'bg-slate-800/80 border border-white/10 text-slate-200'
               }`}>
-                <p className="whitespace-pre-wrap">{msg.content}</p>
+                {msg.role === 'assistant' && (msg.imageData || msg.previewUrl) ? (
+                  <div className="p-3 space-y-3">
+                    <p className="whitespace-pre-wrap px-1">{msg.content}</p>
+                    {msg.imageData && (
+                      <div className="rounded-xl overflow-hidden border border-white/10">
+                        <img
+                          src={msg.imageData.imageUrl}
+                          alt={msg.imageData.headline}
+                          className="w-full object-cover"
+                          loading="lazy"
+                        />
+                        <div className="bg-slate-900/80 px-3 py-2 flex items-center justify-between gap-2">
+                          <span className="text-slate-400 text-xs">{msg.imageData.platform} · {msg.imageData.size}</span>
+                          <a
+                            href={msg.imageData.imageUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 rounded-lg transition-colors font-medium"
+                          >
+                            הורד PNG ↓
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                    {msg.previewUrl && (
+                      <a
+                        href={msg.previewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 underline transition-colors"
+                      >
+                        🔗 פתח דף נחיתה בתצוגה מקדימה ↗
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <p className={`whitespace-pre-wrap ${msg.role === 'assistant' ? 'px-4 py-3' : ''}`}>{msg.content}</p>
+                )}
               </div>
             </motion.div>
           ))}
@@ -286,8 +336,9 @@ export function Chat() {
             <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-400 to-purple-500 flex items-center justify-center flex-shrink-0">
               <Sparkles className="w-4 h-4 text-white" />
             </div>
-            <div className="bg-slate-800/80 border border-white/10 px-4 py-3 rounded-2xl">
+            <div className="bg-slate-800/80 border border-white/10 px-4 py-3 rounded-2xl flex items-center gap-2">
               <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
+              <span className="text-slate-400 text-xs">יוצר תוכן...</span>
             </div>
           </motion.div>
         )}
