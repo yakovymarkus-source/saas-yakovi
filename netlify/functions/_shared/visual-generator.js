@@ -101,10 +101,10 @@ Return JSON:
     const headers = { 'Content-Type': 'application/json' };
     let body;
     if (useOpenRouter) {
-      headers['Authorization'] = `Bearer ${openrouterKey.slice(0,10)}...`;
+      headers['Authorization'] = `Bearer ${openrouterKey}`;
       body = { model, max_tokens: 700, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] };
     } else {
-      headers['x-api-key'] = `${anthropicKey.slice(0,10)}...`;
+      headers['x-api-key'] = anthropicKey;
       headers['anthropic-version'] = '2023-06-01';
       body = { model, max_tokens: 700, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] };
     }
@@ -162,7 +162,7 @@ Return JSON:
       signal: ctrl.signal,
       headers: {
         'Content-Type':  'application/json',
-        'Authorization': `Bearer ${openaiKey.slice(0,10)}...`,
+        'Authorization': `Bearer ${openaiKey}`,
       },
       body: JSON.stringify({
         model:   'dall-e-3',
