@@ -2,6 +2,7 @@
 require('./_shared/env');
 
 const { ok, fail, options }     = require('./_shared/http');
+const { AppError }               = require('./_shared/errors');
 const { requireAuth }           = require('./_shared/auth');
 const { parseJsonBody }         = require('./_shared/request');
 const { generateAdVisual }      = require('./_shared/visual-generator');
@@ -13,20 +14,20 @@ const { generateAdVisual }      = require('./_shared/visual-generator');
  */
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return options();
-  if (event.httpMethod !== 'POST') return fail('METHOD_NOT_ALLOWED', 'POST only', 405);
+  if (event.httpMethod !== 'POST') return fail(new AppError({ code: 'METHOD_NOT_ALLOWED', userMessage: 'POST only', status: 405 }));
 
   let user;
-  try { user = await requireAuth(event); } catch (e) { return fail('UNAUTHORIZED', e.message, 401); }
+  try { user = await requireAuth(event); } catch (e) { return fail(e); }
 
   let body;
-  try { body = parseJsonBody(event); } catch { return fail('BAD_REQUEST', 'invalid JSON', 400); }
+  try { body = parseJsonBody(event); } catch (e) { return fail(e); }
 
   const { platform = 'facebook', type = 'conversion', offer = '', audience = '', deal = '', brand = '' } = body;
-  if (!offer) return fail('BAD_REQUEST', 'offer is required', 400);
+  if (!offer) return fail(new AppError({ code: 'BAD_REQUEST', userMessage: 'offer is required', status: 400 }));
 
   const result = await generateAdVisual({ platform, type, offer, audience, deal, brand });
 
-  if (result.error) return fail('AI_ERROR', result.error, 500);
+  if (result.error) return fail(new AppError({ code: 'AI_ERROR', userMessage: result.error, status: 500 }));
 
   return ok(result);
 };
