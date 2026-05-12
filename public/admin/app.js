@@ -86,7 +86,7 @@ function shell(content) {
 }
 
 function navigate(page, extra = {}) {
-  state.page = page; Object.assign(state, extra); render();
+  state.page = page; Object.assign(state, extra); window.location.hash = `#${page}`; render();
 }
 
 // ── Overview ───────────────────────────────────────────────────────────────────
@@ -1006,6 +1006,10 @@ async function boot() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { window.location.href = '/'; return; }
   state.user = session.user;
+
+  // Handle hash routing (e.g., /#api-keys)
+  const hash = (window.location.hash || '#overview').slice(1) || 'overview';
+  if (hash && hash !== 'overview') state.page = hash;
 
   // Verify admin access with a real API call
   try {
