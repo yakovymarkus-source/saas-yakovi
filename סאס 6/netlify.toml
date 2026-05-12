@@ -1,5 +1,5 @@
 [build]
-  command = "echo 'TEST BUILD' && pwd && ls"
+  command = "mkdir -p dist && echo '<h1>test</h1>' > dist/index.html && echo BUILD_OK"
   publish = "dist"
 
 [build.environment]
