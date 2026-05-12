@@ -94,6 +94,9 @@
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
 
+[functions."admin-api-keys"]
+  timeout = 15
+
 [functions."human-agent-chat"]
   timeout = 26
 
