@@ -68,24 +68,24 @@ async function _logAICost({ userId, taskType, raw, routing }) {
 // Most-specific intents first to avoid false-positive substring matches
 const INTENT_PATTERNS = [
   // ── Content creation (checked first — very explicit keywords) ───────────────
-  { intent: 'creative',      patterns: /(קריאייטיב|עיצוב ויזואלי|גרפיקה|ויזואל|עיצוב מודעה|תמונת מודעה|צור מודעה|עשה לי מודעה|מודעה לפייסבוק|מודעה לאינסטגרם|פוסט ממומן|פרסומת|ביזואל|visual.?ad|ad.*design|creative.?concept|banner|create.*ad|generate.*visual)/i },
-  { intent: 'landing_page',  patterns: /(דף נחיתה|תכנן דף|מבנה דף|מבנה נחיתה|עיצוב דף|דף הנחיתה שלי|landing.?page|above.?the.?fold)/i },
-  { intent: 'copy',          patterns: /(כתוב לי|כתוב עבורי|קופי|מודעת טקסט|כותרת מודעה|ad text|creative text|\bcopy\b|headline|כתוב טקסט)/i },
+  { intent: 'creative',      patterns: /(קריאייטיב|עיצוב ויזואלי|גרפיקה|ויזואל|עיצוב מודעה|תמונת מודעה|צור מודעה|עשה לי מודעה|מודעה לפייסבוק|מודעה לאינסטגרם|מודעה לטיקטוק|מודעה לגוגל|פוסט ממומן|פרסומת|ביזואל|דיזיין|עיצוב|תמונה|סרטון|וידיאו|אנימציה|גיף|סטורי|ריל|שורט|אצטטיקה|עשה לי משהו יפה|עשה לי משהו ויזואלי|כמו הזה אבל שונה|משהו מקורי|עיצוב קריאייטיבי|כרטיס מודעה|visual.?ad|ad.*design|creative.?concept|banner|create.*ad|generate.*visual|shorts|reels|stories|video.*ad|אצלך יש משהו|תיצור לי|בנה לי|אני רוצה דברים נחמדים|יוצר|עושה|עשה יפה|ויזואלי|גרפיקאי)/i },
+  { intent: 'landing_page',  patterns: /(דף נחיתה|תכנן דף|מבנה דף|מבנה נחיתה|עיצוב דף|דף הנחיתה שלי|עמוד הנחיתה|דף בעיצוב|דף אחיד|דף מכירה|עמוד מכירה|דף בזום|עמוד בזום|landing.?page|sales.?page|squeeze.?page|above.?the.?fold|webpage|הדף שלי|דף הנחיתה|עמוד נחיתה|תבנית דף|דף חדש|עזור לי לעמוד|צור דף|בנה דף|עשה עמוד)/i },
+  { intent: 'copy',          patterns: /(כתוב לי|כתוב עבורי|קופי|מודעת טקסט|כותרת מודעה|כתוב טקסט|משפט קצר|טקסט למודעה|כותרת וטקסט|כתוב קופי|כתוב מודעה|טקסט|כתיבה|מה אכתוב|טקסט למודעה|ad copy|ad text|creative text|\bcopy\b|headline|copywriting|write.*ad|caption|ad headline|sales copy|אני צריך טקסט|כתוב לי משהו|כתוב דברים חכמים|כתוב משפט|טקסט טוב)/i },
   // ── Specific metrics ────────────────────────────────────────────────────────
-  { intent: 'economics',     patterns: /(כלכלה|עלות ליד|עולה ליד|כמה ליד|רווחיות|כמה להמיר|\bCAC\b|\bLTV\b|\bCPL\b|break.?even|payback|economics|feasib)/i },
-  { intent: 'roas',          patterns: /(החזר על פרסום|תשואה על פרסום|\broas\b|\breturn on ad)/i },
-  { intent: 'ctr',           patterns: /(אחוז קליקים|קצב קליקים|\bctr\b|\bclick.through)/i },
-  { intent: 'test',          patterns: /(וריאציה|ניסוי|מה לבדוק|a\/b|ab test|hypothesis|variant|split test)/i },
+  { intent: 'economics',     patterns: /(כלכלה|עלות ליד|עולה ליד|כמה ליד|רווחיות|כמה להמיר|כדאי|משתלם|ROI|עלות חיזוק|כמה זה עולה|כמה זה עולה ליד|חזקה כלכלית|הסכם כלכלי|\bCAC\b|\bLTV\b|\bCPL\b|break.?even|payback|economics|feasib|profitab|חישוב עלות|תחשוב לי|עלות חיזוק|הוצאות|כנסות|רווח וההוצאה|טוב כלכלית|אם כדאי)/i },
+  { intent: 'roas',          patterns: /(החזר על פרסום|תשואה על פרסום|החזר השקעה|רווח|הכנסה|תשואה|revenue|\broas\b|\breturn on ad|how much money|earning|כמה משתלם|כמה הרווח|כמה אקבל חזרה|החזר ההשקעה|הכנסה מפרסום|רווחיות קמפיין|חזרה על השקעה)/i },
+  { intent: 'ctr',           patterns: /(אחוז קליקים|קצב קליקים|קליקים|CTR|engagement|קליקתיות|\bctr\b|\bclick.through|click rate|קליקים לכל מודעה|כמה קליקים|קליקים חם|אחוז קליקות|CTR נמוך|קליקתיות רחוקה)/i },
+  { intent: 'test',          patterns: /(וריאציה|ניסוי|מה לבדוק|בדיקה|לבדוק|השוואה|בדיקה לעומת|בדיקת אב|a\/b|ab test|hypothesis|variant|split test|experiment|לבדוק וריאציות|מה עדיף|אי זה עדיף|לבדוק מודעות שונות|בדוק|נסה|טסט)/i },
   // ── Analytics & data ────────────────────────────────────────────────────────
-  { intent: 'budget',        patterns: /(תקציב|הזזת תקציב|חלוקת תקציב|הקצאת תקציב|\bbudget\b|reallocat)/i },
-  { intent: 'top_ads',       patterns: /(מודעות הכי|הכי טובות|top ads|\bbest ads\b|מודעות מובילות|ניצחון קמפיין)/i },
-  { intent: 'tracking',      patterns: /(טראקינג|מעקב המרות|פיקסל|pixel|tracking|audit)/i },
-  { intent: 'recs',          patterns: /(המלצ|מה לעש|תן לי עצה|recommend|suggest|what should)/i },
-  { intent: 'trends',        patterns: /(טרנד|מגמה|ירידה בביצועים|היסטוריה|לאורך זמן|שינוי בביצועים|trend|progress over)/i },
-  { intent: 'overview',      patterns: /(ביצועי|ביצועים|סקירה כללית|סטטוס קמפיין|overview|how am i doing)/i },
-  { intent: 'integrations',  patterns: /(חיבור מערכת|חיבור גוגל|חיבור מטא|integration|ga4|connected)/i },
+  { intent: 'budget',        patterns: /(תקציב|הזזת תקציב|חלוקת תקציב|הקצאת תקציב|כמה להוציא|תקציב יומי|הקצה תקציב|חלוק תקציב|\bbudget\b|reallocat|daily spend|spending|הוצאה|תקציב שלי|למה קופץ התקציב|תקציב עלה|תקציב ירד|כמה להוציא יום|חלוקת כסף|הקצה כסף|חלוק כסף)/i },
+  { intent: 'top_ads',       patterns: /(מודעות הכי|הכי טובות|מודעה הטובה|המודעה המובילה|top ads|\bbest ads\b|מודעות מובילות|ניצחון קמפיין|מה המודעה הטובה|איזו מודעה עובדת|בדקת מודעות|מודעה הכי טובה|מודעות מנצחות|לראות את המודעות הטובות|איזה יוצר עובד|מודעות מומלצות)/i },
+  { intent: 'tracking',      patterns: /(טראקינג|מעקב המרות|פיקסל|pixel|tracking|audit|מעקב|pixel meta|pixel גוגל|מעקב המרה|מה זה tracked|בדוק track|לא עובד מעקב|טראק|המרות|מעקב היכולות|אתביעות מעקב|מה קורה לי בטראק)/i },
+  { intent: 'recs',          patterns: /(המלצ|מה לעש|תן לי עצה|recommend|suggest|what should|מה הצעתך|דעה שלך|מה אתה חושב|הנחני|בואו נעשה|זה טוב לעשות|איך יום אלה|הנה הדעה שלי|יש לך הצעה|מה אתה מציע|תעיר לי|תגיד לי מה לעשות|עזור לי|חשוב שלך)/i },
+  { intent: 'trends',        patterns: /(טרנד|מגמה|ירידה בביצועים|עלייה בביצועים|היסטוריה|לאורך זמן|שינוי בביצועים|trend|progress over|טרנדים|מה קורה בזמן|היסטוריה של|לאורך הקמפיין|כלכלי זמן|שינויים בביצועים|ביצועים בזמן|טרנד ירידה|טרנד עלייה|עלה עלה|ירד)|ביצועי לאורך הזמן)/i },
+  { intent: 'overview',      patterns: /(ביצועי|ביצועים|סקירה כללית|סטטוס קמפיין|סטטוס|כמה הביצועים|איך זה עובד|מצב הקמפיין|overview|how am i doing|כמה אני עושה|איך זה הולך|ביצועים כלליים|סיכום|סקירה|מה הסטטוס|מצב העניינים|ביצועי הקמפיין|תסכם לי)/i },
+  { intent: 'integrations',  patterns: /(חיבור מערכת|חיבור גוגל|חיבור מטא|integration|ga4|connected|חיבור|מתחברת|מחברים|חברתי|google analytics|meta pixel|facebook|instagram|טיקטוק|חברת אתי|חיבור חדש|לא מחובר|בדוק את החיבור|חברתים|צריך להחברת|איך מחברים|נתחבר)/i },
   // ── Business profile (broad terms last to avoid false matches) ──────────────
-  { intent: 'business',      patterns: /(פרופיל עסקי|מה אני מוכר|מחיר שלי|קהל יעד שלי|הצעת הערך|business profile)/i },
+  { intent: 'business',      patterns: /(פרופיל עסקי|מה אני מוכר|מחיר שלי|קהל יעד שלי|הצעת הערך|business profile|הפרופיל שלי|עסק שלי|מה אני מבצע|מה טוב בי|עסקי|עסק|המוצר שלי|השירות שלי|הגישה שלי|הערך שלי|אני מוכר|אני עושה|התיאור שלי|הפרופיל שלי|עדכן פרופיל|שנה פרופיל)/i },
 ];
 
 function detectIntent(message) {
