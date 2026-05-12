@@ -40,14 +40,9 @@ function siteId() {
   return id;
 }
 
-async function netlifyGetEnvVar(key) {
-  const res = await fetch(
-    `https://api.netlify.com/api/v1/sites/${siteId()}/env/${key}`,
-    { headers: netlifyHeaders() }
-  );
-  if (res.status === 404) return null;
-  if (!res.ok) throw new AppError({ code: 'INTERNAL_ERROR', userMessage: `Netlify API error: ${res.status}`, status: 500 });
-  return res.json();
+function readEnvVar(key) {
+  // Read directly from process.env — always up-to-date at function runtime
+  return process.env[key] || '';
 }
 
 async function netlifySetEnvVar(key, value) {
@@ -95,15 +90,9 @@ exports.handler = async (event) => {
 
     // ── GET: return list of keys with masked values ─────────────────────────────
     if (event.httpMethod === 'GET') {
-      const results = await Promise.all(
-        KNOWN_KEYS.map(async (meta) => {
-          let envVar;
-          try { envVar = await netlifyGetEnvVar(meta.key); } catch { envVar = null; }
-          // The Netlify API returns values per-context; grab "all" or first
-          const values  = envVar?.values || [];
-          const allVal  = values.find(v => v.context === 'all') || values[0];
-          const rawVal  = allVal?.value || '';
-          const isSet   = rawVal.length > 10;
+      const results = KNOWN_KEYS.map((meta) => {
+          const rawVal = readEnvVar(meta.key);
+          const isSet  = rawVal.length > 10;
           return {
             key:      meta.key,
             label:    meta.label,
@@ -112,8 +101,7 @@ exports.handler = async (event) => {
             isSet,
             masked:   isSet ? maskValue(rawVal) : '',
           };
-        })
-      );
+        });
 
       await writeRequestLog(buildLogPayload(context, 'info', 'admin_api_keys_read', {}));
       return ok({ keys: results }, context.requestId);
