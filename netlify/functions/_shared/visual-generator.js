@@ -35,20 +35,39 @@ const DALLE_SIZES     = { facebook: '1792x1024', instagram: '1024x1024', google:
  * @returns {{ imageUrl, headline, subtext, cta, platform } | { error: string }}
  */
 async function generateAdVisual({ platform = 'facebook', type = 'conversion', offer, audience = '', deal = '', brand = '' }) {
-  if (!offer) return { error: 'offer is required' };
+  const LOG = (msg) => console.log(`[visual-generator] ${new Date().toISOString()} ${msg}`);
+  const ERR = (msg) => console.error(`[visual-generator] ${new Date().toISOString()} ERROR: ${msg}`);
+
+  LOG(`START: platform=${platform}, type=${type}, offer="${offer.slice(0,30)}..."`);
+
+  if (!offer) {
+    ERR('offer is required');
+    return { error: 'offer is required' };
+  }
 
   const openrouterKey = process.env.OPENROUTER_API_KEY || '';
   const anthropicKey  = process.env.ANTHROPIC_API_KEY  || '';
   const openaiKey     = process.env.OPENAI_API_KEY     || '';
-  if (!openrouterKey && !anthropicKey) return { error: 'OPENROUTER_API_KEY or ANTHROPIC_API_KEY not set' };
-  if (!openaiKey) return { error: 'OPENAI_API_KEY not set' };
+
+  LOG(`Keys status: OpenRouter=${openrouterKey ? '✓' : '✗'}, Anthropic=${anthropicKey ? '✓' : '✗'}, OpenAI=${openaiKey ? '✓' : '✗'}`);
+
+  if (!openrouterKey && !anthropicKey) {
+    ERR('OPENROUTER_API_KEY or ANTHROPIC_API_KEY not set');
+    return { error: 'OPENROUTER_API_KEY or ANTHROPIC_API_KEY not set' };
+  }
+  if (!openaiKey) {
+    ERR('OPENAI_API_KEY not set');
+    return { error: 'OPENAI_API_KEY not set' };
+  }
 
   const pName = PLATFORM_NAMES[platform] || 'Facebook';
   const tName = TYPE_NAMES[type]         || 'conversion';
   const size  = DALLE_SIZES[platform]    || '1024x1024';
 
+  LOG(`Platform: ${pName} (${size}), Type: ${tName}`);
+
   // ── Step 1: Claude generates DALL-E prompt + Hebrew copy ───────────────────
-  // Prefer OpenRouter (used for all AI calls in production); fall back to direct Anthropic.
+  LOG('STEP 1: Generating DALL-E prompt with Claude...');
   let adCopy;
   try {
     const ctrl = new AbortController();
@@ -61,6 +80,8 @@ async function generateAdVisual({ platform = 'facebook', type = 'conversion', of
     const model = useOpenRouter
       ? (process.env.OPENROUTER_DEFAULT_MODEL || 'anthropic/claude-sonnet-4-5')
       : (process.env.CLAUDE_MODEL || 'claude-sonnet-4-6');
+
+    LOG(`Using ${useOpenRouter ? 'OpenRouter' : 'Anthropic'} API, model: ${model}`);
 
     const systemPrompt = 'You are an expert advertising creative director. Return ONLY valid JSON, no explanation.';
     const userPrompt   = `Create a professional ${pName} ad for: "${offer}".
@@ -80,45 +101,68 @@ Return JSON:
     const headers = { 'Content-Type': 'application/json' };
     let body;
     if (useOpenRouter) {
-      headers['Authorization'] = `Bearer ${openrouterKey}`;
+      headers['Authorization'] = `Bearer ${openrouterKey.slice(0,10)}...`;
       body = { model, max_tokens: 700, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] };
     } else {
-      headers['x-api-key'] = anthropicKey;
+      headers['x-api-key'] = `${anthropicKey.slice(0,10)}...`;
       headers['anthropic-version'] = '2023-06-01';
       body = { model, max_tokens: 700, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] };
     }
 
+    LOG(`Calling ${apiUrl}...`);
     const res = await fetch(apiUrl, { method: 'POST', signal: ctrl.signal, headers, body: JSON.stringify(body) });
     clearTimeout(timer);
+
+    LOG(`Response status: ${res.status}`);
     if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
+      const errBody = await res.text().catch(() => 'no body');
+      ERR(`AI API error ${res.status}: ${errBody.slice(0, 200)}`);
       throw new Error(`AI API error ${res.status}: ${errBody.slice(0, 200)}`);
     }
+
     const data = await res.json();
+    LOG(`Received response, parsing...`);
+
     const text = useOpenRouter
       ? (data?.choices?.[0]?.message?.content || '')
       : (data?.content?.find(b => b.type === 'text')?.text || '');
+
+    LOG(`Claude response length: ${text.length} chars`);
+
     const jm = text.match(/\{[\s\S]*\}/);
-    if (!jm) throw new Error('no JSON in AI response');
+    if (!jm) {
+      ERR(`No JSON found in response: ${text.slice(0,100)}`);
+      throw new Error('no JSON in AI response');
+    }
+
     adCopy = JSON.parse(jm[0]);
+    LOG(`Parsed ad copy successfully: headline="${adCopy.headline}", dalle_prompt length=${adCopy.dalle_prompt?.length}`);
   } catch (e) {
-    console.error('[visual-generator] step1 error:', e.message);
+    ERR(`Step 1 failed: ${e.message}`);
     return { error: `Failed to generate ad copy: ${e.message}` };
   }
 
-  if (!adCopy?.dalle_prompt) return { error: 'Claude did not return a DALL-E prompt' };
+  if (!adCopy?.dalle_prompt) {
+    ERR('Claude did not return a DALL-E prompt');
+    return { error: 'Claude did not return a DALL-E prompt' };
+  }
 
   // ── Step 2: DALL-E 3 generates the image ──────────────────────────────────
+  LOG('STEP 2: Calling DALL-E 3 to generate image...');
   let imageUrl;
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 30000);
+
+    LOG(`DALL-E prompt: "${adCopy.dalle_prompt.slice(0, 80)}..."`);
+    LOG(`Image size: ${size}, Calling https://api.openai.com/v1/images/generations...`);
+
     const res = await fetch('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       signal: ctrl.signal,
       headers: {
         'Content-Type':  'application/json',
-        'Authorization': `Bearer ${openaiKey}`,
+        'Authorization': `Bearer ${openaiKey.slice(0,10)}...`,
       },
       body: JSON.stringify({
         model:   'dall-e-3',
@@ -129,23 +173,33 @@ Return JSON:
       }),
     });
     clearTimeout(timer);
+
+    LOG(`DALL-E response status: ${res.status}`);
     if (!res.ok) {
-      const errText = await res.text().catch(() => '');
+      const errText = await res.text().catch(() => 'no body');
+      ERR(`DALL-E error ${res.status}: ${errText.slice(0, 200)}`);
       throw new Error(`DALL-E error ${res.status}: ${errText.slice(0, 200)}`);
     }
+
     const data = await res.json();
     imageUrl = data?.data?.[0]?.url;
-    if (!imageUrl) throw new Error('No image URL returned');
+
+    if (!imageUrl) {
+      ERR(`No image URL in response: ${JSON.stringify(data).slice(0, 100)}`);
+      throw new Error('No image URL returned');
+    }
+
+    LOG(`Image generated successfully, URL length: ${imageUrl.length}`);
   } catch (e) {
-    console.error('[visual-generator] step2 error:', e.message);
+    ERR(`Step 2 failed: ${e.message}`);
     return { error: `Failed to generate image: ${e.message}` };
   }
 
   // ── Step 3: Save to Supabase Storage for a permanent URL ──────────────────
-  // DALL-E URLs expire in ~1 hour — Storage URL is permanent.
+  LOG('STEP 3: Saving image to Supabase Storage...');
   const permanentUrl = await _saveImageToStorage(imageUrl, platform);
 
-  return {
+  const result = {
     imageUrl: permanentUrl,
     headline: adCopy.headline || '',
     subtext:  adCopy.subtext  || '',
@@ -153,6 +207,9 @@ Return JSON:
     platform,
     size,
   };
+
+  LOG(`SUCCESS: Ad visual generated. URL: ${permanentUrl.slice(0,50)}..., Headline: "${result.headline}"`);
+  return result;
 }
 
 /**
@@ -160,30 +217,43 @@ Return JSON:
  * Falls back to the original DALL-E URL on any error.
  */
 async function _saveImageToStorage(dalleUrl, platform) {
+  const LOG = (msg) => console.log(`[visual-generator.storage] ${new Date().toISOString()} ${msg}`);
+  const ERR = (msg) => console.error(`[visual-generator.storage] ${new Date().toISOString()} ERROR: ${msg}`);
+
+  LOG(`Saving image from DALL-E to Supabase Storage...`);
   try {
+    LOG('Loading Supabase admin client...');
     const { getAdminClient } = require('./supabase');
     const sb = getAdminClient();
 
     // Download the image from DALL-E (temporary URL, expires in ~1h)
+    LOG(`Downloading image from DALL-E URL (${dalleUrl.slice(0,50)}...)`);
     const imgRes = await fetch(dalleUrl, { signal: AbortSignal.timeout(15000) });
-    if (!imgRes.ok) return dalleUrl;
+    if (!imgRes.ok) {
+      ERR(`Failed to download image: ${imgRes.status}. Using original URL.`);
+      return dalleUrl;
+    }
 
     const buffer = Buffer.from(await imgRes.arrayBuffer());
     const fileName = `ad-images/${Date.now()}-${platform}.png`;
+    LOG(`Downloaded ${buffer.length} bytes. Uploading as ${fileName}...`);
 
     const { error } = await sb.storage
       .from('generated-assets')
       .upload(fileName, buffer, { contentType: 'image/png', upsert: false });
 
     if (error) {
-      console.warn('[visual-generator] storage upload failed (non-fatal):', error.message);
+      ERR(`Storage upload failed (non-fatal): ${error.message}. Using original URL.`);
       return dalleUrl;
     }
 
+    LOG(`Uploaded to storage. Generating public URL...`);
     const { data } = sb.storage.from('generated-assets').getPublicUrl(fileName);
-    return data?.publicUrl || dalleUrl;
+    const publicUrl = data?.publicUrl || dalleUrl;
+    LOG(`Public URL: ${publicUrl.slice(0,50)}...`);
+    return publicUrl;
   } catch (e) {
-    console.warn('[visual-generator] storage save failed (non-fatal):', e.message);
+    ERR(`Storage save failed (non-fatal): ${e.message}. Falling back to DALL-E URL.`);
     return dalleUrl; // always fall back to original URL
   }
 }

@@ -937,9 +937,11 @@ async function generateCopyResponse(context) {
 // ── Visual ad generator — returns pendingVisual so frontend fires the long DALL-E
 // request in a separate call (avoids hitting Netlify's 26s function timeout).
 async function generateCreativeResponse(context) {
-  const { businessProfile, profileName, message } = context;
+  const { businessProfile, profileName, message, userId } = context;
+  console.log(`[campaigner-chat.creative] START: userId=${userId}, message="${message.slice(0,50)}..."`);
 
   if (!businessProfile?.offer) {
+    console.log(`[campaigner-chat.creative] No business profile offer found`);
     return {
       reply: `🎨 כדי לייצר מודעה ויזואלית אני צריך קודם להכיר את העסק שלך.\n\n` +
              `ספר לי: **מה אתה מוכר, למי, ומה התוצאה שהלקוח מקבל?**`,
@@ -949,8 +951,10 @@ async function generateCreativeResponse(context) {
 
   // ── Detect platform from user's message ──────────────────────────────────
   const platform = detectPlatform(message);
+  console.log(`[campaigner-chat.creative] Detected platform: ${platform}`);
 
   if (!platform) {
+    console.log(`[campaigner-chat.creative] No platform detected, asking user`);
     const platformSizes = {
       facebook:  '1792×1024 (Landscape)',
       instagram: '1080×1080 (Square)',
@@ -972,17 +976,22 @@ async function generateCreativeResponse(context) {
   const PLATFORM_LABEL = { facebook: 'פייסבוק', instagram: 'אינסטגרם', tiktok: 'טיקטוק', google: 'גוגל' };
   const pLabel = PLATFORM_LABEL[platform] || platform;
 
+  const adType = detectAdType(message);
+  const pendingVisual = {
+    platform,
+    type:     adType,
+    offer:    businessProfile.offer,
+    audience: businessProfile.target_audience || '',
+    deal:     businessProfile.unique_offer    || '',
+    brand:    businessProfile.business_name   || '',
+  };
+
+  console.log(`[campaigner-chat.creative] Returning pendingVisual: ${JSON.stringify(pendingVisual)}`);
+
   return {
     reply: `🎨 **מייצר מודעה ל${pLabel}...**\n\n_ה-AI עובד על התמונה — זה עשוי לקחת עד 20 שניות_`,
     quickActions: [],
-    pendingVisual: {
-      platform,
-      type:     detectAdType(message),
-      offer:    businessProfile.offer,
-      audience: businessProfile.target_audience || '',
-      deal:     businessProfile.unique_offer    || '',
-      brand:    businessProfile.business_name   || '',
-    },
+    pendingVisual,
   };
 }
 
