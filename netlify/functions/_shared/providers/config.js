@@ -22,14 +22,14 @@ const { CAPABILITIES } = require('./contract');
 // Change these defaults by setting env vars — never edit this file.
 
 const DEFAULT_CAPABILITY_MAP = {
-  // ── All text + structured generation — Claude (Anthropic) ───────────────────
-  [CAPABILITIES.AD_COPY]:           'claude',
-  [CAPABILITIES.CAMPAIGN_STRATEGY]: 'claude',
-  [CAPABILITIES.ANALYSIS_SUMMARY]:  'claude',
-  [CAPABILITIES.ISSUE_EXPLANATION]: 'claude',
-  [CAPABILITIES.ITERATION_ADVICE]:  'claude',
-  [CAPABILITIES.LANDING_PAGE]:      'claude',
-  [CAPABILITIES.AD_CREATIVE]:       'claude',
+  // ── All text + structured generation — OpenRouter (with Anthropic fallback) ─
+  [CAPABILITIES.AD_COPY]:           'openrouter',
+  [CAPABILITIES.CAMPAIGN_STRATEGY]: 'openrouter',
+  [CAPABILITIES.ANALYSIS_SUMMARY]:  'openrouter',
+  [CAPABILITIES.ISSUE_EXPLANATION]: 'openrouter',
+  [CAPABILITIES.ITERATION_ADVICE]:  'openrouter',
+  [CAPABILITIES.LANDING_PAGE]:      'openrouter',
+  [CAPABILITIES.AD_CREATIVE]:       'openrouter',
   // ── Image generation (future) ───────────────────────────────────────────────
   [CAPABILITIES.IMAGE_GENERATION]:  'nano_banana',
 };

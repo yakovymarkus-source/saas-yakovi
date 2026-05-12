@@ -37,35 +37,33 @@ const DALLE_SIZES     = { facebook: '1792x1024', instagram: '1024x1024', google:
 async function generateAdVisual({ platform = 'facebook', type = 'conversion', offer, audience = '', deal = '', brand = '' }) {
   if (!offer) return { error: 'offer is required' };
 
-  const anthropicKey = process.env.ANTHROPIC_API_KEY || '';
-  const openaiKey    = process.env.OPENAI_API_KEY    || '';
-  if (!anthropicKey) return { error: 'ANTHROPIC_API_KEY not set' };
-  if (!openaiKey)    return { error: 'OPENAI_API_KEY not set' };
+  const openrouterKey = process.env.OPENROUTER_API_KEY || '';
+  const anthropicKey  = process.env.ANTHROPIC_API_KEY  || '';
+  const openaiKey     = process.env.OPENAI_API_KEY     || '';
+  if (!openrouterKey && !anthropicKey) return { error: 'OPENROUTER_API_KEY or ANTHROPIC_API_KEY not set' };
+  if (!openaiKey) return { error: 'OPENAI_API_KEY not set' };
 
   const pName = PLATFORM_NAMES[platform] || 'Facebook';
   const tName = TYPE_NAMES[type]         || 'conversion';
   const size  = DALLE_SIZES[platform]    || '1024x1024';
 
   // ── Step 1: Claude generates DALL-E prompt + Hebrew copy ───────────────────
+  // Prefer OpenRouter (used for all AI calls in production); fall back to direct Anthropic.
   let adCopy;
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      signal: ctrl.signal,
-      headers: {
-        'Content-Type':      'application/json',
-        'x-api-key':         anthropicKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model:      process.env.CLAUDE_MODEL || 'claude-sonnet-4-6',
-        max_tokens: 700,
-        system:     'You are an expert advertising creative director. Return ONLY valid JSON, no explanation.',
-        messages: [{
-          role:    'user',
-          content: `Create a professional ${pName} ad for: "${offer}".
+
+    const useOpenRouter = !!openrouterKey;
+    const apiUrl = useOpenRouter
+      ? 'https://openrouter.ai/api/v1/chat/completions'
+      : 'https://api.anthropic.com/v1/messages';
+    const model = useOpenRouter
+      ? (process.env.OPENROUTER_DEFAULT_MODEL || 'anthropic/claude-sonnet-4-5')
+      : (process.env.CLAUDE_MODEL || 'claude-sonnet-4-6');
+
+    const systemPrompt = 'You are an expert advertising creative director. Return ONLY valid JSON, no explanation.';
+    const userPrompt   = `Create a professional ${pName} ad for: "${offer}".
 Brand: "${brand || offer}".
 Audience: "${audience || 'general Israeli audience'}".
 Goal: ${tName}.
@@ -77,15 +75,31 @@ Return JSON:
   "headline": "כותרת בעברית קצרה ומושכת עד 6 מילים",
   "subtext": "משפט תיאור בעברית 1-2 שורות",
   "cta": "טקסט כפתור קריאה לפעולה"
-}`,
-        }],
-      }),
-    });
+}`;
+
+    const headers = { 'Content-Type': 'application/json' };
+    let body;
+    if (useOpenRouter) {
+      headers['Authorization'] = `Bearer ${openrouterKey}`;
+      body = { model, max_tokens: 700, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userPrompt }] };
+    } else {
+      headers['x-api-key'] = anthropicKey;
+      headers['anthropic-version'] = '2023-06-01';
+      body = { model, max_tokens: 700, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] };
+    }
+
+    const res = await fetch(apiUrl, { method: 'POST', signal: ctrl.signal, headers, body: JSON.stringify(body) });
     clearTimeout(timer);
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      throw new Error(`AI API error ${res.status}: ${errBody.slice(0, 200)}`);
+    }
     const data = await res.json();
-    const text = data?.content?.find(b => b.type === 'text')?.text || '';
-    const jm   = text.match(/\{[\s\S]*\}/);
-    if (!jm) throw new Error('no JSON in Claude response');
+    const text = useOpenRouter
+      ? (data?.choices?.[0]?.message?.content || '')
+      : (data?.content?.find(b => b.type === 'text')?.text || '');
+    const jm = text.match(/\{[\s\S]*\}/);
+    if (!jm) throw new Error('no JSON in AI response');
     adCopy = JSON.parse(jm[0]);
   } catch (e) {
     console.error('[visual-generator] step1 error:', e.message);
