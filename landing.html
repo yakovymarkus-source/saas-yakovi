@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>רוחניות בכלי הנפש | נקודת מפנה</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@300;400;500;700;900&family=Heebo:wght@300;400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --gold: #b8922a;
+      --gold-light: #d4aa45;
+      --gold-pale: #f5edd6;
+      --navy: #1a2540;
+      --navy-mid: #243055;
+      --cream: #faf8f3;
+      --cream-dark: #f2ede0;
+      --charcoal: #1e1e1e;
+      --text-mid: #3a3a3a;
+      --text-soft: #5a5a5a;
+      --white: #ffffff;
+      --border: rgba(184,146,42,0.3);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Heebo', sans-serif;
+      background-color: var(--cream);
+      color: var(--charcoal);
+      direction: rtl;
+      text-align: right;
+      line-height: 1.8;
+      overflow-x: hidden;
+    }
+
+    /* ─── TYPOGRAPHY ─── */
+    h1, h2, h3, h4 {
+      font-family: 'Frank Ruhl Libre', serif;
+      line-height: 1.35;
+    }
+
+    /* ─── HEADER / NAV ─── */
+    header {
+      background: var(--navy);
+      padding: 18px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-bottom: 2px solid var(--gold);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .logo-title {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--gold-light);
+      letter-spacing: 2px;
+    }
+
+    .logo-subtitle {
+      font-size: 0.72rem;
+      color: rgba(255,255,255,0.55);
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+
+    /* ─── HERO ─── */
+    .hero {
+      background: linear-gradient(160deg, var(--navy) 0%, var(--navy-mid) 60%, #2e3f6e 100%);
+      color: var(--white);
+      padding: 90px 24px 80px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% 0%, rgba(184,146,42,0.18) 0%, transparent 65%);
+      pointer-events: none;
+    }
+
+    .hero-ornament {
+      font-size: 1rem;
+      color: var(--gold);
+      letter-spacing: 8px;
+      margin-bottom: 28px;
+      opacity: 0.8;
+    }
+
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      font-weight: 900;
+      color: var(--white);
+      margin-bottom: 20px;
+      max-width: 820px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .hero h1 span {
+      color: var(--gold-light);
+    }
+
+    .hero-tagline {
+      font-size: clamp(1rem, 2.5vw, 1.3rem);
+      color: rgba(255,255,255,0.75);
+      font-weight: 300;
+      max-width: 600px;
+      margin: 0 auto 48px;
+    }
+
+    .hero-pain {
+      max-width: 680px;
+      margin: 0 auto;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(184,146,42,0.35);
+      border-radius: 14px;
+      padding: 36px 40px;
+      text-align: right;
+    }
+
+    .hero-pain p {
+      font-size: 1.05rem;
+      line-height: 2;
+      color: rgba(255,255,255,0.88);
+      margin-bottom: 10px;
+    }
+
+    .hero-pain p:last-child {
+      margin-bottom: 0;
+    }
+
+    .hero-pain .bold-line {
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--white);
+    }
+
+    /* ─── DIVIDER ─── */
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 40px;
+      margin: 0 auto;
+      max-width: 700px;
+    }
+
+    .divider-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .divider-ornament {
+      color: var(--gold);
+      font-size: 1.2rem;
+      flex-shrink: 0;
+    }
+
+    /* ─── SECTIONS ─── */
+    section {
+      padding: 80px 24px;
+    }
+
+    .section-inner {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+      color: var(--gold);
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .section-title {
+      font-size: clamp(1.7rem, 4vw, 2.6rem);
+      font-weight: 900;
+      color: var(--navy);
+      margin-bottom: 32px;
+    }
+
+    .section-text {
+      font-size: 1.05rem;
+      color: var(--text-mid);
+      line-height: 2;
+      margin-bottom: 20px;
+    }
+
+    .section-text:last-child {
+      margin-bottom: 0;
+    }
+
+    /* ─── EMPATHY SECTION ─── */
+    .empathy-section {
+      background: var(--white);
+    }
+
+    .empathy-quote {
+      border-right: 4px solid var(--gold);
+      padding-right: 24px;
+      margin: 32px 0;
+    }
+
+    .empathy-quote p {
+      font-size: 1.1rem;
+      color: var(--text-mid);
+      line-height: 2.1;
+      margin-bottom: 8px;
+    }
+
+    .empathy-quote .highlight {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--navy);
+    }
+
+    /* ─── LIES SECTION ─── */
+    .lies-section {
+      background: var(--cream-dark);
+    }
+
+    .lies-grid {
+      display: grid;
+      gap: 28px;
+      margin-top: 48px;
+    }
+
+    .lie-card {
+      background: var(--white);
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      padding: 36px 36px 32px;
+      position: relative;
+      overflow: hidden;
+      transition: box-shadow 0.2s ease, transform 0.2s ease;
+    }
+
+    .lie-card:hover {
+      box-shadow: 0 8px 40px rgba(26,37,64,0.1);
+      transform: translateY(-2px);
+    }
+
+    .lie-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 5px;
+      height: 100%;
+      background: var(--gold);
+    }
+
+    .lie-number {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 3.5rem;
+      font-weight: 900;
+      color: var(--gold-pale);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .lie-title {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 16px;
+    }
+
+    .lie-title span {
+      color: var(--gold);
+    }
+
+    .lie-body {
+      font-size: 0.98rem;
+      color: var(--text-mid);
+      line-height: 2;
+    }
+
+    /* ─── TRUTH SECTION ─── */
+    .truth-section {
+      background: var(--navy);
+      color: var(--white);
+    }
+
+    .truth-section .section-title {
+      color: var(--white);
+    }
+
+    .truth-section .section-text {
+      color: rgba(255,255,255,0.82);
+    }
+
+    .truth-highlight {
+      background: rgba(184,146,42,0.15);
+      border: 1px solid rgba(184,146,42,0.4);
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin: 32px 0;
+    }
+
+    .truth-highlight p {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.25rem;
+      font-weight: 500;
+      color: var(--gold-light);
+      line-height: 1.9;
+      margin-bottom: 10px;
+    }
+
+    .truth-highlight p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* ─── WORKSHOP SECTION ─── */
+    .workshop-section {
+      background: var(--white);
+    }
+
+    .workshop-list {
+      list-style: none;
+      margin: 36px 0;
+      display: grid;
+      gap: 16px;
+    }
+
+    .workshop-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: 16px;
+      font-size: 1.02rem;
+      color: var(--text-mid);
+      line-height: 1.7;
+    }
+
+    .workshop-list li::before {
+      content: '✦';
+      color: var(--gold);
+      font-size: 0.75rem;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+
+    .workshop-note {
+      background: var(--cream-dark);
+      border-radius: 10px;
+      padding: 22px 28px;
+      font-size: 1rem;
+      color: var(--text-mid);
+      line-height: 1.9;
+      margin-top: 24px;
+    }
+
+    /* ─── VIDEO PLACEHOLDER ─── */
+    .video-section {
+      background: var(--cream-dark);
+      padding: 80px 24px;
+    }
+
+    .video-container {
+      max-width: 760px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .video-title {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 12px;
+    }
+
+    .video-subtitle {
+      font-size: 1rem;
+      color: var(--text-soft);
+      margin-bottom: 32px;
+    }
+
+    .video-placeholder {
+      background: linear-gradient(135deg, #e8e2d4 0%, #d5ccb8 100%);
+      border-radius: 16px;
+      border: 2px dashed var(--gold);
+      aspect-ratio: 16 / 9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .video-placeholder::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at center, rgba(184,146,42,0.06) 0%, transparent 70%);
+    }
+
+    .play-icon {
+      width: 72px;
+      height: 72px;
+      background: var(--navy);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.5;
+    }
+
+    .play-icon::after {
+      content: '';
+      display: block;
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 14px 0 14px 24px;
+      border-color: transparent transparent transparent var(--white);
+      margin-right: -4px;
+    }
+
+    .video-placeholder-text {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.1rem;
+      color: var(--text-soft);
+      font-weight: 500;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ─── PRICING / CTA SECTION ─── */
+    .cta-section {
+      background: var(--navy);
+      padding: 90px 24px;
+      text-align: center;
+    }
+
+    .cta-inner {
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    .cta-badge {
+      display: inline-block;
+      background: rgba(184,146,42,0.2);
+      border: 1px solid var(--gold);
+      border-radius: 30px;
+      color: var(--gold-light);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 3px;
+      padding: 6px 20px;
+      margin-bottom: 28px;
+    }
+
+    .cta-title {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 900;
+      color: var(--white);
+      margin-bottom: 16px;
+    }
+
+    .cta-subtitle {
+      font-size: 1.05rem;
+      color: rgba(255,255,255,0.7);
+      margin-bottom: 40px;
+      line-height: 1.9;
+    }
+
+    .details-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 16px;
+      margin-bottom: 48px;
+    }
+
+    .detail-item {
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(184,146,42,0.25);
+      border-radius: 12px;
+      padding: 20px 16px;
+      text-align: center;
+    }
+
+    .detail-icon {
+      font-size: 1.6rem;
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .detail-label {
+      font-size: 0.78rem;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+
+    .detail-value {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--white);
+    }
+
+    .price-display {
+      margin-bottom: 40px;
+    }
+
+    .price-amount {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 4rem;
+      font-weight: 900;
+      color: var(--gold-light);
+      line-height: 1;
+    }
+
+    .price-currency {
+      font-size: 1.8rem;
+      vertical-align: super;
+    }
+
+    .price-label {
+      font-size: 0.9rem;
+      color: rgba(255,255,255,0.5);
+      margin-top: 6px;
+    }
+
+    .cta-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: linear-gradient(135deg, var(--gold) 0%, var(--gold-light) 100%);
+      color: var(--navy);
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1.2rem;
+      font-weight: 700;
+      padding: 20px 52px;
+      border-radius: 50px;
+      text-decoration: none;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+      box-shadow: 0 6px 30px rgba(184,146,42,0.4);
+      border: none;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+    }
+
+    .cta-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(184,146,42,0.55);
+      opacity: 0.93;
+    }
+
+    .cta-btn:active {
+      transform: translateY(0);
+    }
+
+    .wa-icon {
+      width: 26px;
+      height: 26px;
+      fill: var(--navy);
+      flex-shrink: 0;
+    }
+
+    .cta-disclaimer {
+      margin-top: 20px;
+      font-size: 0.83rem;
+      color: rgba(255,255,255,0.4);
+    }
+
+    /* ─── CLOSING QUOTE ─── */
+    .closing-section {
+      background: var(--cream);
+      padding: 80px 24px;
+      text-align: center;
+    }
+
+    .closing-quote {
+      max-width: 620px;
+      margin: 0 auto;
+      position: relative;
+      padding: 48px 40px;
+    }
+
+    .closing-quote::before,
+    .closing-quote::after {
+      content: '"';
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 7rem;
+      color: var(--gold-pale);
+      line-height: 0;
+      position: absolute;
+    }
+
+    .closing-quote::before {
+      top: 60px;
+      right: 0;
+    }
+
+    .closing-quote::after {
+      content: '"';
+      bottom: 10px;
+      left: 0;
+    }
+
+    .closing-quote p {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: clamp(1.2rem, 3vw, 1.7rem);
+      font-weight: 700;
+      color: var(--navy);
+      line-height: 1.9;
+      position: relative;
+      z-index: 1;
+    }
+
+    .closing-quote .gold-text {
+      color: var(--gold);
+    }
+
+    /* ─── FOOTER ─── */
+    footer {
+      background: var(--navy);
+      border-top: 1px solid rgba(184,146,42,0.25);
+      padding: 28px 40px;
+      text-align: center;
+    }
+
+    footer p {
+      font-size: 0.82rem;
+      color: rgba(255,255,255,0.35);
+    }
+
+    footer .footer-logo {
+      font-family: 'Frank Ruhl Libre', serif;
+      font-size: 1rem;
+      color: var(--gold);
+      margin-bottom: 8px;
+    }
+
+    /* ─── UTILITY ─── */
+    .gold { color: var(--gold); }
+    .navy { color: var(--navy); }
+
+    /* ─── RESPONSIVE ─── */
+    @media (max-width: 600px) {
+      header { padding: 14px 20px; }
+      section { padding: 60px 18px; }
+      .hero { padding: 60px 18px 60px; }
+      .hero-pain { padding: 26px 22px; }
+      .lie-card { padding: 26px 22px 22px; }
+      .cta-btn { padding: 18px 36px; font-size: 1.05rem; }
+      .details-grid { grid-template-columns: 1fr 1fr; }
+      .closing-quote { padding: 40px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ─── HEADER ─── -->
+  <header>
+    <div class="logo">
+      <span class="logo-title">נקודת מפנה</span>
+      <span class="logo-subtitle">רוחניות · נפש · חיבור</span>
+    </div>
+  </header>
+
+  <!-- ─── HERO ─── -->
+  <section class="hero">
+    <p class="hero-ornament">✦ &nbsp;&nbsp; ✦ &nbsp;&nbsp; ✦</p>
+    <h1>רוחניות בכלי הנפש<br /><span>הפסק להילחם בעצמך</span></h1>
+    <p class="hero-tagline">סדנה לגברים חרדים שרוצים להתחבר לאלוקים באמת — לא מתוך פחד, אלא מתוך בחירה</p>
+
+    <div class="hero-pain">
+      <p class="bold-line">כל החיים ניסית להיות "יהודי טוב".</p>
+      <p>נלחמת בעצמך.<br />
+      כפית את עצמך.<br />
+      הבטחת להתחזק.<br />
+      נפלת.<br />
+      התחרטת.<br />
+      ושוב נפלת.</p>
+      <p>לעולם לא הצלחת להחזיק שינוי לאורך זמן.</p>
+      <p>התייאשת בפנים לגמרי?</p>
+    </div>
+  </section>
+
+  <!-- ─── EMPATHY ─── -->
+  <section class="empathy-section">
+    <div class="section-inner">
+      <span class="section-label">מה קורה בפנים</span>
+      <h2 class="section-title">מבחוץ אולי אתה נראה בסדר</h2>
+
+      <p class="section-text">שומר. מתפלל. מתפקד.<br />אבל מבפנים?</p>
+
+      <div class="empathy-quote">
+        <p class="highlight">עייף. כבוי. חנוק.</p>
+        <p>יש רגעים שאתה כבר לא מסוגל לשמוע עוד דרשה, עוד חומרה, עוד "אסור".<br />
+        עוד פחד מגיהנום.</p>
+        <p>ואז מגיעה המחשבה שאתה מפחד אפילו לחשוב —<br />
+        <strong>"אם רק הייתי יכול… הייתי בורח מהכל."</strong></p>
+      </div>
+
+      <p class="section-text">ואז מתחיל המצפון:</p>
+
+      <div class="empathy-quote">
+        <p>"אני כפוי טובה."</p>
+        <p>"אני צבוע."</p>
+        <p>"אני רשע."</p>
+        <p>"כנראה אני פשוט לא מספיק חזק."</p>
+      </div>
+
+      <p class="section-text">ואז אתה במלכוד —<br />
+      כי אתה יודע שהיהדות היא <strong>אמת</strong>,<br />
+      אבל כל כך קשה לך לקיים אותה!!!</p>
+
+      <p class="section-text">תחושה שאין לך לאן לברוח.</p>
+    </div>
+  </section>
+
+  <!-- ─── LIES ─── -->
+  <section class="lies-section">
+    <div class="section-inner">
+      <span class="section-label">שורש הבעיה</span>
+      <h2 class="section-title">4 השקרים שהרסו לך את הקשר עם הבורא</h2>
+
+      <div class="lies-grid">
+
+        <div class="lie-card">
+          <div class="lie-number">01</div>
+          <h3 class="lie-title">שקר #1 — <span>"אלוקים מחפש איפה להפיל אותך"</span></h3>
+          <p class="lie-body">כאילו הקב"ה יושב עם פנקס, דורש ממך דרישות בלתי אפשריות, מחפש כל נפילה שלך בזכוכית מגדלת — וכל פעם מתאכזב ממך מחדש. כי לא משנה מה תעשה, זה אף פעם לא מספיק.<br /><br />
+          הפסקת לראות בו <strong>אבא</strong>. התחלת לראות בו <strong>שופט</strong>. אתה מרגיש שהוא הולך נגדך.</p>
+        </div>
+
+        <div class="lie-card">
+          <div class="lie-number">02</div>
+          <h3 class="lie-title">שקר #2 — <span>"נועדת לסבול בעולם הזה כדי לכפר"</span></h3>
+          <p class="lie-body">ככל שיהיה לך יותר קשה, יותר רע, יותר סבל — כך תהיה צדיק יותר. חייבים לחיות בסבל כדי לכפר על העבירות. ואם יהיו לך חיי שפע — אתה חוטא למטרה.<br /><br />
+          אסור ליהנות. אסור לנשום. אסור להיות בן אדם.</p>
+        </div>
+
+        <div class="lie-card">
+          <div class="lie-number">03</div>
+          <h3 class="lie-title">שקר #3 — <span>"לא משנה מה אתה מרגיש. תעשה."</span></h3>
+          <p class="lie-body">לאלוקים לא אכפת מה עובר עליך. לא מעניין אותו אם אתה שבור, מותש, מבולבל או כבוי. התפקיד שלך הוא רק לבצע, לקיים, לסמן וי, להמשיך לתפקד — גם אם בפנים אתה מתפרק.<br /><br />
+          בלי חיבור. בלי חיות. בלי מקום לנפש שלך.<br />
+          אם קשה לך? תכריח את עצמך.<br />
+          אם אתה נחנק? תשתוק ותמשיך.<br /><br />
+          העולם הפנימי שלך הופך לבעיה. הרגשות שלך הופכים לאיום. והאנושיות שלך נתפסת כחולשה רוחנית — עד שלאט לאט אתה מוצא את עצמך <strong>שורד ומת מבפנים</strong>.</p>
+        </div>
+
+        <div class="lie-card">
+          <div class="lie-number">04</div>
+          <h3 class="lie-title">שקר #4 — <span>"אלוקים מתנקם בך"</span></h3>
+          <p class="lie-body">אלוקים נתפס כמי שמחפש מתי להעניש אותך. כאילו כל החיים אתה עומד על תנאי. עוד נפילה אחת — ושוב תקבל מכה.<br /><br />
+          הבעיה היא שאתה יודע בוודאות שתיפול. אתה יודע שלא תעמוד בכל הדרישות. אז עמוק בפנים אתה חי בתחושה שאין לך באמת סיכוי — <strong>נאשם תמידי</strong>.<br /><br />
+          כי אם כל המערכת בנויה על שכר ועונש, בסוף תמיד תפסיד. כל טעות מכניסה פחד ותסכול. כל נפילה מרגישה כמו גזר דין. כל קושי בחיים הופך מיד ל"איתות משמים".<br /><br />
+          במקום קשר של חיבור, אהבה והבנה עם הבורא — האדם חי מול כוח מפחיד שאי אפשר אף פעם באמת לרצות אותו.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── TRUTH ─── -->
+  <section class="truth-section">
+    <div class="section-inner">
+      <span class="section-label" style="color: var(--gold-light);">הסיבה האמיתית</span>
+      <h2 class="section-title">הסיבה שאתה לא מתחבר היא לא רוחנית. היא רגשית.</h2>
+
+      <p class="section-text">כשכולך צלקות, טראומות ומשקעים — כשניסית בעבר להתחבר בכוח והיזקת לעצמך — לכן עכשיו זה לא עובד לך.</p>
+
+      <p class="section-text">כשיש בנפש כאבים לא מטופלים, ביקורת עצמית הרסנית ותפיסות מעוותות על הבורא, לא עוזר כמה תדקדק במצוות. הכל יושב על בסיס רעוע שמזיק לנפש שלך.</p>
+
+      <div class="truth-highlight">
+        <p>אבל ברגע שבונים את קומת הנפש בצורה נכונה —</p>
+        <p>כל מה שלמדת כל החיים נכנס למקום הנכון.</p>
+        <p>לא מתוך כפייה. מתוך בחירה.</p>
+      </div>
+
+      <p class="section-text">הקול בתוכך שצועק <strong style="color: var(--white);">"אני לא יכול יותר"</strong> — הוא לא כפירה. זו הנפש שלך שמתחננת שיקשיבו לה כבר.</p>
+
+      <p class="section-text">כי אי אפשר לבנות עבודת ה' על שנאה עצמית.<br />
+      אי אפשר לחיות כל החיים בכפייה.<br />
+      אי אפשר להרגיש קרוב לבורא כשאתה נגעל מעצמך מבפנים.</p>
+    </div>
+  </section>
+
+  <!-- ─── WORKSHOP ─── -->
+  <section class="workshop-section">
+    <div class="section-inner">
+      <span class="section-label">מה קורה בסדנה</span>
+      <h2 class="section-title">וזה בדיוק מה שקורה בסדנה</h2>
+
+      <p class="section-text">לא עוד דרשות. לא עוד הפחדות. לא עוד משחקים של "תתחזק" שלא יחזיקו שבוע.</p>
+      <p class="section-text"><strong>תהליך אמיתי</strong> שבו אתה סוף סוף מתחבר לאלוקים באמת — בכלי הנפש שלך.</p>
+
+      <ul class="workshop-list">
+        <li>לזהות את ה"אלוקים המדומיין" שמנהל אותך מתוך פחד</li>
+        <li>לפרק ביקורת עצמית הרסנית שמתחפשת ל"יראת שמים"</li>
+        <li>להבין את מנגנוני הנפש שלך בלי לשנוא את עצמך</li>
+        <li>להפסיק לחיות ב"כאילו"</li>
+        <li>ללמוד לבחור באמת — לא מתוך כפייה, אלא מתוך חיבור</li>
+      </ul>
+
+      <div class="workshop-note">
+        <strong>זה לא מקום לפריקת עול.</strong><br />
+        זה מקום לאנשים שמאמינים בקב"ה, רוצים לקיים, אבל מרגישים שמשהו לא עובד כמו שצריך.
+      </div>
+
+      <div class="workshop-note" style="margin-top: 16px; border-right: 4px solid var(--gold);">
+        <p>בסוף הקב"ה רוצה איתנו קשר של אהבה, של חיבור, של בחירה.</p>
+        <p style="margin-top: 12px;">משהו שכופה את עצמו לקיים מצוות — לא בחר באמת בקב"ה. הוא אומנם מקיים, אבל לא אמיתי. ברגע שרק יתאפשר לו — הוא פשוט יברח. איזה ערך יש לזה?</p>
+        <p style="margin-top: 12px;">לעומת זאת, אדם שבוחר באמת — לא מנוהל תחת חרדה רוחנית. הוא נמצא בדרך. נופל וקם — זה חלק מהתהליך. לכך ה' ברא את הסליחה. הוא יודע שאנחנו לא מושלמים.</p>
+        <p style="margin-top: 12px;">ולכן, הגם שאולי כלפי חוץ האדם הזה יראה כפחות ירא שמים ופחות מדקדק — הוא נמצא בנקודת אמת פנימית יותר. הוא באמת בוחר. מה שמקיים — הוא מבחירה. אמיתי וכנה.</p>
+        <p style="margin-top: 12px; font-weight: 700; color: var(--navy);">עדיף אמת צולעת משקר מושלם.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── VIDEO ─── -->
+  <section class="video-section">
+    <div class="video-container">
+      <h2 class="video-title">ראה מה אנחנו עושים בסדנה</h2>
+      <p class="video-subtitle">צפה בסרטון הבא כדי להבין יותר לעומק</p>
+      <!-- להחליף את ה-placeholder בקוד הטמעת סרטון כשיהיה מוכן -->
+      <div class="video-placeholder">
+        <div class="play-icon"></div>
+        <p class="video-placeholder-text">הסרטון יוטמע כאן</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── CTA ─── -->
+  <section class="cta-section">
+    <div class="cta-inner">
+      <span class="cta-badge">ההרשמה פתוחה עכשיו</span>
+      <h2 class="cta-title">רוחניות בכלי הנפש</h2>
+      <p class="cta-subtitle">סדנה לגברים חרדים שרוצים להפסיק להילחם בעצמם</p>
+
+      <div class="details-grid">
+        <div class="detail-item">
+          <span class="detail-icon">🎯</span>
+          <div class="detail-label">מפגשים</div>
+          <div class="detail-value">4 מפגשי זום</div>
+        </div>
+        <div class="detail-item">
+          <span class="detail-icon">👥</span>
+          <div class="detail-label">קבוצה</div>
+          <div class="detail-value">קטנה ואישית</div>
+        </div>
+        <div class="detail-item">
+          <span class="detail-icon">💎</span>
+          <div class="detail-label">מחיר</div>
+          <div class="detail-value">400₪ בלבד</div>
+        </div>
+      </div>
+
+      <div class="price-display">
+        <div class="price-amount"><span class="price-currency">₪</span>400</div>
+        <div class="price-label">השקעה מלאה לכל 4 המפגשים</div>
+      </div>
+
+      <a
+        href="https://wa.me/972546608848?text=%D7%A9%D7%9C%D7%95%D7%9D%2C%20%D7%90%D7%A0%D7%99%20%D7%A8%D7%95%D7%A6%D7%94%20%D7%9C%D7%A9%D7%9E%D7%95%D7%A2%20%D7%99%D7%95%D7%AA%D7%A8%20%D7%A2%D7%9C%20%D7%94%D7%A1%D7%93%D7%A0%D7%94"
+        class="cta-btn"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <svg class="wa-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+        </svg>
+        דברו איתי בוואטסאפ
+      </a>
+
+      <p class="cta-disclaimer">ללא התחייבות · שיחה ראשונה בחינם</p>
+    </div>
+  </section>
+
+  <!-- ─── CLOSING QUOTE ─── -->
+  <section class="closing-section">
+    <div class="closing-quote">
+      <p>אם קראת את זה והרגשת —<br />
+      שסוף סוף מישהו אומר בקול<br />
+      את מה שאתה מסתיר שנים —<br /><br />
+      <span class="gold-text">כנראה הגעת למקום הנכון.</span></p>
+    </div>
+  </section>
+
+  <!-- ─── FOOTER ─── -->
+  <footer>
+    <p class="footer-logo">נקודת מפנה</p>
+    <p>© 2025 כל הזכויות שמורות</p>
+  </footer>
+
+</body>
+</html>
