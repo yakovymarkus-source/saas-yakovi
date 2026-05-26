@@ -287,7 +287,8 @@ export function Chat() {
         }
       } else {
         // Handle regular JSON response
-        const data = await response.json()
+        const raw = await response.json()
+        const data = raw.data ?? raw
         const assistantMsg: Message = {
           id: assistantMsgId,
           role: 'assistant',

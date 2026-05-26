@@ -15,7 +15,7 @@ async function requireAuth(event, functionName, context) {
     throw new AppError({ code: 'UNAUTHORIZED', userMessage: 'חסר token', devMessage: 'Missing bearer token', status: 401 });
   }
   const user = await getUserFromToken(token);
-  await consumeRateLimit({ userId: user.id, ip: context.ip, functionName });
+  await consumeRateLimit({ userId: user.id, ip: context?.ip, functionName });
   return user;
 }
 

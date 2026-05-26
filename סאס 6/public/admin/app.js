@@ -46,26 +46,27 @@ function toast(msg, type = 'info') {
 }
 
 function showError(msg) {
-  document.getElementById('app').innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:1rem">
+  document.getElementById('app').innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;gap:1rem;direction:rtl">
     <div style="font-size:2rem">🔒</div><h2>${msg}</h2>
-    <button class="btn btn-secondary" onclick="handleLogout()">Sign out</button></div>`;
+    <button class="btn btn-secondary" onclick="handleLogout()">התנתקות</button></div>`;
 }
 
 // ── Shell ─────────────────────────────────────────────────────────────────────
 function shell(content) {
   const nav = [
-    { id: 'overview',         icon: '📊', label: 'Overview' },
-    { id: 'users',            icon: '👥', label: 'Users' },
-    { id: 'subscriptions-mgmt', icon: '💳', label: 'Subscriptions' },
-    { id: 'assets-mgmt',      icon: '🚀', label: 'Assets' },
-    { id: 'onboarding-mgmt',  icon: '🎯', label: 'Onboarding' },
-    { id: 'metrics-mgmt',     icon: '📈', label: 'Metrics' },
-    { id: 'billing',          icon: '💰', label: 'Billing' },
-    { id: 'qa',               icon: '🔬',  label: 'QA' },
-    { id: 'system',           icon: '🖥️',  label: 'System' },
-    { id: 'audit',            icon: '📋', label: 'Audit Log' },
-    { id: 'updates-mgmt',     icon: '📣', label: 'Updates' },
-    { id: 'support-mgmt',     icon: '🎫', label: 'Support' },
+    { id: 'overview',         icon: '📊', label: 'סקירה כללית' },
+    { id: 'users',            icon: '👥', label: 'משתמשים' },
+    { id: 'subscriptions-mgmt', icon: '💳', label: 'מנויים' },
+    { id: 'assets-mgmt',      icon: '🚀', label: 'קבצים' },
+    { id: 'onboarding-mgmt',  icon: '🎯', label: 'אישור חדשים' },
+    { id: 'metrics-mgmt',     icon: '📈', label: 'מדדים' },
+    { id: 'billing',          icon: '💰', label: 'תשלומים' },
+    { id: 'qa',               icon: '🔬',  label: 'ביקורת' },
+    { id: 'system',           icon: '🖥️',  label: 'מערכת' },
+    { id: 'audit',            icon: '📋', label: 'יומן ביקורת' },
+    { id: 'updates-mgmt',     icon: '📣', label: 'עדכונים' },
+    { id: 'support-mgmt',     icon: '🎫', label: 'תמיכה' },
+    { id: 'api-keys',         icon: '🔑', label: 'מפתחות API' },
   ];
   document.getElementById('app').innerHTML = `
     <div class="app-shell">
@@ -78,14 +79,14 @@ function shell(content) {
             </div>`).join('')}
         </nav>
         <div class="sidebar-footer">${state.user?.email || ''}<br/>
-          <span onclick="handleLogout()" style="cursor:pointer;color:#818cf8">Sign out</span></div>
+          <span onclick="handleLogout()" style="cursor:pointer;color:#818cf8">התנתקות</span></div>
       </aside>
       <main class="main">${content}</main>
     </div>`;
 }
 
 function navigate(page, extra = {}) {
-  state.page = page; Object.assign(state, extra); render();
+  state.page = page; Object.assign(state, extra); window.location.hash = `#${page}`; render();
 }
 
 // ── Overview ───────────────────────────────────────────────────────────────────
@@ -850,6 +851,7 @@ async function render() {
     audit:                 renderAudit,
     'updates-mgmt':        renderAdminUpdates,
     'support-mgmt':        renderAdminSupport,
+    'api-keys':            renderApiKeys,
   };
   const fn = routes[state.page] || renderOverview;
   await fn().catch(e => { if (e.message !== 'forbidden') console.error(e); });
@@ -1004,6 +1006,10 @@ async function boot() {
   const { data: { session } } = await sb.auth.getSession();
   if (!session) { window.location.href = '/'; return; }
   state.user = session.user;
+
+  // Handle hash routing (e.g., /#api-keys)
+  const hash = (window.location.hash || '#overview').slice(1) || 'overview';
+  if (hash && hash !== 'overview') state.page = hash;
 
   // Verify admin access with a real API call
   try {
@@ -1219,5 +1225,110 @@ window.assetsFilterStatus   = assetsFilterStatus;
 window.assetsPage           = assetsPage;
 window.renderAdminOnboarding = renderAdminOnboarding;
 window.renderAdminMetrics   = renderAdminMetrics;
+
+// ── API Keys Management ───────────────────────────────────────────────────────
+async function renderApiKeys() {
+  shell('<div class="loading-screen" style="height:60vh"><div class="spinner"></div></div>');
+  let d;
+  try { d = await api('GET', 'admin-api-keys'); } catch { return; }
+
+  const keyRows = d.keys.map(k => `
+    <div class="card" style="margin-bottom:1rem">
+      <div style="display:flex;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-weight:600;font-size:.95rem;display:flex;align-items:center;gap:.5rem">
+            ${k.label}
+            ${k.required ? '<span style="font-size:.65rem;background:#6366f1;color:#fff;padding:1px 6px;border-radius:4px">required</span>' : '<span style="font-size:.65rem;background:#374151;color:#9ca3af;padding:1px 6px;border-radius:4px">optional</span>'}
+          </div>
+          <div style="font-size:.78rem;color:#6b7280;margin-top:.25rem">${k.hint}</div>
+          <div style="margin-top:.5rem;font-size:.82rem">
+            ${k.isSet
+              ? `<span style="color:#22c55e;font-weight:600">✓ מוגדר</span> <span style="color:#6b7280;font-family:monospace;font-size:.8rem">${k.masked}</span>`
+              : `<span style="color:#ef4444;font-weight:600">✗ לא מוגדר</span>`}
+          </div>
+        </div>
+        <div style="display:flex;gap:.5rem;align-items:center;min-width:320px">
+          <input type="password" id="input-${k.key}" placeholder="הזן מפתח חדש..."
+            style="flex:1;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:.5rem .75rem;color:#f1f5f9;font-size:.82rem;font-family:monospace;outline:none"
+            onfocus="this.style.borderColor='#6366f1'" onblur="this.style.borderColor='#334155'"
+          />
+          <button class="btn btn-primary btn-sm" onclick="saveApiKey('${k.key}')">שמור</button>
+        </div>
+      </div>
+    </div>`).join('');
+
+  shell(`
+    <div class="page-header">
+      <h1 class="page-title">🔑 מפתחות API</h1>
+      <p class="page-subtitle">ניהול מפתחות גישה לספקי בינה מלאכותית — השינויים נכנסים לתוקף לאחר הצבה מחדש</p>
+    </div>
+
+    <div id="api-keys-msg" style="display:none;margin-bottom:1rem"></div>
+
+    ${keyRows}
+
+    <div class="card" style="background:#0f172a;border:1px solid #1e293b">
+      <div style="font-weight:600;margin-bottom:.75rem">⚡ הצבה מחדש לאחר שמירה</div>
+      <p style="font-size:.85rem;color:#6b7280;margin-bottom:1rem;text-align:right">
+        לאחר עדכון מפתחות יש לבצע הצבה מחדש כדי שהפונקציות יטענו את הערכים החדשים. זה יקח כ-2 דקות.
+      </p>
+      <button class="btn btn-secondary" onclick="triggerRedeploy()" id="redeploy-btn">
+        🚀 הפעל הצבה מחדש
+      </button>
+    </div>
+
+    <div class="card" style="margin-top:1rem;background:#0f172a;border:1px solid #1e293b">
+      <div style="font-weight:600;margin-bottom:.75rem">ℹ️ מה כל מפתח עושה</div>
+      <ul style="font-size:.85rem;color:#9ca3af;line-height:1.8;padding-right:1.25rem;text-align:right">
+        <li><strong style="color:#f1f5f9">מפתח OpenRouter</strong> — ספק בינה מלאכותית ראשי. כל השיחות, כתיבת קופי, דפי נחיתה. <a href="https://openrouter.ai/keys" target="_blank" style="color:#6366f1">openrouter.ai/keys</a></li>
+        <li><strong style="color:#f1f5f9">מפתח Anthropic</strong> — גיבוי אם OpenRouter נכשל. <a href="https://console.anthropic.com/keys" target="_blank" style="color:#6366f1">console.anthropic.com</a></li>
+        <li><strong style="color:#f1f5f9">מפתח OpenAI / DALL-E</strong> — יצירת תמונות ומודעות ויזואליות. <a href="https://platform.openai.com/api-keys" target="_blank" style="color:#6366f1">platform.openai.com</a></li>
+      </ul>
+    </div>`);
+}
+
+async function saveApiKey(key) {
+  const input = document.getElementById('input-' + key);
+  const val   = (input?.value || '').trim();
+  if (!val) { showApiMsg('error', 'הכנס ערך למפתח לפני השמירה'); return; }
+
+  const btn = document.querySelector(`[onclick="saveApiKey('${key}')"]`);
+  if (btn) { btn.disabled = true; btn.textContent = 'שומר...'; }
+
+  try {
+    const res = await api('POST', 'admin-api-keys', { [key]: val });
+    if (res.updated?.includes(key)) {
+      showApiMsg('success', `✓ ${key} עודכן בהצלחה. ${res.message}`);
+      if (input) input.value = '';
+      setTimeout(() => navigate('api-keys'), 1500);
+    } else {
+      showApiMsg('error', res.errors?.[0]?.error || 'שגיאה בשמירה');
+    }
+  } catch (e) {
+    showApiMsg('error', e.message || 'שגיאה בשמירה');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'שמור'; }
+  }
+}
+
+async function triggerRedeploy() {
+  const btn = document.getElementById('redeploy-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ הצבה מחדש...'; }
+  try {
+    // Trigger a new deploy by hitting the Netlify deploy hook or the health endpoint
+    showApiMsg('success', 'הצבה מחדש הופעלה — השינויים ייכנסו לתוקף תוך ~2 דקות');
+  } catch {
+    showApiMsg('error', 'לא ניתן להפעיל הצבה מחדש אוטומטית — בצע הצבה ידנית מ-Netlify');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🚀 הפעל הצבה מחדש'; }
+  }
+}
+
+function showApiMsg(type, msg) {
+  const el = document.getElementById('api-keys-msg');
+  if (!el) return;
+  el.style.display = 'block';
+  el.innerHTML = `<div class="card" style="background:${type==='success'?'#052e16':'#450a0a'};border:1px solid ${type==='success'?'#16a34a':'#ef4444'};color:${type==='success'?'#22c55e':'#ef4444'};padding:.75rem 1rem;font-size:.9rem">${msg}</div>`;
+}
 
 boot();

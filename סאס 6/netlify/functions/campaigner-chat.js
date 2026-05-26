@@ -81,7 +81,7 @@ const INTENT_PATTERNS = [
   { intent: 'top_ads',       patterns: /(מודעות הכי|הכי טובות|מודעה הטובה|המודעה המובילה|top ads|\bbest ads\b|מודעות מובילות|ניצחון קמפיין|מה המודעה הטובה|איזו מודעה עובדת|בדקת מודעות|מודעה הכי טובה|מודעות מנצחות|לראות את המודעות הטובות|איזה יוצר עובד|מודעות מומלצות)/i },
   { intent: 'tracking',      patterns: /(טראקינג|מעקב המרות|פיקסל|pixel|tracking|audit|מעקב|pixel meta|pixel גוגל|מעקב המרה|מה זה tracked|בדוק track|לא עובד מעקב|טראק|המרות|מעקב היכולות|אתביעות מעקב|מה קורה לי בטראק)/i },
   { intent: 'recs',          patterns: /(המלצ|מה לעש|תן לי עצה|recommend|suggest|what should|מה הצעתך|דעה שלך|מה אתה חושב|הנחני|בואו נעשה|זה טוב לעשות|איך יום אלה|הנה הדעה שלי|יש לך הצעה|מה אתה מציע|תעיר לי|תגיד לי מה לעשות|עזור לי|חשוב שלך)/i },
-  { intent: 'trends',        patterns: /(טרנד|מגמה|ירידה בביצועים|עלייה בביצועים|היסטוריה|לאורך זמן|שינוי בביצועים|trend|progress over|טרנדים|מה קורה בזמן|היסטוריה של|לאורך הקמפיין|כלכלי זמן|שינויים בביצועים|ביצועים בזמן|טרנד ירידה|טרנד עלייה|עלה עלה|ירד)|ביצועי לאורך הזמן)/i },
+  { intent: 'trends',        patterns: /(טרנד|מגמה|ירידה בביצועים|עלייה בביצועים|היסטוריה|לאורך זמן|שינוי בביצועים|trend|progress over|טרנדים|מה קורה בזמן|היסטוריה של|לאורך הקמפיין|כלכלי זמן|שינויים בביצועים|ביצועים בזמן|טרנד ירידה|טרנד עלייה|עלה עלה|ירד|ביצועי לאורך הזמן)/i },
   { intent: 'overview',      patterns: /(ביצועי|ביצועים|סקירה כללית|סטטוס קמפיין|סטטוס|כמה הביצועים|איך זה עובד|מצב הקמפיין|overview|how am i doing|כמה אני עושה|איך זה הולך|ביצועים כלליים|סיכום|סקירה|מה הסטטוס|מצב העניינים|ביצועי הקמפיין|תסכם לי)/i },
   { intent: 'integrations',  patterns: /(חיבור מערכת|חיבור גוגל|חיבור מטא|integration|ga4|connected|חיבור|מתחברת|מחברים|חברתי|google analytics|meta pixel|facebook|instagram|טיקטוק|חברת אתי|חיבור חדש|לא מחובר|בדוק את החיבור|חברתים|צריך להחברת|איך מחברים|נתחבר)/i },
   // ── Business profile (broad terms last to avoid false matches) ──────────────
@@ -937,9 +937,11 @@ async function generateCopyResponse(context) {
 // ── Visual ad generator — returns pendingVisual so frontend fires the long DALL-E
 // request in a separate call (avoids hitting Netlify's 26s function timeout).
 async function generateCreativeResponse(context) {
-  const { businessProfile, profileName, message } = context;
+  const { businessProfile, profileName, message, userId } = context;
+  console.log(`[campaigner-chat.creative] START: userId=${userId}, message="${message.slice(0,50)}..."`);
 
   if (!businessProfile?.offer) {
+    console.log(`[campaigner-chat.creative] No business profile offer found`);
     return {
       reply: `🎨 כדי לייצר מודעה ויזואלית אני צריך קודם להכיר את העסק שלך.\n\n` +
              `ספר לי: **מה אתה מוכר, למי, ומה התוצאה שהלקוח מקבל?**`,
@@ -949,8 +951,10 @@ async function generateCreativeResponse(context) {
 
   // ── Detect platform from user's message ──────────────────────────────────
   const platform = detectPlatform(message);
+  console.log(`[campaigner-chat.creative] Detected platform: ${platform}`);
 
   if (!platform) {
+    console.log(`[campaigner-chat.creative] No platform detected, asking user`);
     const platformSizes = {
       facebook:  '1792×1024 (Landscape)',
       instagram: '1080×1080 (Square)',
@@ -972,17 +976,22 @@ async function generateCreativeResponse(context) {
   const PLATFORM_LABEL = { facebook: 'פייסבוק', instagram: 'אינסטגרם', tiktok: 'טיקטוק', google: 'גוגל' };
   const pLabel = PLATFORM_LABEL[platform] || platform;
 
+  const adType = detectAdType(message);
+  const pendingVisual = {
+    platform,
+    type:     adType,
+    offer:    businessProfile.offer,
+    audience: businessProfile.target_audience || '',
+    deal:     businessProfile.unique_offer    || '',
+    brand:    businessProfile.business_name   || '',
+  };
+
+  console.log(`[campaigner-chat.creative] Returning pendingVisual: ${JSON.stringify(pendingVisual)}`);
+
   return {
     reply: `🎨 **מייצר מודעה ל${pLabel}...**\n\n_ה-AI עובד על התמונה — זה עשוי לקחת עד 20 שניות_`,
     quickActions: [],
-    pendingVisual: {
-      platform,
-      type:     detectAdType(message),
-      offer:    businessProfile.offer,
-      audience: businessProfile.target_audience || '',
-      deal:     businessProfile.unique_offer    || '',
-      brand:    businessProfile.business_name   || '',
-    },
+    pendingVisual,
   };
 }
 

@@ -1,5 +1,5 @@
 [build]
-  command = "printf 'VITE_SUPABASE_URL=%s\\nVITE_SUPABASE_ANON_KEY=%s\\n' \"$SUPABASE_URL\" \"$SUPABASE_ANON_KEY\" > frontend/.env && cd frontend && npm install && npm run build && cd .. && node scripts/inject-env.js && cp -r public/admin dist/admin && cp -r public/legal dist/legal && cp public/assets/avatar-female.svg public/assets/avatar-male.svg public/assets/tracker.js dist/assets/"
+  command = "printf 'VITE_SUPABASE_URL=%s\\nVITE_SUPABASE_ANON_KEY=%s\\n' \"$SUPABASE_URL\" \"$SUPABASE_ANON_KEY\" > frontend/.env && cd frontend && npm install && npm run build && cd .. && node scripts/inject-env.js && cp -f public/admin/app.js public/admin/app.css public/admin/index.html dist/admin/ && cp -r public/legal dist/legal && cp public/assets/avatar-female.svg public/assets/avatar-male.svg public/assets/tracker.js dist/assets/"
   publish = "dist"
 
 [build.environment]
@@ -93,6 +93,9 @@
 # Scheduled functions
 [functions."trigger-pending-jobs"]
   schedule = "*/5 * * * *"
+
+[functions."admin-api-keys"]
+  timeout = 15
 
 [functions."human-agent-chat"]
   timeout = 26
